@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "name": "Test Sync Hook",
+  "description": "Listens to Python source files and triggers test updates when code changes are detected",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.py",
+      "app.py",
+      "apps/**/*.py",
+      "aw_some_builder2/**/*.py",
+      "agents/**/*.py"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code has been modified. Please analyze the changes and update the corresponding unit tests. If there are existing test files, modify them to reflect the code changes. If no test files exist, create appropriate test files following pytest conventions. Focus on testing the modified functionality, edge cases, and maintaining good test coverage. For CDK infrastructure code, include tests for resource creation and configuration. For API code, test endpoints and business logic. Ensure all tests follow healthcare compliance requirements where applicable."
+  }
+}

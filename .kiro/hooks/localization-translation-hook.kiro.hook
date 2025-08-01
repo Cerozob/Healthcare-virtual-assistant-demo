@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "name": "Auto Translation Generator",
+  "description": "Monitors changes to localization files containing user-facing text and automatically generates translations for English-UK, Spanish-LATAM, and Brazilian Portuguese when new or modified content is detected",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.json",
+      "**/*localization*.yaml",
+      "**/*locale*.yaml",
+      "**/*i18n*.json",
+      "**/*translations*.json",
+      "**/locales/**/*.json",
+      "**/i18n/**/*.json",
+      "**/lang/**/*.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A localization file has been modified. Please analyze the changes and identify any new or modified text content that requires translation. Generate accurate translations for the following target languages while maintaining proper context and medical terminology accuracy:\n\n1. English (UK) - en-GB\n2. Spanish (Latin America) - es-LATAM  \n3. Brazilian Portuguese - pt-BR\n\nFor each new or modified text entry:\n- Preserve any placeholder variables, formatting codes, or special characters\n- Maintain appropriate medical terminology and healthcare context\n- Follow locale-specific conventions (date formats, number formats, cultural preferences)\n- Ensure translations are appropriate for healthcare professionals and patients\n- Consider HIPAA compliance requirements in language choices\n\nOutput the translations in the same JSON/YAML structure as the source file, clearly indicating which entries are new or modified."
+  }
+}

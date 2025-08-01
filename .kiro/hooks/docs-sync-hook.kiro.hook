@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Listens to Python source files, CDK infrastructure code, and configuration files to automatically update project documentation in README.md and docs folder when changes occur",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.py",
+      "apps/**/*.py",
+      "aw_some_builder2/**/*.py",
+      "agents/**/*.py",
+      "requirements.txt",
+      "requirements-dev.txt",
+      "cdk.json",
+      "docs/notes_spec.md"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code or configuration files have been modified in this Python/CDK healthcare project. Please review the changes and update the documentation accordingly:\n\n1. Update README.md with any new features, setup instructions, or usage changes\n2. Update relevant documentation in the /docs folder (but DO NOT modify architecture diagrams like AWSomeBuilder2*.drawio, *.pdf, or *.png files)\n3. Ensure documentation reflects current project structure, dependencies, and functionality\n4. Update any API documentation or technical specifications as needed\n5. Keep healthcare compliance and security considerations in mind when documenting\n\nFocus on keeping documentation current with the codebase while preserving architectural diagrams for human expert review."
+  }
+}
