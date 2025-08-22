@@ -1,0 +1,15 @@
+{
+    "mandatory_tags": {
+        "Project": "AWSomeBuilder 2",
+        "Environment": "prod",
+        "Owner": "AnyHealthCare Colombia",
+        "TechArea": "infrastructure",
+        "CreatedBy": "CDK-Deployment",
+        "HIPAACompliant": "false"
+    },
+    "optional_tags": {
+        "BackupRequired": "true",
+        "MonitoringLevel": "enhanced",
+        "LogRetentionDays": "7"
+    }
+}

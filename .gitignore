@@ -202,3 +202,29 @@ thumb
 sketch
 
 # End of https://www.toptal.com/developers/gitignore/api/python,react
+# Project specific
+*.DS_Store
+.DS_Store
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# Local environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+Thumbs.db
+
+.kiro*

@@ -1,0 +1,20 @@
+"""
+Backend Stack for Healthcare Workflow System.
+"""
+
+from aws_cdk import Stack
+from constructs import Construct
+
+# this contains the whole backend, the api gateway, lambdas and the autora database
+
+
+class BackendStack(Stack):
+    """
+    Stack for core backend API and Lambda functions.
+    """
+
+    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+        super().__init__(scope, construct_id, **kwargs)
+
+        # TODO: Implement backend API functionality
+        pass

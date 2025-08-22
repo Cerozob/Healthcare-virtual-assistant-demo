@@ -1,0 +1,1 @@
+# Shared code between applications
