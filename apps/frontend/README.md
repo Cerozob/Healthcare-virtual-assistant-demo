@@ -1,6 +1,6 @@
 # Frontend Application
 
-React TypeScript web application for AWSomeBuilder 2.
+React TypeScript web application for AWSomeBuilder.
 
 ## Structure
 

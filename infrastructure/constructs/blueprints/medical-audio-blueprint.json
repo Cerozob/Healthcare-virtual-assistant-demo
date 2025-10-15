@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "class": "Medical Audio Analysis",
+  "description": "A comprehensive analysis blueprint for medical audio recordings including consultations, dictations, patient interviews, and medical education content to extract clinical information and insights.",
+  "type": "object",
+  "definitions": {},
+  "properties": {
+    "transcript_summary": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Generate a concise summary of the medical audio recording, focusing on the main clinical topics and key findings. Ensure accuracy by summarizing only what is explicitly discussed, without adding details not present in the conversation. Keep the response within 100 words."
+    },
+    "audio_category": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "The category of the medical audio. Choose from: consultation, dictation, patient interview, medical education, surgical procedure audio, other."
+    },
+    "chief_complaint": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What is the patient's chief complaint or reason for visit as mentioned in the audio?"
+    },
+    "diagnosis_mentioned": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Any medical diagnoses or assessments mentioned in the audio recording"
+    },
+    "medications_discussed": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "List of medications mentioned in the audio with dosages if specified"
+    },
+    "treatment_plan": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Treatment plan and recommendations discussed in the audio"
+    },
+    "symptoms_mentioned": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Patient symptoms discussed during the recording"
+    },
+    "physical_exam_findings": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Physical examination findings mentioned in the audio"
+    },
+    "follow_up_instructions": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Follow-up instructions or next steps mentioned for the patient"
+    },
+    "medical_terminology": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Key medical terms and terminology used in the audio recording"
+    },
+    "audio_quality_assessment": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Assessment of audio quality for medical transcription purposes (excellent, good, fair, poor)"
+    },
+    "language_spoken": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Primary language spoken in the audio recording"
+    }
+  }
+}

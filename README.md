@@ -1,5 +1,5 @@
 
-# Medical AI System - AWSomeBuilder 2
+# Medical AI System - AWSomeBuilder
 
 An AI-powered healthcare solution designed for AnyCompany to modernize patient data management and medical workflow automation.
 
@@ -167,7 +167,7 @@ cdk watch
   - Security and compliance configurations
 
 - `config/tags.json`: Mandatory resource tags for compliance and cost management:
-  - **Mandatory tags**: Project ("AWSomeBuilder 2"), Environment ("prod"), Owner ("AnyCompany HealthCare"), TechArea (component-specific like "frontend", "api", "genai", "documentprocessing"), CreatedBy ("CDK-Deployment"), HIPAACompliant ("false", will be changed to "true" when compliance is achieved)
+  - **Mandatory tags**: Project ("AWSomeBuilder"), Environment ("prod"), Owner ("AnyCompany HealthCare"), TechArea (component-specific like "frontend", "api", "genai", "documentprocessing"), CreatedBy ("CDK-Deployment"), HIPAACompliant ("false", will be changed to "true" when compliance is achieved)
   - **Optional tags**: BackupRequired, MonitoringLevel, LogRetentionDays
 
 ### CDK Configuration

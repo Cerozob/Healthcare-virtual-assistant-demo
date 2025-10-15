@@ -1,0 +1,14 @@
+{
+  "name": "healthcare-shared-utils",
+  "version": "1.0.0",
+  "description": "Shared utilities for healthcare Lambda functions",
+  "main": "ssm-utils.ts",
+  "dependencies": {
+    "aws-sdk": "^2.1691.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

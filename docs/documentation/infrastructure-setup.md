@@ -2,13 +2,13 @@
 
 ## Overview
 
-AWSomeBuilder 2 uses AWS CDK (Cloud Development Kit) with Python for Infrastructure as Code. This document outlines the current infrastructure setup and deployment process.
+AWSomeBuilder uses AWS CDK (Cloud Development Kit) with Python for Infrastructure as Code. This document outlines the current infrastructure setup and deployment process.
 
 ## Current Infrastructure Components
 
 ### Base Infrastructure Stack
 
-The `infrastructure/stacks/base_stack.py` provides the foundation for AWSomeBuilder 2:
+The `infrastructure/stacks/base_stack.py` provides the foundation for AWSomeBuilder:
 
 - **Purpose**: Core networking, shared IAM roles, and foundational resources
 - **Status**: ✅ **Complete implementation** with full VPC, security, and IAM setup
@@ -22,7 +22,7 @@ The `infrastructure/stacks/base_stack.py` provides the foundation for AWSomeBuil
 
 ### Data Storage Stack
 
-The `infrastructure/stacks/data_storage_stack.py` provides comprehensive data storage for AWSomeBuilder 2:
+The `infrastructure/stacks/data_storage_stack.py` provides comprehensive data storage for AWSomeBuilder:
 
 - **Purpose**: S3 buckets and Aurora PostgreSQL for medical data storage
 - **Status**: ✅ **Complete implementation** with full data layer setup
@@ -94,7 +94,7 @@ The project includes production-ready CDK constructs with built-in security and 
 
 - **MandatoryTaggingAspect** (`infrastructure/constructs/aspects/tagging_aspect.py`):
   - Automatic application of compliance tags to all AWS resources
-  - Project identification (AWSomeBuilder 2) and environment tracking (prod)
+  - Project identification (AWSomeBuilder) and environment tracking (prod)
   - Ownership tracking (AnyCompany HealthCare) and technical area classification
   - HIPAA compliance status tracking (initially false, updated when compliance is achieved)
   - Configurable through `config/tags.json`
@@ -165,7 +165,7 @@ The system uses `config/prod_config.json` for environment-specific settings:
 
 All AWS resources are automatically tagged using `config/tags.json`:
 
-- **Project**: AWSomeBuilder 2
+- **Project**: AWSomeBuilder
 - **Environment**: prod
 - **Owner**: AnyCompany HealthCare
 - **TechArea**: Component-specific (frontend, api, genai, documentprocessing, etc.)
@@ -219,7 +219,7 @@ For detailed information about the suppression approach and compliance transitio
 
 Every AWS resource receives compliance tags automatically:
 
-- Project identification (AWSomeBuilder 2)
+- Project identification (AWSomeBuilder)
 - Environment classification (prod)
 - Ownership tracking (AnyCompany HealthCare)
 - Technical area classification (frontend, api, genai, documentprocessing, etc.)

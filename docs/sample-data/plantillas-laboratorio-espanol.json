@@ -1,0 +1,255 @@
+{
+  "plantillas_laboratorio": [
+    {
+      "nombre_examen": "Hemograma Completo",
+      "categoria": "hematología",
+      "tiempo_procesamiento": "2-4 horas",
+      "parametros": [
+        {
+          "nombre": "Leucocitos",
+          "unidad": "K/uL",
+          "valor_referencia": "4.0-11.0",
+          "descripción": "Glóbulos blancos totales"
+        },
+        {
+          "nombre": "Eritrocitos",
+          "unidad": "M/uL",
+          "valor_referencia": "4.2-5.4 (H), 3.8-5.0 (M)",
+          "descripción": "Glóbulos rojos"
+        },
+        {
+          "nombre": "Hemoglobina",
+          "unidad": "g/dL",
+          "valor_referencia": "14.0-18.0 (H), 12.0-16.0 (M)",
+          "descripción": "Proteína transportadora de oxígeno"
+        },
+        {
+          "nombre": "Hematocrito",
+          "unidad": "%",
+          "valor_referencia": "42-52 (H), 36-46 (M)",
+          "descripción": "Porcentaje de glóbulos rojos en sangre"
+        },
+        {
+          "nombre": "Plaquetas",
+          "unidad": "K/uL",
+          "valor_referencia": "150-450",
+          "descripción": "Células de coagulación"
+        }
+      ]
+    },
+    {
+      "nombre_examen": "Panel Metabólico Básico",
+      "categoria": "química clínica",
+      "tiempo_procesamiento": "1-2 horas",
+      "parametros": [
+        {
+          "nombre": "Glucosa",
+          "unidad": "mg/dL",
+          "valor_referencia": "70-100 (ayuno)",
+          "descripción": "Azúcar en sangre"
+        },
+        {
+          "nombre": "Nitrógeno Ureico (BUN)",
+          "unidad": "mg/dL",
+          "valor_referencia": "7-20",
+          "descripción": "Producto de desecho renal"
+        },
+        {
+          "nombre": "Creatinina",
+          "unidad": "mg/dL",
+          "valor_referencia": "0.6-1.2",
+          "descripción": "Marcador de función renal"
+        },
+        {
+          "nombre": "Sodio",
+          "unidad": "mEq/L",
+          "valor_referencia": "136-145",
+          "descripción": "Electrolito principal"
+        },
+        {
+          "nombre": "Potasio",
+          "unidad": "mEq/L",
+          "valor_referencia": "3.5-5.0",
+          "descripción": "Electrolito intracelular"
+        },
+        {
+          "nombre": "Cloro",
+          "unidad": "mEq/L",
+          "valor_referencia": "98-107",
+          "descripción": "Electrolito extracelular"
+        }
+      ]
+    },
+    {
+      "nombre_examen": "Enzimas Cardíacas",
+      "categoria": "cardiología",
+      "tiempo_procesamiento": "1-3 horas",
+      "parametros": [
+        {
+          "nombre": "Troponina I",
+          "unidad": "ng/mL",
+          "valor_referencia": "<0.04",
+          "descripción": "Marcador específico de daño miocárdico"
+        },
+        {
+          "nombre": "CK-MB",
+          "unidad": "ng/mL",
+          "valor_referencia": "0.0-6.3",
+          "descripción": "Isoenzima cardíaca de creatinkinasa"
+        },
+        {
+          "nombre": "CK Total",
+          "unidad": "U/L",
+          "valor_referencia": "30-200 (H), 25-175 (M)",
+          "descripción": "Creatinkinasa total"
+        },
+        {
+          "nombre": "Mioglobina",
+          "unidad": "ng/mL",
+          "valor_referencia": "25-72 (H), 25-58 (M)",
+          "descripción": "Proteína muscular temprana"
+        }
+      ]
+    },
+    {
+      "nombre_examen": "Perfil Lipídico",
+      "categoria": "química clínica",
+      "tiempo_procesamiento": "2-4 horas",
+      "parametros": [
+        {
+          "nombre": "Colesterol Total",
+          "unidad": "mg/dL",
+          "valor_referencia": "<200 (deseable)",
+          "descripción": "Colesterol sérico total"
+        },
+        {
+          "nombre": "HDL Colesterol",
+          "unidad": "mg/dL",
+          "valor_referencia": ">40 (H), >50 (M)",
+          "descripción": "Colesterol de alta densidad (bueno)"
+        },
+        {
+          "nombre": "LDL Colesterol",
+          "unidad": "mg/dL",
+          "valor_referencia": "<100 (óptimo)",
+          "descripción": "Colesterol de baja densidad (malo)"
+        },
+        {
+          "nombre": "Triglicéridos",
+          "unidad": "mg/dL",
+          "valor_referencia": "<150",
+          "descripción": "Grasas en sangre"
+        }
+      ]
+    },
+    {
+      "nombre_examen": "Función Hepática",
+      "categoria": "química clínica",
+      "tiempo_procesamiento": "2-4 horas",
+      "parametros": [
+        {
+          "nombre": "ALT (SGPT)",
+          "unidad": "U/L",
+          "valor_referencia": "7-56",
+          "descripción": "Alanina aminotransferasa"
+        },
+        {
+          "nombre": "AST (SGOT)",
+          "unidad": "U/L",
+          "valor_referencia": "10-40",
+          "descripción": "Aspartato aminotransferasa"
+        },
+        {
+          "nombre": "Bilirrubina Total",
+          "unidad": "mg/dL",
+          "valor_referencia": "0.3-1.2",
+          "descripción": "Producto de degradación de hemoglobina"
+        },
+        {
+          "nombre": "Fosfatasa Alcalina",
+          "unidad": "U/L",
+          "valor_referencia": "44-147",
+          "descripción": "Enzima hepática y ósea"
+        },
+        {
+          "nombre": "Albúmina",
+          "unidad": "g/dL",
+          "valor_referencia": "3.5-5.0",
+          "descripción": "Proteína sintetizada por el hígado"
+        }
+      ]
+    },
+    {
+      "nombre_examen": "Uroanálisis Completo",
+      "categoria": "urología",
+      "tiempo_procesamiento": "1-2 horas",
+      "parametros": [
+        {
+          "nombre": "Color",
+          "unidad": "visual",
+          "valor_referencia": "amarillo pálido",
+          "descripción": "Apariencia visual de la orina"
+        },
+        {
+          "nombre": "Densidad",
+          "unidad": "específica",
+          "valor_referencia": "1.003-1.030",
+          "descripción": "Concentración de solutos"
+        },
+        {
+          "nombre": "pH",
+          "unidad": "unidades",
+          "valor_referencia": "4.6-8.0",
+          "descripción": "Acidez/alcalinidad"
+        },
+        {
+          "nombre": "Proteínas",
+          "unidad": "mg/dL",
+          "valor_referencia": "negativo",
+          "descripción": "Presencia de proteínas"
+        },
+        {
+          "nombre": "Glucosa",
+          "unidad": "mg/dL",
+          "valor_referencia": "negativo",
+          "descripción": "Azúcar en orina"
+        },
+        {
+          "nombre": "Leucocitos",
+          "unidad": "por campo",
+          "valor_referencia": "0-5",
+          "descripción": "Glóbulos blancos en orina"
+        },
+        {
+          "nombre": "Eritrocitos",
+          "unidad": "por campo",
+          "valor_referencia": "0-3",
+          "descripción": "Glóbulos rojos en orina"
+        }
+      ]
+    }
+  ],
+  "laboratorios_referencia": [
+    {
+      "nombre": "Laboratorio Central",
+      "director": "Dr. Pérez Morales",
+      "horario": "24 horas",
+      "telefono": "555-0100",
+      "especialidades": ["hematología", "química clínica", "microbiología"]
+    },
+    {
+      "nombre": "Laboratorio de Cardiología",
+      "director": "Dra. Sánchez Rivera",
+      "horario": "Lunes a Viernes 6:00-22:00",
+      "telefono": "555-0110",
+      "especialidades": ["enzimas cardíacas", "marcadores cardíacos"]
+    }
+  ],
+  "interpretacion_banderas": {
+    "A": "Alto - Por encima del rango de referencia",
+    "B": "Bajo - Por debajo del rango de referencia",
+    "AA": "Muy Alto - Significativamente elevado",
+    "BB": "Muy Bajo - Significativamente disminuido",
+    "": "Normal - Dentro del rango de referencia"
+  }
+}

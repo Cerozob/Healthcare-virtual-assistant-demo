@@ -1,15 +1,23 @@
-# Sample Data
+# Datos de Muestra
 
-Sample AnyCompany Healthcare records and AWS AI service responses used for development, testing, and demonstration of the AWSomeBuilder 2 healthcare AI system for AnyCompany Healthcare.
+Registros médicos de muestra y respuestas de servicios de IA de AWS utilizados para desarrollo, pruebas y demostración del sistema de IA médica para el cuidado de la salud.
 
-## Directory Structure
+## Estructura de Directorios
 
-### AnyCompany Healthcare Records (`/medical-records/`)
+### Registros Médicos (`/medical-records/`)
 
-Real AnyCompany Healthcare record samples in Spanish for testing document processing:
+Muestras reales de registros médicos en español para pruebas de procesamiento de documentos:
 
-- **`historiamedica.pdf`** - Standard AnyCompany Healthcare history document
-- **`CopiaHistoriaClinica.pdf`** - Password-protected copy of AnyCompany Healthcare record
+- **`historiamedica.pdf`** - Documento estándar de historia clínica
+- **`CopiaHistoriaClinica.pdf`** - Copia protegida con contraseña de registro médico
+
+### Plantillas y Protocolos en Español
+
+Nuevos archivos de datos de muestra en español:
+
+- **`protocolos-medicos-espanol.json`** - Protocolos médicos completos en español con especialidades, síntomas, exámenes y tratamientos
+- **`plantillas-laboratorio-espanol.json`** - Plantillas de resultados de laboratorio con terminología médica en español
+- **`proveedores-departamentos-espanol.json`** - Información de proveedores médicos y departamentos hospitalarios en español
 
 ### AWS AI Services (`/aws-services/`)
 
@@ -39,15 +47,24 @@ Sample outputs from various AWS AI services used in the AnyCompany Healthcare so
   - `rawText.txt` - Extracted plain text from AnyCompany Healthcare document
   - `rawText.csv` - Structured text extraction results
 
-## Purpose
+## Propósito
 
-These samples serve multiple purposes:
+Estas muestras sirven múltiples propósitos:
 
-1. **Development**: Understanding AWS AI service outputs and data structures
-2. **Testing**: Validating processing pipelines with real AnyCompany Healthcare data
-3. **Demonstration**: Showing capabilities to stakeholders
-4. **Integration**: Designing data models and API responses
+1. **Desarrollo**: Comprensión de salidas de servicios de IA de AWS y estructuras de datos
+2. **Pruebas**: Validación de pipelines de procesamiento con datos médicos reales
+3. **Demostración**: Mostrar capacidades a las partes interesadas
+4. **Integración**: Diseño de modelos de datos y respuestas de API
 
-## Data Privacy
+## Privacidad de Datos
 
-All sample AnyCompany Healthcare records are anonymized or use fictional patient data to comply with healthcare privacy regulations.
+Todos los registros médicos de muestra están anonimizados o utilizan datos ficticios de pacientes para cumplir con las regulaciones de privacidad en el cuidado de la salud.
+
+## Uso de las Plantillas en Español
+
+Las nuevas plantillas en español proporcionan:
+
+- **Terminología médica apropiada**: Términos médicos profesionales utilizados en América Latina
+- **Nombres latinoamericanos**: Nombres comunes de pacientes y proveedores médicos
+- **Protocolos médicos completos**: Guías de tratamiento con síntomas, exámenes y tratamientos en español
+- **Estructura de departamentos**: Organización hospitalaria típica con nombres en español

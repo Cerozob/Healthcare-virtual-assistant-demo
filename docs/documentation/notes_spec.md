@@ -20,4 +20,4 @@ AnyCompany needs help to: Build a conversational interface for the AI-powered ch
 
 ## Project components
 
-Here we describe the components of the AWSomeBuilder 2, including components present in the **solution** proposed to anycompany, as well as components created to simulate the current environment of anycompany such as databases, data stores, applications or similar
+Here we describe the components of the AWSomeBuilder, including components present in the **solution** proposed to anycompany, as well as components created to simulate the current environment of anycompany such as databases, data stores, applications or similar

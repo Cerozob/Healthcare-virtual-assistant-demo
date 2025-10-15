@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "class": "Medical Image Analysis",
+  "description": "A comprehensive analysis blueprint for medical imaging including X-rays, MRI, CT scans, ultrasounds, and other diagnostic images to extract clinical findings, measurements, and diagnostic insights.",
+  "type": "object",
+  "definitions": {},
+  "properties": {
+    "image_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What type of medical image is this? (X-ray, MRI, CT, ultrasound, etc.)"
+    },
+    "body_part": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What body part is being imaged?"
+    },
+    "anatomical_view": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What anatomical view or projection is shown? (AP, lateral, oblique, etc.)"
+    },
+    "findings": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What are the medical findings and observations from this image?"
+    },
+    "abnormalities": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "List any abnormalities or pathological findings detected in the image"
+    },
+    "measurements": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Any measurements taken from the image with values and units"
+    },
+    "patient_identifier": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any patient identifier visible on the image"
+    },
+    "image_date": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "When was this image taken? (YYYY-MM-DD format)"
+    },
+    "image_time": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "What time was this image taken?"
+    },
+    "imaging_facility": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "What is the name of the imaging facility or hospital?"
+    },
+    "technician_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "What is the name of the imaging technician?"
+    },
+    "image_quality": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "How would you assess the image quality? (excellent, good, fair, poor)"
+    },
+    "contrast_used": {
+      "type": "boolean",
+      "inferenceType": "inferred",
+      "instruction": "Was contrast agent used for this image?"
+    },
+    "impression": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What is the radiologist's impression or clinical conclusion?"
+    }
+  }
+}

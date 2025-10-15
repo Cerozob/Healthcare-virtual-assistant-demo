@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-CDK Application entry point for AWSomeBuilder 2.
+CDK Application entry point for AWSomeBuilder.
 
 This file defines the main CDK application and applies mandatory
 tagging aspects to ensure all AWS resources are properly tagged.
+
 """
 
 import os
 import json
+import logging
 
 import aws_cdk as cdk
 import cdk_nag as nag
@@ -17,18 +19,25 @@ from infrastructure.stacks.assistant_stack import AssistantStack
 from infrastructure.stacks.document_workflow_stack import DocumentWorkflowStack
 from infrastructure.stacks.backend_stack import BackendStack
 from infrastructure.stacks.frontend_stack import FrontendStack
+from infrastructure.stacks.api_stack import ApiStack
 
 from pathlib import Path
 
-config_path = Path("config/prod_config.json")
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+config_path = Path("config/config.json")
 
 if config_path.exists():
-    print("Using prod configuration")
+    logger.info("Using production configuration from config/config.json")
     # Load configuration
     with open(config_path, "r") as f:
         config = json.load(f)
 else:
-    print("Using default configuration")
+    logger.warning("Configuration file not found, using default configuration")
     config = {}
 
 app = cdk.App()
@@ -40,6 +49,7 @@ env = cdk.Environment(
 )
 
 # Load mandatory tags and apply them to the app
+logger.info("Loading mandatory tags from config/tags.json")
 with open("config/tags.json", "r") as f:
     tags_config = json.load(f)
     mandatory_tags = tags_config.get("mandatory_tags", {})
@@ -47,52 +57,196 @@ with open("config/tags.json", "r") as f:
 # Apply mandatory tags to all resources in the app
 for tag_key, tag_value in mandatory_tags.items():
     cdk.Tags.of(app).add(tag_key, tag_value)
-# Add CDK Nag checks
-# Rules will be re-enabled during compliance review
-# TODO Un comment-out
-# Aspects.of(app).add(nag.AwsSolutionsChecks())
-# Aspects.of(app).add(nag.ServerlessChecks())
-# Aspects.of(app).add(nag.HIPAASecurityChecks())
+logger.info(f"Applied {len(mandatory_tags)} mandatory tags to all resources")
+# Add CDK Nag checks based on configuration
+logger.info("Configuring CDK Nag security checks...")
 
 
-# Create the main stacks
-backend_stack = BackendStack(
-    app,
-    "backendstack",
-    env=env,
-    stack_name="AWSomeBuilder2-BackendStack",
-    description="API Backend para las funcionalidades del asistente",
+def add_nag_check_safely(check_name, check_class_name, enabled):
+    """Safely add a CDK Nag check following AWS CDK aspects pattern"""
+    if not enabled:
+        logger.info(f"{check_name} disabled")
+        return False
+
+    try:
+        # Check if the class exists in cdk_nag module
+        if not hasattr(nag, check_class_name):
+            logger.warning(
+                f"{check_name} class '{check_class_name}' not found in cdk-nag"
+            )
+            return False
+
+        # Get the class and instantiate it
+        check_class = getattr(nag, check_class_name)
+        check_instance = check_class()
+
+        # Verify it has the visit method (proper aspect interface)
+        if not hasattr(check_instance, "visit"):
+            logger.warning(
+                f"{check_name} does not implement proper aspect interface (missing visit method)"
+            )
+            return False
+
+        # Add the aspect to the app
+        Aspects.of(app).add(check_instance)
+        logger.info(f"Successfully enabled {check_name}")
+        return True
+
+    except Exception as e:
+        logger.warning(f"Error enabling {check_name}: {str(e)}")
+        logger.debug(
+            f"Full error details for {check_name}: {e}", exc_info=True)
+        return False
+
+
+# Apply CDK Nag checks based on configuration
+nag_results = {}
+
+# AWS Solutions Checks (most common)
+nag_results["aws_solutions"] = add_nag_check_safely(
+    "AWS Solutions checks",
+    "AwsSolutionsChecks",
+    config.get("enableAWSSolutionsChecks", False),
 )
 
+# HIPAA Security Checks (try different possible names)
+hipaa_enabled = config.get("enableHIPAAChecks", False)
+if hipaa_enabled:
+    # Try the most common class names for HIPAA checks
+    hipaa_success = add_nag_check_safely(
+        "HIPAA security checks", "HipaaSecurityChecks", True
+    ) or add_nag_check_safely("HIPAA security checks", "HIPAASecurityChecks", True)
+    nag_results["hipaa"] = hipaa_success
+    if not hipaa_success:
+        logger.warning(
+            "HIPAA security checks requested but no compatible class found")
+else:
+    logger.info("HIPAA security checks disabled")
+    nag_results["hipaa"] = False
 
-document_workflow_stack = DocumentWorkflowStack(
-    app,
-    "documentstack",
-    env=env,
-    stack_name="AWSomeBuilder2-DocumentWorkflowStack",
-    description="Workflow de procesamiento de documentos",
+# Serverless Checks
+nag_results["serverless"] = add_nag_check_safely(
+    "Serverless checks", "ServerlessChecks", config.get(
+        "enableServerlessChecks", False)
 )
 
-
-assistant_stack = AssistantStack(
-    app,
-    "genaistack",
-    env=env,
-    stack_name="AWSomeBuilder2-VirtualAssistantStack",
-    description="Asistente virtual con GenAI",
+# Nag Suppressions
+nag_results["suppressions"] = add_nag_check_safely(
+    "Nag suppressions", "NagSuppressions", config.get(
+        "enableNagSuppressions", False)
 )
 
-frontend_stack = FrontendStack(
-    app,
-    "frontendstack",
-    env=env,
-    stack_name="AWSomeBuilder2-FrontendStack",
-    description="Frontend React para el asistente virtual de HealthCare",
-)
+# Log summary
+enabled_nag_checks = [name for name, success in nag_results.items() if success]
+if enabled_nag_checks:
+    logger.info(
+        f"CDK Nag checks successfully enabled: {', '.join(enabled_nag_checks)}")
+else:
+    logger.info("No CDK Nag checks enabled")
+
+
+document_workflow_stack = None
+backend_stack = None
+assistant_stack = None
+frontend_stack = None
+api_stack = None
+
+logger.info("Creating CDK stacks based on configuration...")
+
+if config.get("enableDocumentProcessing"):
+    logger.info("Document processing enabled - creating DocumentWorkflowStack")
+    # Create the document workflow stack first (provides raw bucket)
+    document_workflow_stack = DocumentWorkflowStack(
+        app,
+        "documentstack",
+        env=env,
+        stack_name="AWSomeBuilder2-DocumentWorkflowStack",
+        description="Workflow de procesamiento de documentos",
+    )
+    logger.info("DocumentWorkflowStack created successfully")
+else:
+    logger.info("Document processing disabled - skipping DocumentWorkflowStack")
+
+if config.get("enableBackend"):
+    logger.info("Backend enabled - creating BackendStack")
+    # Create the backend stack (database only)
+    backend_stack = BackendStack(
+        app,
+        "backendstack",
+        env=env,
+        stack_name="AWSomeBuilder2-BackendStack",
+        description="Database infrastructure for healthcare system",
+    )
+    logger.info("BackendStack created successfully")
+else:
+    logger.info("Backend disabled - skipping BackendStack")
+
+if config.get("enableApi"):  # Default to enabled
+    logger.info("API enabled - creating ApiStack")
+    # Create the API stack
+    api_stack = ApiStack(
+        app,
+        "apistack",
+        env=env,
+        stack_name="AWSomeBuilder2-ApiStack",
+        description="API Gateway and Lambda functions for healthcare system",
+    )
+    logger.info("ApiStack created successfully")
+else:
+    logger.info("API disabled - skipping ApiStack")
+
+if config.get("enableVirtualAssistant"):
+    logger.info("Virtual assistant enabled - creating AssistantStack")
+    assistant_stack = AssistantStack(
+        app,
+        "genaistack",
+        processed_bucket=(
+            document_workflow_stack.processed_bucket if document_workflow_stack else None
+        ),
+        env=env,
+        stack_name="AWSomeBuilder2-VirtualAssistantStack",
+        description="Asistente virtual con GenAI",
+    )
+    logger.info("AssistantStack created successfully")
+else:
+    logger.info("Virtual assistant disabled - skipping AssistantStack")
+
+if config.get("enableFrontend"):
+    logger.info("Frontend enabled - creating FrontendStack")
+    frontend_stack = FrontendStack(
+        app,
+        "frontendstack",
+        env=env,
+        stack_name="AWSomeBuilder2-FrontendStack",
+        description="Frontend React para el asistente virtual de HealthCare",
+    )
+    logger.info("FrontendStack created successfully")
+else:
+    logger.info("Frontend disabled - skipping FrontendStack")
+
 
 # Add stack dependencies
-backend_stack.add_dependency(document_workflow_stack)
-assistant_stack.add_dependency(backend_stack)
-frontend_stack.add_dependency(assistant_stack)
+logger.info("Configuring stack dependencies...")
+dependencies_added = 0
 
+if backend_stack and document_workflow_stack:
+    backend_stack.add_dependency(document_workflow_stack)
+    logger.info(
+        "Added dependency: BackendStack depends on DocumentWorkflowStack")
+    dependencies_added += 1
+
+if backend_stack and assistant_stack:
+    assistant_stack.add_dependency(backend_stack)
+    logger.info("Added dependency: AssistantStack depends on BackendStack")
+    dependencies_added += 1
+
+if assistant_stack and frontend_stack:
+    frontend_stack.add_dependency(assistant_stack)
+    logger.info("Added dependency: FrontendStack depends on AssistantStack")
+    dependencies_added += 1
+
+logger.info(f"Total stack dependencies configured: {dependencies_added}")
+
+logger.info("Starting CDK synthesis...")
 app.synth()
+logger.info("CDK synthesis completed successfully")

@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "start_url": "/",
+  "name": "Sistema de Salud",
+  "short_name": "Sistema Salud",
+  "description": "Plataforma de gestión médica con inteligencia artificial",
+  "lang": "es",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/images/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/images/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

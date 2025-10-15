@@ -1,0 +1,11 @@
+{
+    "enableBackend": true,
+    "enableApi":true,
+    "enableFrontend": true,
+    "enableDocumentProcessing": true,
+    "enableVirtualAssistant": false,
+    "enableHIPAAChecks": false,
+    "enableAWSSolutionsChecks": false,
+    "enableServerlessChecks": false,
+    "enableNagSuppressions": true
+}

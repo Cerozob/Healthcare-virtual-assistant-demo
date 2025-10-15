@@ -1,6 +1,6 @@
 # Test Files
 
-Test scripts, audio files, and other testing resources used during development of the AWSomeBuilder 2 healthcare AI system for AnyCompany Healthcare.
+Test scripts, audio files, and other testing resources used during development of the AWSomeBuilder healthcare AI system for AnyCompany Healthcare.
 
 ## Files
 

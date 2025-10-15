@@ -1,6 +1,6 @@
 {
     "mandatory_tags": {
-        "Project": "AWSomeBuilder 2",
+        "Project": "AWSomeBuilder",
         "Environment": "prod",
         "Owner": "AnyHealthCare Colombia",
         "TechArea": "infrastructure",

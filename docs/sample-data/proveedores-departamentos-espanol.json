@@ -1,0 +1,239 @@
+{
+  "proveedores_medicos": [
+    {
+      "nombre": "Dr. Carlos García Martínez",
+      "especialidad": "Medicina de Emergencias",
+      "registro_medico": "RM-2001",
+      "departamento": "Departamento de Emergencias",
+      "telefono_extension": "2001",
+      "horario": "Turno nocturno"
+    },
+    {
+      "nombre": "Dra. María Rodríguez López",
+      "especialidad": "Cardiología",
+      "registro_medico": "RM-2010",
+      "departamento": "Departamento de Cardiología",
+      "telefono_extension": "2010",
+      "horario": "Lunes a Viernes 8:00-16:00"
+    },
+    {
+      "nombre": "Dr. Luis Hernández Torres",
+      "especialidad": "Neurología",
+      "registro_medico": "RM-2020",
+      "departamento": "Departamento de Neurología",
+      "telefono_extension": "2020",
+      "horario": "Lunes a Viernes 7:00-15:00"
+    },
+    {
+      "nombre": "Dr. Antonio Morales Jiménez",
+      "especialidad": "Cirugía General",
+      "registro_medico": "RM-2030",
+      "departamento": "Departamento de Cirugía",
+      "telefono_extension": "2030",
+      "horario": "Guardia quirúrgica"
+    },
+    {
+      "nombre": "Dra. Carmen Flores Castillo",
+      "especialidad": "Neumología",
+      "registro_medico": "RM-2040",
+      "departamento": "Departamento de Neumología",
+      "telefono_extension": "2040",
+      "horario": "Lunes a Viernes 8:00-17:00"
+    },
+    {
+      "nombre": "Dr. Miguel Pérez Morales",
+      "especialidad": "Medicina Interna",
+      "registro_medico": "RM-2050",
+      "departamento": "Departamento de Medicina Interna",
+      "telefono_extension": "2050",
+      "horario": "Lunes a Viernes 7:00-19:00"
+    },
+    {
+      "nombre": "Dra. Elena Sánchez Rivera",
+      "especialidad": "Endocrinología",
+      "registro_medico": "RM-2060",
+      "departamento": "Departamento de Endocrinología",
+      "telefono_extension": "2060",
+      "horario": "Martes y Jueves 9:00-17:00"
+    },
+    {
+      "nombre": "Dr. Francisco Torres Ramírez",
+      "especialidad": "Gastroenterología",
+      "registro_medico": "RM-2070",
+      "departamento": "Departamento de Gastroenterología",
+      "telefono_extension": "2070",
+      "horario": "Lunes, Miércoles, Viernes 8:00-16:00"
+    },
+    {
+      "nombre": "Dra. Isabel González Vargas",
+      "especialidad": "Ginecología",
+      "registro_medico": "RM-2080",
+      "departamento": "Departamento de Ginecología",
+      "telefono_extension": "2080",
+      "horario": "Lunes a Viernes 8:00-16:00"
+    },
+    {
+      "nombre": "Dr. Juan Martínez Herrera",
+      "especialidad": "Ortopedia",
+      "registro_medico": "RM-2090",
+      "departamento": "Departamento de Ortopedia",
+      "telefono_extension": "2090",
+      "horario": "Lunes a Viernes 7:00-15:00"
+    }
+  ],
+  "departamentos_hospitalarios": [
+    {
+      "nombre": "Departamento de Emergencias",
+      "codigo": "EMERG",
+      "jefe_departamento": "Dr. Carlos García Martínez",
+      "ubicacion": "Planta Baja, Ala Norte",
+      "telefono_principal": "555-2001",
+      "horario_atencion": "24 horas, 7 días a la semana",
+      "servicios": [
+        "Atención de emergencias médicas",
+        "Trauma y politraumatismo",
+        "Reanimación cardiopulmonar",
+        "Estabilización de pacientes críticos"
+      ],
+      "personal_medico": 12,
+      "camas_disponibles": 8
+    },
+    {
+      "nombre": "Departamento de Cardiología",
+      "codigo": "CARDIO",
+      "jefe_departamento": "Dra. María Rodríguez López",
+      "ubicacion": "Segundo Piso, Ala Este",
+      "telefono_principal": "555-2010",
+      "horario_atencion": "Lunes a Viernes 7:00-17:00",
+      "servicios": [
+        "Consulta cardiológica",
+        "Ecocardiografía",
+        "Electrocardiografía",
+        "Pruebas de esfuerzo",
+        "Cateterismo cardíaco"
+      ],
+      "personal_medico": 6,
+      "camas_disponibles": 4
+    },
+    {
+      "nombre": "Departamento de Neurología",
+      "codigo": "NEURO",
+      "jefe_departamento": "Dr. Luis Hernández Torres",
+      "ubicacion": "Tercer Piso, Ala Oeste",
+      "telefono_principal": "555-2020",
+      "horario_atencion": "Lunes a Viernes 8:00-16:00",
+      "servicios": [
+        "Consulta neurológica",
+        "Electroencefalografía",
+        "Estudios de conducción nerviosa",
+        "Evaluación de accidente cerebrovascular"
+      ],
+      "personal_medico": 4,
+      "camas_disponibles": 6
+    },
+    {
+      "nombre": "Departamento de Cirugía",
+      "codigo": "CIRUGIA",
+      "jefe_departamento": "Dr. Antonio Morales Jiménez",
+      "ubicacion": "Cuarto Piso, Quirófanos",
+      "telefono_principal": "555-2030",
+      "horario_atencion": "24 horas para emergencias",
+      "servicios": [
+        "Cirugía general",
+        "Cirugía laparoscópica",
+        "Cirugía de emergencia",
+        "Procedimientos ambulatorios"
+      ],
+      "personal_medico": 8,
+      "quirofanos_disponibles": 4
+    },
+    {
+      "nombre": "Departamento de Neumología",
+      "codigo": "NEUMO",
+      "jefe_departamento": "Dra. Carmen Flores Castillo",
+      "ubicacion": "Segundo Piso, Ala Oeste",
+      "telefono_principal": "555-2040",
+      "horario_atencion": "Lunes a Viernes 8:00-17:00",
+      "servicios": [
+        "Consulta neumológica",
+        "Espirometría",
+        "Broncoscopía",
+        "Estudios del sueño"
+      ],
+      "personal_medico": 3,
+      "camas_disponibles": 5
+    },
+    {
+      "nombre": "Departamento de Medicina Interna",
+      "codigo": "MEDINT",
+      "jefe_departamento": "Dr. Miguel Pérez Morales",
+      "ubicacion": "Primer Piso, Ala Central",
+      "telefono_principal": "555-2050",
+      "horario_atencion": "Lunes a Viernes 7:00-19:00",
+      "servicios": [
+        "Consulta de medicina interna",
+        "Manejo de enfermedades crónicas",
+        "Hospitalización general",
+        "Interconsultas médicas"
+      ],
+      "personal_medico": 10,
+      "camas_disponibles": 20
+    },
+    {
+      "nombre": "Departamento de Laboratorio Clínico",
+      "codigo": "LAB",
+      "jefe_departamento": "Dr. Miguel Pérez Morales",
+      "ubicacion": "Planta Baja, Ala Sur",
+      "telefono_principal": "555-2100",
+      "horario_atencion": "24 horas",
+      "servicios": [
+        "Análisis de sangre",
+        "Uroanálisis",
+        "Microbiología",
+        "Química clínica",
+        "Hematología"
+      ],
+      "personal_tecnico": 15,
+      "equipos_automatizados": 8
+    },
+    {
+      "nombre": "Departamento de Radiología",
+      "codigo": "RADIO",
+      "jefe_departamento": "Dr. Francisco Torres Ramírez",
+      "ubicacion": "Planta Baja, Ala Este",
+      "telefono_principal": "555-2110",
+      "horario_atencion": "24 horas para emergencias",
+      "servicios": [
+        "Radiografías",
+        "Tomografía computarizada",
+        "Resonancia magnética",
+        "Ultrasonografía",
+        "Mamografía"
+      ],
+      "personal_medico": 5,
+      "equipos_disponibles": 12
+    }
+  ],
+  "turnos_medicos": [
+    {
+      "turno": "Mañana",
+      "horario": "7:00 - 15:00",
+      "descripcion": "Turno matutino regular"
+    },
+    {
+      "turno": "Tarde",
+      "horario": "15:00 - 23:00",
+      "descripcion": "Turno vespertino"
+    },
+    {
+      "turno": "Noche",
+      "horario": "23:00 - 7:00",
+      "descripcion": "Turno nocturno"
+    },
+    {
+      "turno": "Guardia",
+      "horario": "24 horas",
+      "descripcion": "Disponibilidad completa para emergencias"
+    }
+  ]
+}

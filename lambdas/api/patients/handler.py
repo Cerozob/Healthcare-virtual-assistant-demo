@@ -1,0 +1,325 @@
+"""
+Patients API Lambda Function.
+Handles CRUD operations for patient management.
+
+Endpoints:
+- GET /patients - List patients with pagination
+- POST /patients - Create new patient
+- GET /patients/{id} - Get patient by ID
+- PUT /patients/{id} - Update patient
+- DELETE /patients/{id} - Delete patient
+"""
+
+import logging
+from typing import Dict, Any
+from shared.database import DatabaseManager, DatabaseError
+from shared.utils import (
+    create_response, create_error_response, parse_event_body,
+    extract_path_parameters, extract_query_parameters, validate_required_fields,
+    validate_pagination_params, handle_exceptions, generate_uuid, get_current_timestamp
+)
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+# Initialize database manager
+db_manager = DatabaseManager()
+
+
+@handle_exceptions
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Main Lambda handler for patients API.
+    Routes requests to appropriate handlers based on HTTP method and path.
+    """
+    http_method = event.get('httpMethod', '')
+    path = event.get('path', '')
+    path_params = extract_path_parameters(event)
+    
+    # Route to appropriate handler
+    if path == '/patients':
+        if http_method == 'GET':
+            return list_patients(event)
+        elif http_method == 'POST':
+            return create_patient(event)
+    elif path.startswith('/patients/') and 'id' in path_params:
+        patient_id = path_params['id']
+        if http_method == 'GET':
+            return get_patient(patient_id)
+        elif http_method == 'PUT':
+            return update_patient(patient_id, event)
+        elif http_method == 'DELETE':
+            return delete_patient(patient_id)
+    
+    return create_error_response(404, "Endpoint not found")
+
+
+def list_patients(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle GET /patients - List patients with pagination.
+    
+    Query parameters:
+    - limit: Number of patients to return (default: 50, max: 1000)
+    - offset: Number of patients to skip (default: 0)
+    
+    Returns:
+        List of patients with pagination info
+    """
+    try:
+        query_params = extract_query_parameters(event)
+        pagination = validate_pagination_params(query_params)
+        
+        sql = """
+        SELECT patient_id, full_name, date_of_birth, created_at, updated_at
+        FROM patients
+        ORDER BY full_name
+        LIMIT :limit OFFSET :offset
+        """
+        
+        parameters = [
+            db_manager.create_parameter('limit', pagination['limit'], 'long'),
+            db_manager.create_parameter('offset', pagination['offset'], 'long')
+        ]
+        
+        response = db_manager.execute_sql(sql, parameters)
+        patients = db_manager.parse_records(
+            response.get('records', []),
+            response.get('columnMetadata', [])
+        )
+        
+        # Get total count for pagination
+        count_sql = "SELECT COUNT(*) as total FROM patients"
+        count_response = db_manager.execute_sql(count_sql)
+        total_count = 0
+        if count_response.get('records'):
+            total_count = count_response['records'][0][0].get('longValue', 0)
+        
+        return create_response(200, {
+            'patients': patients,
+            'pagination': {
+                'limit': pagination['limit'],
+                'offset': pagination['offset'],
+                'total': total_count,
+                'count': len(patients)
+            }
+        })
+        
+    except DatabaseError as e:
+        logger.error(f"Database error in list_patients: {str(e)}")
+        return create_error_response(500, "Database error", e.error_code)
+    
+    except Exception as e:
+        logger.error(f"Error in list_patients: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def create_patient(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle POST /patients - Create new patient.
+    
+    Required fields:
+    - full_name: Patient's full name
+    - date_of_birth: Patient's date of birth (YYYY-MM-DD format)
+    
+    Returns:
+        Created patient data
+    """
+    try:
+        body = parse_event_body(event)
+        
+        # Validate required fields
+        validation_error = validate_required_fields(body, ['full_name', 'date_of_birth'])
+        if validation_error:
+            return create_error_response(400, validation_error, "VALIDATION_ERROR")
+        
+        # Generate patient ID
+        patient_id = generate_uuid()
+        
+        sql = """
+        INSERT INTO patients (patient_id, full_name, date_of_birth, created_at, updated_at)
+        VALUES (:patient_id, :full_name, :date_of_birth, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING patient_id, full_name, date_of_birth, created_at, updated_at
+        """
+        
+        parameters = [
+            db_manager.create_parameter('patient_id', patient_id, 'string'),
+            db_manager.create_parameter('full_name', body['full_name'], 'string'),
+            db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string')
+        ]
+        
+        response = db_manager.execute_sql(sql, parameters)
+        
+        if not response.get('records'):
+            return create_error_response(500, "Failed to create patient")
+        
+        patient = db_manager.parse_records(
+            response['records'],
+            response.get('columnMetadata', [])
+        )[0]
+        
+        logger.info(f"Created patient: {patient_id}")
+        
+        return create_response(201, {
+            'message': 'Patient created successfully',
+            'patient': patient
+        })
+        
+    except DatabaseError as e:
+        logger.error(f"Database error in create_patient: {str(e)}")
+        return create_error_response(500, "Database error", e.error_code)
+    
+    except Exception as e:
+        logger.error(f"Error in create_patient: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def get_patient(patient_id: str) -> Dict[str, Any]:
+    """
+    Handle GET /patients/{id} - Get patient by ID.
+    
+    Args:
+        patient_id: Patient ID
+        
+    Returns:
+        Patient data or 404 if not found
+    """
+    try:
+        sql = """
+        SELECT patient_id, full_name, date_of_birth, created_at, updated_at
+        FROM patients
+        WHERE patient_id = :patient_id
+        """
+        
+        parameters = [
+            db_manager.create_parameter('patient_id', patient_id, 'string')
+        ]
+        
+        response = db_manager.execute_sql(sql, parameters)
+        records = response.get('records', [])
+        
+        if not records:
+            return create_error_response(404, "Patient not found", "PATIENT_NOT_FOUND")
+        
+        patient = db_manager.parse_records(
+            records,
+            response.get('columnMetadata', [])
+        )[0]
+        
+        return create_response(200, {'patient': patient})
+        
+    except DatabaseError as e:
+        logger.error(f"Database error in get_patient: {str(e)}")
+        return create_error_response(500, "Database error", e.error_code)
+    
+    except Exception as e:
+        logger.error(f"Error in get_patient: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def update_patient(patient_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle PUT /patients/{id} - Update patient.
+    
+    Args:
+        patient_id: Patient ID
+        event: Lambda event containing update data
+        
+    Returns:
+        Updated patient data or 404 if not found
+    """
+    try:
+        body = parse_event_body(event)
+        
+        # Build dynamic update query
+        update_fields = []
+        parameters = [db_manager.create_parameter('patient_id', patient_id, 'string')]
+        
+        if 'full_name' in body and body['full_name']:
+            update_fields.append('full_name = :full_name')
+            parameters.append(db_manager.create_parameter('full_name', body['full_name'], 'string'))
+        
+        if 'date_of_birth' in body and body['date_of_birth']:
+            update_fields.append('date_of_birth = :date_of_birth')
+            parameters.append(db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string'))
+        
+        if not update_fields:
+            return create_error_response(400, "No fields to update", "NO_UPDATE_FIELDS")
+        
+        # Add updated timestamp
+        update_fields.append('updated_at = CURRENT_TIMESTAMP')
+        
+        sql = f"""
+        UPDATE patients
+        SET {', '.join(update_fields)}
+        WHERE patient_id = :patient_id
+        RETURNING patient_id, full_name, date_of_birth, created_at, updated_at
+        """
+        
+        response = db_manager.execute_sql(sql, parameters)
+        records = response.get('records', [])
+        
+        if not records:
+            return create_error_response(404, "Patient not found", "PATIENT_NOT_FOUND")
+        
+        patient = db_manager.parse_records(
+            records,
+            response.get('columnMetadata', [])
+        )[0]
+        
+        logger.info(f"Updated patient: {patient_id}")
+        
+        return create_response(200, {
+            'message': 'Patient updated successfully',
+            'patient': patient
+        })
+        
+    except DatabaseError as e:
+        logger.error(f"Database error in update_patient: {str(e)}")
+        return create_error_response(500, "Database error", e.error_code)
+    
+    except Exception as e:
+        logger.error(f"Error in update_patient: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def delete_patient(patient_id: str) -> Dict[str, Any]:
+    """
+    Handle DELETE /patients/{id} - Delete patient.
+    
+    Args:
+        patient_id: Patient ID
+        
+    Returns:
+        Success message or 404 if not found
+    """
+    try:
+        sql = """
+        DELETE FROM patients
+        WHERE patient_id = :patient_id
+        RETURNING patient_id
+        """
+        
+        parameters = [
+            db_manager.create_parameter('patient_id', patient_id, 'string')
+        ]
+        
+        response = db_manager.execute_sql(sql, parameters)
+        records = response.get('records', [])
+        
+        if not records:
+            return create_error_response(404, "Patient not found", "PATIENT_NOT_FOUND")
+        
+        logger.info(f"Deleted patient: {patient_id}")
+        
+        return create_response(200, {
+            'message': 'Patient deleted successfully',
+            'patient_id': patient_id
+        })
+        
+    except DatabaseError as e:
+        logger.error(f"Database error in delete_patient: {str(e)}")
+        return create_error_response(500, "Database error", e.error_code)
+    
+    except Exception as e:
+        logger.error(f"Error in delete_patient: {str(e)}")
+        return create_error_response(500, "Internal server error")

@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "class": "Medical Video Analysis",
+  "description": "A comprehensive analysis blueprint for medical video content including surgical procedures, consultations, diagnostic procedures, and medical education videos to extract clinical insights and educational value.",
+  "type": "object",
+  "definitions": {},
+  "properties": {
+    "video_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What type of medical video is this? (surgical procedure, consultation, diagnostic procedure, medical education, etc.)",
+      "granularity": ["video"]
+    },
+    "procedure_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What specific type of medical procedure is being performed or discussed?",
+      "granularity": ["video"]
+    },
+    "body_part_focus": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What is the primary body part or anatomical system focus of this video?",
+      "granularity": ["video"]
+    },
+    "visual_observations": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What are the key visual medical observations from the video content?",
+      "granularity": ["chapter"]
+    },
+    "medical_equipment": {
+      "type": "array",
+      "inferenceType": "inferred",
+      "instruction": "List of medical equipment, instruments, or devices visible in the video",
+      "granularity": ["video"],
+      "items": {
+        "type": "string"
+      }
+    },
+    "procedure_steps": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Describe the key steps or phases of the medical procedure shown",
+      "granularity": ["chapter"]
+    },
+    "complications_observed": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Any complications, unexpected events, or challenges observed during the procedure",
+      "granularity": ["video"]
+    },
+    "clinical_outcome": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What is the outcome or result of the procedure/consultation shown?",
+      "granularity": ["video"]
+    },
+    "participants_roles": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Who are the participants visible in the video and what are their roles? (surgeon, patient, nurse, resident, etc.)",
+      "granularity": ["video"]
+    },
+    "educational_content": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "What educational or training value does this video provide? What can medical professionals learn from it?",
+      "granularity": ["video"]
+    },
+    "video_quality_assessment": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "How would you assess the video quality for medical analysis purposes? (excellent, good, fair, poor)",
+      "granularity": ["video"]
+    },
+    "audio_content": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Summarize the key audio content, conversations, or narration in the video",
+      "granularity": ["video"]
+    }
+  }
+}

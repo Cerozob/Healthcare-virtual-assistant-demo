@@ -1,6 +1,6 @@
 # Documentation
 
-Core project documentation for the AWSomeBuilder 2 healthcare AI system for AnyCompany Healthcare.
+Core project documentation for the AWSomeBuilder healthcare AI system for AnyCompany Healthcare.
 
 ## Files
 

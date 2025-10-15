@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "class": "Medical Record",
+  "description": "A comprehensive medical record document containing patient information, clinical findings, diagnoses, treatments, and healthcare provider notes for medical care documentation and analysis.",
+  "type": "object",
+  "definitions": {},
+  "properties": {
+    "patient_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient full name as it appears in the medical record"
+    },
+    "date_of_birth": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient date of birth in YYYY-MM-DD format"
+    },
+    "medical_record_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract medical record number (MRN) or patient identifier"
+    },
+    "phone_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient contact phone number"
+    },
+    "address": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient complete home address"
+    },
+    "diagnoses": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Extract medical diagnoses with ICD codes if present"
+    },
+    "medications": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Extract current medications with dosages and frequencies"
+    },
+    "allergies": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Extract known allergies and adverse reactions"
+    },
+    "blood_pressure": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract blood pressure reading (systolic/diastolic)"
+    },
+    "heart_rate": {
+      "type": "number",
+      "inferenceType": "explicit",
+      "instruction": "Extract heart rate in beats per minute"
+    },
+    "temperature": {
+      "type": "number",
+      "inferenceType": "explicit",
+      "instruction": "Extract body temperature measurement"
+    },
+    "weight": {
+      "type": "number",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient weight"
+    },
+    "height": {
+      "type": "number",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient height"
+    },
+    "symptoms": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Extract patient reported symptoms and complaints"
+    },
+    "treatment_plan": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Extract recommended treatment plan and next steps"
+    },
+    "visit_date": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract date of medical visit in YYYY-MM-DD format"
+    },
+    "provider_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract healthcare provider or physician name"
+    }
+  }
+}

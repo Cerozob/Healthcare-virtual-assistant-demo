@@ -1,5 +1,7 @@
-aws-cdk-lib>=2.211.0
+aws-cdk-lib==2.219.0
+aws-cdk.aws-amplify-alpha==2.219.0-alpha.0
+jsii==1.115.0
+boto3>=1.40.52
 constructs>=10.4.2
+cdk-monitoring-constructs==9.15.2
 cdk-nag>=2.37.6
-boto3>=1.40.12
-jsii>=1.113.0

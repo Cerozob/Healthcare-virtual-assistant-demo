@@ -1,0 +1,295 @@
+{
+  "protocolos_medicos": [
+    {
+      "id": "PROT-CARD-001",
+      "nombre": "Protocolo de Dolor Torácico Agudo",
+      "especialidad": "cardiología",
+      "descripción": "Protocolo para evaluación y manejo del dolor torácico agudo en departamento de emergencias",
+      "síntomas_asociados": [
+        "dolor torácico",
+        "dificultad respiratoria",
+        "diaforesis",
+        "náuseas",
+        "irradiación a brazo izquierdo",
+        "sensación de opresión"
+      ],
+      "exámenes_recomendados": [
+        {
+          "nombre": "Electrocardiograma (ECG)",
+          "prioridad": "inmediata",
+          "descripción": "ECG de 12 derivaciones para evaluar cambios isquémicos"
+        },
+        {
+          "nombre": "Enzimas cardíacas",
+          "prioridad": "urgente",
+          "descripción": "Troponina I, CK-MB para descartar infarto de miocardio"
+        },
+        {
+          "nombre": "Radiografía de tórax",
+          "prioridad": "urgente",
+          "descripción": "Para evaluar silueta cardíaca y descartar patología pulmonar"
+        },
+        {
+          "nombre": "Ecocardiograma",
+          "prioridad": "según indicación",
+          "descripción": "Evaluación de función ventricular y alteraciones segmentarias"
+        }
+      ],
+      "tratamientos_recomendados": [
+        {
+          "medicamento": "Aspirina",
+          "dosis": "325 mg",
+          "vía": "oral",
+          "indicación": "Antiagregante plaquetario"
+        },
+        {
+          "medicamento": "Nitroglicerina",
+          "dosis": "0.4 mg sublingual",
+          "vía": "sublingual",
+          "indicación": "Alivio del dolor torácico"
+        },
+        {
+          "medicamento": "Oxígeno",
+          "dosis": "2-4 L/min",
+          "vía": "cánula nasal",
+          "indicación": "Si saturación < 90%"
+        }
+      ],
+      "nivel_prioridad": 1,
+      "tiempo_respuesta_objetivo": "10 minutos",
+      "interconsultas": ["cardiología"],
+      "criterios_hospitalización": [
+        "Elevación de enzimas cardíacas",
+        "Cambios electrocardiográficos agudos",
+        "Dolor torácico persistente",
+        "Inestabilidad hemodinámica"
+      ]
+    },
+    {
+      "id": "PROT-NEUR-001",
+      "nombre": "Protocolo de Cefalea Aguda Severa",
+      "especialidad": "neurología",
+      "descripción": "Protocolo para evaluación de cefalea severa aguda con síntomas neurológicos",
+      "síntomas_asociados": [
+        "cefalea severa",
+        "cambios visuales",
+        "náuseas",
+        "vómitos",
+        "confusión",
+        "rigidez nucal",
+        "fotofobia"
+      ],
+      "exámenes_recomendados": [
+        {
+          "nombre": "Tomografía computarizada de cráneo",
+          "prioridad": "inmediata",
+          "descripción": "TC sin contraste para descartar hemorragia intracraneal"
+        },
+        {
+          "nombre": "Resonancia magnética cerebral",
+          "prioridad": "urgente",
+          "descripción": "Si TC negativa y alta sospecha clínica"
+        },
+        {
+          "nombre": "Punción lumbar",
+          "prioridad": "según indicación",
+          "descripción": "Si se sospecha meningitis o hemorragia subaracnoidea"
+        },
+        {
+          "nombre": "Examen neurológico completo",
+          "prioridad": "inmediata",
+          "descripción": "Evaluación de signos neurológicos focales"
+        }
+      ],
+      "tratamientos_recomendados": [
+        {
+          "medicamento": "Analgésicos",
+          "dosis": "según protocolo",
+          "vía": "IV/oral",
+          "indicación": "Manejo del dolor"
+        },
+        {
+          "medicamento": "Antieméticos",
+          "dosis": "según necesidad",
+          "vía": "IV",
+          "indicación": "Control de náuseas y vómitos"
+        }
+      ],
+      "nivel_prioridad": 1,
+      "tiempo_respuesta_objetivo": "15 minutos",
+      "interconsultas": ["neurología", "neurocirugía"],
+      "criterios_hospitalización": [
+        "Alteración del estado de conciencia",
+        "Signos neurológicos focales",
+        "Sospecha de patología intracraneal",
+        "Cefalea de características atípicas"
+      ]
+    },
+    {
+      "id": "PROT-CIR-001",
+      "nombre": "Protocolo de Dolor Abdominal Agudo",
+      "especialidad": "cirugía",
+      "descripción": "Protocolo para evaluación del dolor abdominal agudo",
+      "síntomas_asociados": [
+        "dolor abdominal",
+        "náuseas",
+        "vómitos",
+        "fiebre",
+        "distensión abdominal",
+        "alteración del tránsito intestinal"
+      ],
+      "exámenes_recomendados": [
+        {
+          "nombre": "Tomografía de abdomen y pelvis",
+          "prioridad": "urgente",
+          "descripción": "TC con contraste para evaluación de patología intraabdominal"
+        },
+        {
+          "nombre": "Hemograma completo",
+          "prioridad": "urgente",
+          "descripción": "Evaluación de leucocitosis y signos de infección"
+        },
+        {
+          "nombre": "Panel metabólico básico",
+          "prioridad": "urgente",
+          "descripción": "Evaluación de función renal y equilibrio electrolítico"
+        },
+        {
+          "nombre": "Uroanálisis",
+          "prioridad": "urgente",
+          "descripción": "Descartar patología urológica"
+        }
+      ],
+      "tratamientos_recomendados": [
+        {
+          "medicamento": "Líquidos intravenosos",
+          "dosis": "según necesidad",
+          "vía": "IV",
+          "indicación": "Hidratación y soporte"
+        },
+        {
+          "medicamento": "Analgésicos",
+          "dosis": "según protocolo",
+          "vía": "IV",
+          "indicación": "Manejo del dolor"
+        }
+      ],
+      "nivel_prioridad": 2,
+      "tiempo_respuesta_objetivo": "30 minutos",
+      "interconsultas": ["cirugía general"],
+      "criterios_hospitalización": [
+        "Sospecha de abdomen agudo quirúrgico",
+        "Signos de peritonitis",
+        "Obstrucción intestinal",
+        "Inestabilidad hemodinámica"
+      ],
+      "consideraciones_especiales": [
+        "Mantener estado de ayuno (NPO)",
+        "Monitoreo de signos vitales",
+        "Evaluación seriada del abdomen"
+      ]
+    },
+    {
+      "id": "PROT-NEUM-001",
+      "nombre": "Protocolo de Dificultad Respiratoria Aguda",
+      "especialidad": "neumología",
+      "descripción": "Protocolo para evaluación y manejo de la dificultad respiratoria aguda",
+      "síntomas_asociados": [
+        "dificultad respiratoria",
+        "tos productiva",
+        "fiebre",
+        "dolor torácico pleurítico",
+        "cianosis",
+        "uso de músculos accesorios"
+      ],
+      "exámenes_recomendados": [
+        {
+          "nombre": "Radiografía de tórax",
+          "prioridad": "inmediata",
+          "descripción": "Evaluación de infiltrados pulmonares y patología pleural"
+        },
+        {
+          "nombre": "Gasometría arterial",
+          "prioridad": "urgente",
+          "descripción": "Evaluación del intercambio gaseoso"
+        },
+        {
+          "nombre": "Hemograma y hemocultivos",
+          "prioridad": "urgente",
+          "descripción": "Evaluación de proceso infeccioso"
+        },
+        {
+          "nombre": "Tomografía de tórax",
+          "prioridad": "según indicación",
+          "descripción": "Si radiografía no concluyente"
+        }
+      ],
+      "tratamientos_recomendados": [
+        {
+          "medicamento": "Oxígeno suplementario",
+          "dosis": "según saturación",
+          "vía": "cánula nasal/mascarilla",
+          "indicación": "Mantener saturación > 92%"
+        },
+        {
+          "medicamento": "Antibióticos empíricos",
+          "dosis": "según protocolo",
+          "vía": "IV",
+          "indicación": "Si sospecha de neumonía"
+        },
+        {
+          "medicamento": "Broncodilatadores",
+          "dosis": "según indicación",
+          "vía": "inhalada",
+          "indicación": "Si componente obstructivo"
+        }
+      ],
+      "nivel_prioridad": 1,
+      "tiempo_respuesta_objetivo": "10 minutos",
+      "interconsultas": ["neumología", "medicina interna"],
+      "criterios_hospitalización": [
+        "Insuficiencia respiratoria",
+        "Neumonía con criterios de gravedad",
+        "Necesidad de oxígeno suplementario",
+        "Comorbilidades significativas"
+      ]
+    }
+  ],
+  "departamentos_medicos": [
+    {
+      "nombre": "Departamento de Emergencias",
+      "jefe_departamento": "Dr. García Martínez",
+      "especialidades": ["medicina de emergencias", "medicina interna"],
+      "horario_atencion": "24 horas",
+      "telefono_extension": "2001"
+    },
+    {
+      "nombre": "Departamento de Cardiología",
+      "jefe_departamento": "Dra. Rodríguez López",
+      "especialidades": ["cardiología", "electrofisiología"],
+      "horario_atencion": "Lunes a Viernes 7:00-17:00",
+      "telefono_extension": "2010"
+    },
+    {
+      "nombre": "Departamento de Neurología",
+      "jefe_departamento": "Dr. Hernández Torres",
+      "especialidades": ["neurología", "neurocirugía"],
+      "horario_atencion": "Lunes a Viernes 8:00-16:00",
+      "telefono_extension": "2020"
+    },
+    {
+      "nombre": "Departamento de Cirugía",
+      "jefe_departamento": "Dr. Morales Jiménez",
+      "especialidades": ["cirugía general", "cirugía laparoscópica"],
+      "horario_atencion": "24 horas (emergencias)",
+      "telefono_extension": "2030"
+    },
+    {
+      "nombre": "Departamento de Neumología",
+      "jefe_departamento": "Dra. Flores Castillo",
+      "especialidades": ["neumología", "medicina respiratoria"],
+      "horario_atencion": "Lunes a Viernes 8:00-17:00",
+      "telefono_extension": "2040"
+    }
+  ]
+}

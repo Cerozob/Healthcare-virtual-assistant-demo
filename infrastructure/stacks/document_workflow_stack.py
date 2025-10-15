@@ -4,16 +4,17 @@ Document Workflow Stack for Healthcare Workflow System.
 
 from aws_cdk import Stack, Duration, RemovalPolicy
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from constructs import Construct
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda
 from aws_cdk import aws_ssm as ssm
-from aws_cdk import aws_stepfunctions as sfn
-from aws_cdk import aws_stepfunctions_tasks as sfn_tasks
+# Removed Step Functions imports - using direct Lambda invocations
 from aws_cdk import aws_logs as logs
-from infrastructure import custom_steps as sfn_custom
+from aws_cdk import aws_dynamodb as dynamodb
+from infrastructure.constructs.bda_blueprints_construct import BDABlueprintsConstruct
 
 # this contains the document workflow, starting from the eventbridge events
 # the workflow itself, and the raw + processed buckets
@@ -27,23 +28,17 @@ class DocumentWorkflowStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # * EventBridge Role - only for triggering workflows
-
-        self.eventbridge_role = iam.Role(
+        # Create BDA blueprints construct
+        self.data_automation = BDABlueprintsConstruct(
             self,
-            "EventBridgeRole",
-            assumed_by=iam.ServicePrincipal("events.amazonaws.com"),
-            description="Role for EventBridge to trigger Step Functions workflows",
+            "BDABlueprints"
         )
 
-        # * Step Functions Workflow Role - for executing the workflow
+        # Create BDA project
+        self.bda_project = self.data_automation.project
+        self.bda_profile_arn = f'arn:aws:bedrock:{self.region}:{self.account}:data-automation-profile/us.data-automation-v1'
 
-        self.workflow_role = iam.Role(
-            self,
-            "WorkflowRole",
-            assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-            description="Role for Step Functions workflow execution",
-        )
+        # Simplified architecture - no Step Functions roles needed
 
         # * S3 Buckets
 
@@ -81,244 +76,168 @@ class DocumentWorkflowStack(Stack):
             description="Processed data bucket name for document workflow",
         )
 
-        # * Delete outputs if original data is deleted
-
-        # Create deletion lambda function
-        self.deletion_lambda = aws_lambda.Function(
+        self.bda_trigger_lambda = aws_lambda.Function(
             self,
-            "DeletionLambda",
-            function_name=f"AB2-AnyHealthcare-DeletionLambda",
+            "BDATriggerLambda",
+            function_name="healthcare-bda-trigger",
             runtime=aws_lambda.Runtime.PYTHON_3_13,
             handler="index.lambda_handler",
-            code=aws_lambda.Code.from_asset("lambdas/delete_documents"),
-            log_group=logs.LogGroup(
-                self,
-                "DeletionLambdaLogGroup",
-                log_group_name=f"/aws/lambda/AB2-AnyHealthcare-DeletionLambda",
-                removal_policy=RemovalPolicy.DESTROY,
-            ),
-        )
-
-        # Create version for deletion lambda
-        self.deletion_lambda_version = aws_lambda.Version(
-            self,
-            "DeletionLambdaVersion",
-            lambda_=self.deletion_lambda,
-        )
-
-        # Create alias pointing to latest version
-        self.deletion_lambda_alias = aws_lambda.Alias(
-            self,
-            "DeletionLambdaAlias",
-            alias_name="LATEST",
-            version=self.deletion_lambda_version,
-        )
-        # Grant permissions to the deletion lambda
-        self.processed_bucket.grant_read_write(self.deletion_lambda)
-        self.raw_bucket.grant_read(self.deletion_lambda)
-
-        # Grant SSM parameter access
-        self.processed_bucket_param.grant_read(self.deletion_lambda)
-
-        # Eventbridge rule2, on deletion, remove the outputs from the workflow
-
-        self.event_rule_deletion = events.Rule(
-            self,
-            "EventRuleDeletion",
-            rule_name=f"AB2-AnyHealthcare-EventRule-DeletedDocument",
-            event_pattern=events.EventPattern(
-                source=["aws.s3"],
-                detail_type=["Object Deleted"],
-                detail={"bucket": {"name": [self.raw_bucket.bucket_name]}},
-            ),
-            role=self.eventbridge_role,
-            targets=[
-                targets.LambdaFunction(self.deletion_lambda_alias, retry_attempts=1)
-            ],
-            enabled=True,
-        )
-
-        # * Use a lambda to decide which processing to make
-
-        self.entrypoint_lambda = aws_lambda.Function(
-            self,
-            "EntrypointLambda",
-            function_name=f"DocumentTypeIdentifier",
-            runtime=aws_lambda.Runtime.PYTHON_3_13,
-            handler="index.lambda_handler",
-            code=aws_lambda.Code.from_asset("lambdas/workflow_entrypoint"),
-            log_group=logs.LogGroup(
-                self,
-                "EntrypointLambdaLogGroup",
-                log_group_name=f"/aws/lambda/AB2-AnyHealthcare-EntrypointLambda",
-                removal_policy=RemovalPolicy.DESTROY,
-            ),
-        )
-
-        # Create version for entrypoint lambda
-        self.entrypoint_lambda_version = aws_lambda.Version(
-            self,
-            "EntrypointLambdaVersion",
-            lambda_=self.entrypoint_lambda,
-        )
-
-        # Create alias pointing to latest version
-        self.entrypoint_lambda_alias = aws_lambda.Alias(
-            self,
-            "EntrypointLambdaAlias",
-            alias_name="LATEST",
-            version=self.entrypoint_lambda_version,
-        )
-
-        # Grant permissions to the entrypoint lambda
-        self.raw_bucket.grant_read(self.entrypoint_lambda)
-
-        # * First step: lambda invocation
-        # Step Functions workflow definition
-        lambda_step = sfn_tasks.LambdaInvoke(
-            self,
-            "StartStep",
-            lambda_function=self.entrypoint_lambda_alias,
-            assign={
-                "processing_branch": "{% $states.result.Payload.processing_branch %}",
-                "bucket": "{% $states.result.Payload.bucket %}",
-                "key": "{% $states.result.Payload.key %}",
-                "patient_id": "{% $states.result.Payload.patient_id %}",
-                "unique_id": "{% $uuid() %}",
+            code=aws_lambda.Code.from_asset(
+                "lambdas/document-workflow/bda-trigger"),
+            timeout=Duration.minutes(2),
+            memory_size=512,
+            environment={
+                "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
+                "BDA_PROJECT_ARN": self.bda_project.attr_project_arn,
+                "BDA_PROFILE_ARN": self.bda_profile_arn,
+                "MEDICAL_RECORD_BLUEPRINT_ARN": self.data_automation.blueprints["document"].attr_blueprint_arn,
+                "MEDICAL_IMAGE_BLUEPRINT_ARN": self.data_automation.blueprints["image"].attr_blueprint_arn,
+                "MEDICAL_AUDIO_BLUEPRINT_ARN": self.data_automation.blueprints["audio"].attr_blueprint_arn,
+                "MEDICAL_VIDEO_BLUEPRINT_ARN": self.data_automation.blueprints["video"].attr_blueprint_arn
             },
-        )
-
-        # Define processing branches
-
-        # * HealthScribe Data Access Role
-        self.healthscribe_role = iam.Role(
-            self,
-            "HealthScribeDataAccessRole",
-            assumed_by=iam.ServicePrincipal("transcribe.amazonaws.com"),
-            description="Role for HealthScribe to access S3 buckets",
-        )
-
-        # Grant HealthScribe role permissions to read from raw bucket and write to processed bucket
-        self.raw_bucket.grant_read(self.healthscribe_role)
-        self.processed_bucket.grant_read_write(self.healthscribe_role)
-
-        # * HealthScribe workflow: Complete chain with file processing and cleanup
-        healthscribe_step = sfn_custom.HealthScribe.buildStepChain(
-            self,
-            "HealthScribeWorkflow",
-            output_bucket=self.processed_bucket,
-            healthscribe_role=self.healthscribe_role,
-        )
-
-        # * Bedrock Data Automation Step: File processing and data storage
-        # TODO implement
-        # TODO use a custom construct for the BDA Configuration
-        bda_step = sfn.Succeed(
-            self,
-            "BDAStepFunctions",
-            comment="Placeholder step for Bedrock Data Automation",
-        )
-
-        # * Comprehend Medical workflow: Complete chain with file processing and cleanup
-        # TODO do this
-        comprehendmedical_step = sfn.Succeed(
-            self,
-            "ComprehendMedicalStep",
-            comment="Placeholder step for Amazon Comprehend Medical",
-        )
-
-        # Choice logic based on processing_branch variable
-        exec_branch_choice = (
-            sfn.Choice(self, "ExecutionBranchChoice")
-            .when(
-                sfn.Condition.jsonata('{% $processing_branch = "audio" %}'),
-                healthscribe_step,
+            log_group=logs.LogGroup(
+                self,
+                "BDATriggerLambdaLogGroup",
+                log_group_name="/aws/lambda/healthcare-bda-trigger",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=RemovalPolicy.DESTROY,
             )
-            .when(
-                sfn.Condition.jsonata('{% $processing_branch = "document" %}'),
-                bda_step,
-            )
-            .when(
-                sfn.Condition.jsonata('{% $processing_branch = "passthrough" %}'),
-                comprehendmedical_step,
-            )
-            .otherwise(
-                # fail if the file did not match anything or if the lambda errored
-                sfn.Fail(
-                    self, "InvalidProcessingBranch", error="InvalidProcessingBranch"
-                )
-            )
-        )  # Default fallback
-
-        workflow_definition = lambda_step.next(exec_branch_choice)
-
-        # Define the workflow
-        chainable_definition = sfn.DefinitionBody.from_chainable(
-            chainable=workflow_definition
         )
 
-        # Create the Step Functions state machine
-        self.workflow = sfn.StateMachine(
-            self,
-            "DocumentWorkflow",
-            state_machine_name=f"AB2-AnyHealthcare-DocumentWorkflowV6",
-            definition_body=chainable_definition,
-            query_language=sfn.QueryLanguage.JSONATA,
-            logs=sfn.LogOptions(
-                destination=logs.LogGroup(
-                    self,
-                    "WorkflowLogGroup",
-                    log_group_name=f"/aws/stepfunctions/AB2-AnyHealthcare-DocumentWorkflow",
-                    retention=logs.RetentionDays.ONE_WEEK,
-                    removal_policy=RemovalPolicy.DESTROY,
-                ),
-                level=sfn.LogLevel.ALL,
-            ),
-            tracing_enabled=True,
-            removal_policy=RemovalPolicy.DESTROY,
-            role=self.workflow_role,
-        )
+        # Grant permissions to BDA trigger lambda
+        self.raw_bucket.grant_read(self.bda_trigger_lambda)
+        self.processed_bucket.grant_write(self.bda_trigger_lambda)
 
-        # Grant permissions to the workflow role
-
-        # Grant S3 permissions for both buckets
-        self.raw_bucket.grant_read(self.workflow_role)
-        self.processed_bucket.grant_read_write(self.workflow_role)
-
-        # Grant permission to pass the HealthScribe role
-        self.healthscribe_role.grant_pass_role(self.workflow_role)
-
-        # Grant HealthScribe permissions to workflow role
-        self.workflow_role.add_to_policy(
+        # Grant Bedrock Data Automation permissions
+        self.bda_trigger_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "transcribe:StartMedicalScribeJob",
-                    "transcribe:GetMedicalScribeJob",
-                    "transcribe:ListMedicalScribeJobs",
+                    "bedrock:InvokeDataAutomationAsync",
+                    "bedrock:GetDataAutomationStatus"
                 ],
-                resources=["*"],
+                resources=[
+                    self.bda_project.attr_project_arn,
+                    self.bda_profile_arn,
+                    self.data_automation.blueprints["document"].attr_blueprint_arn,
+                    self.data_automation.blueprints["image"].attr_blueprint_arn,
+                    self.data_automation.blueprints["audio"].attr_blueprint_arn,
+                    self.data_automation.blueprints["video"].attr_blueprint_arn
+                ]
             )
         )
 
-        # Grant EventBridge permission to execute the state machine
-        self.workflow.grant_start_execution(self.eventbridge_role)
+        # S3 directly triggers BDA processing lambda on object creation
+        self.raw_bucket.add_event_notification(
+            s3.EventType.OBJECT_CREATED,
+            s3n.LambdaDestination(self.bda_trigger_lambda),
+            # Only process documents in documents/ folder
+            s3.NotificationKeyFilter(prefix="documents/")
+        )
 
-        # Eventbridge rule1, on creation, launch the workflow
-        self.event_rule_input = events.Rule(
+        # * Data Extraction Lambda Function (Knowledge Base Integration)
+        self.extraction_lambda = aws_lambda.Function(
             self,
-            "EventRule",
-            rule_name=f"AB2-AnyHealthcare-EventRule-ReceivedDocumentInput",
+            "DataExtractionLambda",
+            function_name="healthcare-data-extraction",
+            runtime=aws_lambda.Runtime.PYTHON_3_13,
+            handler="index.lambda_handler",
+            code=aws_lambda.Code.from_asset(
+                "lambdas/document-workflow/extraction"),
+            timeout=Duration.minutes(10),
+            memory_size=1024,
+            environment={
+                "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
+                "KNOWLEDGE_BASE_ID": "healthcare-kb"
+                # Database configuration will come from SSM parameters
+            },
+            log_group=logs.LogGroup(
+                self,
+                "DataExtractionLambdaLogGroup",
+                log_group_name="/aws/lambda/healthcare-data-extraction",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=RemovalPolicy.DESTROY,
+            ),
+        )
+
+        # Grant permissions to extraction lambda
+        self.processed_bucket.grant_read_write(self.extraction_lambda)
+
+        # Grant SSM permissions for database configuration
+        self.extraction_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ssm:GetParameter",
+                    "ssm:GetParameters"
+                ],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/database/*"
+                ]
+            )
+        )
+
+        # Grant Bedrock Agent permissions for Knowledge Base
+        self.extraction_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:StartIngestionJob",
+                    "bedrock:GetIngestionJob",
+                    "bedrock:ListIngestionJobs"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/*"
+                ]
+            )
+        )
+
+        # Grant RDS Data API permissions
+        self.extraction_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement"
+                ],
+                resources=[
+                    f"arn:aws:rds:{self.region}:{self.account}:cluster:*"
+                ]
+            )
+        )
+
+        # Grant Secrets Manager permissions
+        self.extraction_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[
+                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:*"
+                ]
+            )
+        )
+
+        # * EventBridge Rule for BDA Completion Events - Direct to Knowledge Base
+        self.bda_completion_rule = events.Rule(
+            self,
+            "BDACompletionEventRule",
+            rule_name="healthcare-bda-completion",
+            description="Trigger knowledge base ingestion when BDA processing completes",
             event_pattern=events.EventPattern(
-                source=["aws.s3"],
-                detail_type=["Object Created"],
+                source=["aws.bedrock"],
+                detail_type=["Bedrock Data Automation Status Change"],
                 detail={
-                    "bucket": {"name": [self.raw_bucket.bucket_name]},
-                    "object": {"key": [{"exists": True}]},
-                },
+                    "status": ["SUCCEEDED", "FAILED"]
+                }
             ),
             targets=[
-                targets.SfnStateMachine(self.workflow, role=self.eventbridge_role)
+                targets.LambdaFunction(
+                    self.extraction_lambda,
+                    retry_attempts=2,
+                    max_event_age=Duration.hours(2)
+                )
             ],
-            enabled=True,
+            enabled=True
         )
