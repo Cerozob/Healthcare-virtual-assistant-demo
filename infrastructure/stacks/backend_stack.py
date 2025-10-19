@@ -127,9 +127,9 @@ class BackendStack(Stack):
                                           retention=Duration.days(7)),
                                       removal_policy=RemovalPolicy.DESTROY,
                                       deletion_protection=False,
-                                    #   serverless_v2_auto_pause_duration=Duration.minutes(
-                                    #       30),
-                                      serverless_v2_min_capacity=0.5,
+                                      serverless_v2_auto_pause_duration=Duration.minutes(
+                                          5),
+                                      serverless_v2_min_capacity=0,
                                       serverless_v2_max_capacity=40,
                                       storage_encrypted=True,
                                       iam_authentication=True
