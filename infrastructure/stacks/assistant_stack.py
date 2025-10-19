@@ -12,7 +12,6 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from constructs import Construct
-from infrastructure.constructs.knowledge_base_construct import KnowledgeBaseConstruct
 import json
 
 

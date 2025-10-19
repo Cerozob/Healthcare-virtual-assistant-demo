@@ -13,19 +13,22 @@
     "format": "npx prettier --ignore-path .gitignore --write \"**/*.+(tsx|js|ts|json)\"",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist node_modules/.vite",
-    "prebuild": "npm run type-check"
+    "prebuild": "npm run type-check",
+    "inject-config": "node scripts/inject-config.js"
   },
   "dependencies": {
     "@cloudscape-design/components": "^3.0.611",
     "@cloudscape-design/design-tokens": "^3.0.35",
     "@cloudscape-design/global-styles": "^1.0.27",
-    "aws-amplify": "^6.0.0",
-    "uuid": "^9.0.0",
+    "aws-amplify": "^6.15.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0"
+    "react-router-dom": "^6.22.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
+    "@aws-amplify/backend": "^1.16.1",
+    "@aws-amplify/backend-cli": "^1.8.0",
     "@types/node": "^24.6.2",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
@@ -34,12 +37,16 @@
     "@typescript-eslint/parser": "^6.21.0",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.17",
+    "aws-cdk-lib": "^2.204.0",
+    "constructs": "^10.4.2",
+    "esbuild": "^0.25.11",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.35",
     "sass": "^1.70.0",
-    "typescript": "^5.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
     "vite": "^5.4.8"
   },
   "overrides": {

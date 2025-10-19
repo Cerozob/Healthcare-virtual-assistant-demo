@@ -18,7 +18,6 @@ from aws_cdk import Aspects
 from infrastructure.stacks.assistant_stack import AssistantStack
 from infrastructure.stacks.document_workflow_stack import DocumentWorkflowStack
 from infrastructure.stacks.backend_stack import BackendStack
-from infrastructure.stacks.frontend_stack import FrontendStack
 from infrastructure.stacks.api_stack import ApiStack
 
 from pathlib import Path
@@ -148,7 +147,6 @@ else:
 document_workflow_stack = None
 backend_stack = None
 assistant_stack = None
-frontend_stack = None
 api_stack = None
 
 logger.info("Creating CDK stacks based on configuration...")
@@ -211,20 +209,6 @@ if config.get("enableVirtualAssistant"):
 else:
     logger.info("Virtual assistant disabled - skipping AssistantStack")
 
-if config.get("enableFrontend"):
-    logger.info("Frontend enabled - creating FrontendStack")
-    frontend_stack = FrontendStack(
-        app,
-        "frontendstack",
-        env=env,
-        stack_name="AWSomeBuilder2-FrontendStack",
-        description="Frontend React para el asistente virtual de HealthCare",
-    )
-    logger.info("FrontendStack created successfully")
-else:
-    logger.info("Frontend disabled - skipping FrontendStack")
-
-
 # Add stack dependencies
 logger.info("Configuring stack dependencies...")
 dependencies_added = 0
@@ -240,13 +224,10 @@ if backend_stack and assistant_stack:
     logger.info("Added dependency: AssistantStack depends on BackendStack")
     dependencies_added += 1
 
-if assistant_stack and frontend_stack:
-    frontend_stack.add_dependency(assistant_stack)
-    logger.info("Added dependency: FrontendStack depends on AssistantStack")
-    dependencies_added += 1
-
 logger.info(f"Total stack dependencies configured: {dependencies_added}")
 
 logger.info("Starting CDK synthesis...")
 app.synth()
 logger.info("CDK synthesis completed successfully")
+
+logger.warning("⚠️ Heads up! the frontend need to be deployed separeately using Amplify!")

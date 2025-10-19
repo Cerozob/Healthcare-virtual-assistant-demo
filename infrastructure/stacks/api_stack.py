@@ -10,6 +10,7 @@ from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_ssm as ssm
+
 from constructs import Construct
 import os
 
@@ -33,11 +34,18 @@ class ApiStack(Stack):
         # Create API Gateway
         self._create_api_gateway()
         
-        # Create SSM parameters for API configuration
+
+        
+        # Store API endpoint in SSM Parameter Store
         self._create_ssm_parameters()
         
         # Create outputs
         self._create_outputs()
+
+    @property
+    def api_endpoint_url(self) -> str:
+        """Get the API Gateway endpoint URL with /v1 path."""
+        return f"{self.api.api_endpoint}/v1"
 
     def _create_lambda_functions(self) -> None:
         """Create all Lambda functions for the healthcare API."""
@@ -259,6 +267,27 @@ class ApiStack(Stack):
         self.document_upload_function.add_to_role_policy(secrets_policy)
         self.document_upload_function.add_to_role_policy(eventbridge_policy)
 
+        # Config Function - provides configuration to frontend
+        self.config_function = lambda_.Function(
+            self,
+            "ConfigFunction",
+            function_name="healthcare-config",
+            code=lambda_.Code.from_asset("lambdas/api/config"),
+            handler="handler.lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            log_group=logs.LogGroup(
+                self,
+                "ConfigLogGroup",
+                log_group_name="/aws/lambda/healthcare-config",
+                retention=logs.RetentionDays.ONE_WEEK
+            )
+        )
+        self.config_function.add_to_role_policy(ssm_policy)
+
+
+
     def _create_api_gateway(self) -> None:
         """Create HTTP API Gateway v2 with all endpoints."""
         
@@ -297,6 +326,7 @@ class ApiStack(Stack):
         chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
         agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
         document_integration = HttpLambdaIntegration("DocumentIntegration", self.document_upload_function)
+        config_integration = HttpLambdaIntegration("ConfigIntegration", self.config_function)
 
         # Helper function to create CRUD routes
         def create_crud_routes(path: str, integration: HttpLambdaIntegration):
@@ -361,6 +391,15 @@ class ApiStack(Stack):
             integration=document_integration
         )
 
+        # Config route - public endpoint for frontend configuration
+        self.api.add_routes(
+            path="/config",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=config_integration
+        )
+
+
+
         # Create a production stage
         self.stage = apigwv2.HttpStage(
             self,
@@ -371,25 +410,18 @@ class ApiStack(Stack):
             description="Production stage for healthcare API"
         )
 
+
+
     def _create_ssm_parameters(self) -> None:
-        """Create SSM parameters for API configuration."""
+        """Store API configuration in SSM Parameter Store."""
         
-        # Store API Gateway information
-        self.api_endpoint_param = ssm.StringParameter(
+        # Store the API endpoint URL
+        self.api_endpoint_parameter = ssm.StringParameter(
             self,
-            "ApiEndpointParam",
+            "ApiEndpointParameter",
             parameter_name="/healthcare/api/endpoint",
             string_value=f"{self.api.api_endpoint}/v1",
-            description="Healthcare HTTP API Gateway endpoint URL",
-            tier=ssm.ParameterTier.STANDARD
-        )
-        
-        self.api_id_param = ssm.StringParameter(
-            self,
-            "ApiIdParam",
-            parameter_name="/healthcare/api/id",
-            string_value=self.api.api_id,
-            description="Healthcare HTTP API Gateway ID",
+            description="Healthcare API Gateway endpoint URL",
             tier=ssm.ParameterTier.STANDARD
         )
 
@@ -400,22 +432,26 @@ class ApiStack(Stack):
             self,
             "ApiEndpoint",
             value=f"{self.api.api_endpoint}/v1",
-            description="Healthcare HTTP API Gateway endpoint URL",
-            export_name="HealthcareApiEndpoint"
+            description="Healthcare HTTP API Gateway endpoint URL"
+        )
+        
+        CfnOutput(
+            self,
+            "ApiEndpointParameterName",
+            value=self.api_endpoint_parameter.parameter_name,
+            description="SSM Parameter name for API endpoint"
         )
         
         CfnOutput(
             self,
             "ApiId",
             value=self.api.api_id,
-            description="Healthcare HTTP API Gateway ID",
-            export_name="HealthcareApiId"
+            description="Healthcare HTTP API Gateway ID"
         )
         
         CfnOutput(
             self,
             "ApiDomainName",
             value=self.api.api_endpoint,
-            description="Healthcare HTTP API Gateway domain name",
-            export_name="HealthcareApiDomainName"
+            description="Healthcare HTTP API Gateway domain name"
         )
