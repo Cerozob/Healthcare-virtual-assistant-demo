@@ -1,11 +1,34 @@
-import { defineBackend } from '@aws-amplify/backend';
+import { defineBackend, secret } from '@aws-amplify/backend';
 import { auth } from './auth/resource';
-import { data } from './data/resource';
 
 /**
- * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
+ * Healthcare System Backend
+ * Only defines auth - API Gateway and S3 are managed by CDK
+ * External resource values are retrieved from Amplify secrets
  */
-defineBackend({
+const backend = defineBackend({
   auth,
-  data,
+});
+
+// Reference existing CDK resources
+const { cfnUserPool } = backend.auth.resources.cfnResources;
+
+// Configure the user pool to use email as username
+cfnUserPool.usernameAttributes = ['email'];
+cfnUserPool.autoVerifiedAttributes = ['email'];
+
+// Get CDK resource values from Amplify secrets
+const apiGatewayEndpoint = secret('CDK_API_GATEWAY_ENDPOINT');
+const s3BucketName = secret('CDK_S3_BUCKET_NAME');
+const awsRegion = secret('AWS_REGION');
+
+// Add outputs for existing CDK resources integration
+backend.addOutput({
+  custom: {
+    healthcareSystem: 'true',
+    version: '2.0',
+    apiGatewayEndpoint,
+    s3BucketName,
+    awsRegion,
+  },
 });

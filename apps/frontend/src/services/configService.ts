@@ -69,11 +69,13 @@ class ConfigService {
   }
 
   private async fetchConfigFromAPI(): Promise<RuntimeConfig> {
-    // Get the API base URL from environment variables set by Amplify CLI
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+    // Try to get API base URL from Amplify configuration
+    // This will be set by the main App component after Amplify is configured
+    const amplifyConfig = (window as { amplifyConfig?: any }).amplifyConfig;
+    const apiBaseUrl = amplifyConfig?.API?.REST?.HealthcareAPI?.endpoint;
     
     if (apiBaseUrl) {
-      console.log('📍 Using API base URL from environment:', apiBaseUrl);
+      console.log('📍 Using API base URL from Amplify config:', apiBaseUrl);
       
       try {
         // Fetch config from the /config endpoint
@@ -104,11 +106,11 @@ class ConfigService {
 
       } catch (error) {
         console.warn(`❌ Failed to fetch config from API:`, error);
-        // Fall back to using the environment variable directly
-        console.log('🔄 Using environment variable as fallback');
+        // Fall back to using the Amplify config directly
+        console.log('🔄 Using Amplify config as fallback');
         return {
           apiBaseUrl,
-          region: import.meta.env.VITE_AWS_REGION || 'us-east-1'
+          region: amplifyConfig?.API?.REST?.HealthcareAPI?.region || 'us-east-1'
         };
       }
     }

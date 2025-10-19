@@ -1,19 +1,63 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AppLayout, TopNavigation, ContentLayout, Spinner, Box, Alert } from '@cloudscape-design/components';
+import { Amplify, ResourcesConfig } from 'aws-amplify';
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
 import HomePage from './pages/HomePage';
 import { configService } from './services/configService';
+import outputs from '../amplify_outputs.json';
+
+// Configure Amplify with existing CDK resources
+const configureAmplify = async () => {
+  // Get CDK resource values from Amplify outputs (populated from secrets)
+  const apiEndpoint = outputs.custom?.apiGatewayEndpoint || 'http://localhost:3000/v1';
+  const bucketName = outputs.custom?.s3BucketName || 'healthcare-documents-bucket';
+  const region = outputs.custom?.awsRegion || 'us-east-1';
+  
+  console.log('🔧 Configuring Amplify with CDK resources:');
+  console.log('   API Endpoint:', apiEndpoint);
+  console.log('   S3 Bucket:', bucketName);
+  console.log('   Region:', region);
+  
+  // Merge Amplify auth config with existing CDK resources
+  const amplifyConfig: ResourcesConfig = {
+    ...outputs,
+    API: {
+      REST: {
+        HealthcareAPI: {
+          endpoint: apiEndpoint,
+          region,
+        },
+      },
+    },
+    Storage: {
+      S3: {
+        bucket: bucketName,
+        region,
+      },
+    },
+  };
+
+  Amplify.configure(amplifyConfig);
+  
+  // Store config globally for other services to access
+  (window as { amplifyConfig?: any }).amplifyConfig = amplifyConfig;
+  
+  // Also load config service for any additional configuration
+  await configService.loadConfig();
+};
 
 const App: React.FC = () => {
   const [configError, setConfigError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Initialize configuration on app start
+    // Initialize configuration and Amplify on app start
     const loadConfiguration = async () => {
       try {
         setIsLoading(true);
-        await configService.loadConfig();
+        await configureAmplify();
         setConfigError(null);
       } catch (error) {
         console.error('Failed to load configuration:', error);
@@ -42,44 +86,60 @@ const App: React.FC = () => {
   }
 
   return (
-    <Router>
-      <TopNavigation
-        identity={{
-          href: '/',
-          title: 'AWSome Builder'
-        }}
-        utilities={[
-          {
-            type: 'button',
-            text: 'Documentation',
-            href: '#',
-            external: true,
-            externalIconAriaLabel: ' (opens in a new tab)'
-          }
-        ]}
-      />
-      <AppLayout
-        navigationHide
-        toolsHide
-        content={
-          <ContentLayout>
-            {configError && (
-              <Alert
-                type="warning"
-                header="Configuration Warning"
-                dismissible
-                onDismiss={() => setConfigError(null)}
-              >
-                {configError}. The application is using localhost fallback configuration.
-              </Alert>
-            )}
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-            </Routes>
-          </ContentLayout>
-        }
-      />
-    </Router>
+    <Authenticator>
+      {({ signOut, user }: { signOut?: () => void; user?: { signInDetails?: { loginId?: string } } }) => (
+        <Router>
+          <TopNavigation
+            identity={{
+              href: '/',
+              title: 'Healthcare System'
+            }}
+            utilities={[
+              {
+                type: 'menu-dropdown',
+                text: user?.signInDetails?.loginId || 'User',
+                items: [
+                  {
+                    id: 'profile',
+                    text: 'Profile'
+                  },
+                  {
+                    id: 'signout',
+                    text: 'Sign out'
+                  }
+                ],
+                onItemClick: ({ detail }) => {
+                  if (detail.id === 'signout') {
+                    signOut?.();
+                  }
+                }
+              }
+            ]}
+          />
+          <AppLayout
+            navigationHide
+            toolsHide
+            content={
+              <ContentLayout>
+                {configError && (
+                  <Alert
+                    type="warning"
+                    header="Configuration Warning"
+                    dismissible
+                    onDismiss={() => setConfigError(null)}
+                  >
+                    {configError}. The application is using localhost fallback configuration.
+                  </Alert>
+                )}
+                <Routes>
+                  <Route path="/" element={<HomePage />} />
+                </Routes>
+              </ContentLayout>
+            }
+          />
+        </Router>
+      )}
+    </Authenticator>
   );
 };
 

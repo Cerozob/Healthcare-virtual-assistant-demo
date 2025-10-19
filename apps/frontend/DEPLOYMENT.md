@@ -28,33 +28,63 @@ aws cloudformation describe-stacks \
   --output text
 ```
 
-### Step 3: Initialize Amplify (First Time Only)
+### Step 3: Initialize Amplify Gen2 (First Time Only)
 ```bash
 cd apps/frontend
-amplify init
+
+# Install dependencies
+npm install
+
+# Start the sandbox environment
+npx ampx sandbox
 ```
 
-Follow the prompts:
-- **Project name**: `healthcare-frontend`
-- **Environment name**: `prod`
-- **Default editor**: Your preferred editor
-- **App type**: `javascript`
-- **Framework**: `react`
-- **Source directory**: `src`
-- **Build directory**: `dist`
-- **Build command**: `npm run build`
-- **Start command**: `npm run dev`
+This will:
+- Deploy Cognito User Pool and Identity Pool for authentication
+- Generate `amplify_outputs.json` with configuration
+- Create local secrets in Parameter Store (for sandbox only)
 
-### Step 4: Set Environment Variables
+**Note**: For local development, you can set secrets using:
 ```bash
-# Set the API Gateway URL (replace with your actual URL)
-amplify env set VITE_API_BASE_URL "https://your-api-gateway-url/v1"
-amplify env set VITE_AWS_REGION "us-east-1"
+npx ampx sandbox secret set CDK_API_GATEWAY_ENDPOINT
+npx ampx sandbox secret set CDK_S3_BUCKET_NAME
+npx ampx sandbox secret set AWS_REGION
 ```
 
-### Step 5: Deploy Frontend
+### Step 4: Configure Secrets for CDK Resources
+After the sandbox is running, you need to configure secrets in the Amplify Console:
+
+1. **Get CDK Resource Values**:
+   ```bash
+   # Get API Gateway endpoint
+   API_ENDPOINT=$(aws cloudformation describe-stacks \
+     --stack-name AWSomeBuilder2-ApiStack \
+     --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+     --output text)
+   
+   # Get S3 bucket name (adjust stack name as needed)
+   BUCKET_NAME=$(aws s3 ls | grep healthcare | awk '{print $3}')
+   
+   echo "API Endpoint: $API_ENDPOINT"
+   echo "S3 Bucket: $BUCKET_NAME"
+   ```
+
+2. **Set Secrets in Amplify Console** (Gen2 approach):
+   - Go to [Amplify Console](https://console.aws.amazon.com/amplify/)
+   - Select your app → Hosting → Secrets → Manage secrets
+   - Add these secrets:
+     - `CDK_API_GATEWAY_ENDPOINT`: `https://your-api-id.execute-api.us-east-1.amazonaws.com/v1`
+     - `CDK_S3_BUCKET_NAME`: `your-s3-bucket-name`
+     - `AWS_REGION`: `us-east-1`
+
+   See [AMPLIFY_SECRETS.md](./AMPLIFY_SECRETS.md) for detailed instructions.
+
+### Step 5: Deploy to Production
 ```bash
-amplify publish
+# Deploy the Amplify backend
+npx ampx deploy --branch main
+
+# Or use Amplify Console for CI/CD
 ```
 
 ## Environment Management

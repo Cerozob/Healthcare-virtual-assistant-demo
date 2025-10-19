@@ -41,31 +41,42 @@ fi
 # Navigate to frontend directory
 cd apps/frontend
 
-# Check if Amplify is already initialized
-if [ ! -f "amplify/.config/project-config.json" ]; then
-    echo "🔧 Initializing Amplify project..."
+# Check if Amplify Gen2 is already initialized
+if [ ! -f "amplify_outputs.json" ]; then
+    echo "🔧 Starting Amplify Gen2 sandbox..."
     
-    # Initialize Amplify (this will prompt for configuration)
-    amplify init
+    # Install dependencies
+    npm install
     
-    echo "✅ Amplify project initialized"
+    # Start sandbox (this will create the backend resources)
+    echo "📦 Starting sandbox environment..."
+    npx ampx sandbox --once
+    
+    echo "✅ Amplify Gen2 sandbox deployed"
 else
-    echo "✅ Amplify project already initialized"
+    echo "✅ Amplify Gen2 already configured"
 fi
 
-# Set environment variables
-echo "🔧 Setting environment variables..."
+# Display values for Amplify Console secrets setup
+echo "🔧 CDK Resource Values (set these as secrets in Amplify Console):"
+echo "   CDK_API_GATEWAY_ENDPOINT: $API_URL"
 
-# Set the API URL for production environment
-amplify env checkout prod 2>/dev/null || amplify env add prod
+# Try to get S3 bucket name
+BUCKET_NAME=$(aws s3 ls | grep healthcare | awk '{print $3}' | head -1 || echo "healthcare-documents-bucket")
+echo "   CDK_S3_BUCKET_NAME: $BUCKET_NAME"
+echo ""
+echo "📝 Please set these values as secrets in the Amplify Console (Gen2) before deploying:"
+echo "   Go to: Amplify Console → Your App → Hosting → Secrets → Manage secrets"
+echo "   See apps/frontend/AMPLIFY_SECRETS.md for detailed instructions."
+echo ""
 
-echo "📝 Setting VITE_API_BASE_URL to: $API_URL"
-amplify env set VITE_API_BASE_URL "$API_URL"
-amplify env set VITE_AWS_REGION "us-east-1"
+# Build the frontend
+echo "🏗️  Building frontend..."
+npm run build
 
-# Deploy the frontend
+# Deploy to production
 echo "🚀 Deploying frontend to Amplify..."
-amplify publish
+npx ampx deploy --branch main
 
 echo ""
 echo "✅ Frontend deployment completed!"

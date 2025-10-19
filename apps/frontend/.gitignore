@@ -3,3 +3,7 @@ node_modules
 .amplify
 amplify_outputs*
 amplifyconfiguration*
+
+# Environment files (not used - configuration via Amplify secrets)
+.env*
+!.env.example
