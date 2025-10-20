@@ -1,5 +1,5 @@
 import React from 'react';
-import { Spinner, Box } from '@cloudscape-design/components';
+import { Spinner, Box, ProgressBar } from '@cloudscape-design/components';
 
 interface LoadingSpinnerProps {
   size?: 'normal' | 'big' | 'large';
@@ -59,12 +59,11 @@ export const SkeletonText: React.FC<SkeletonTextProps> = ({ lines = 3 }) => (
         key={index}
         margin={{ bottom: 's' }}
         padding="s"
-        backgroundColor="background-container-content"
+        color="text-body-secondary"
       >
         <Box 
-          backgroundColor="background-layout-main"
+          color='text-body-secondary'
           padding="xs"
-          borderRadius="4px"
         />
       </Box>
     ))}
@@ -87,16 +86,10 @@ export const ProgressLoading: React.FC<ProgressLoadingProps> = ({
       {label}
     </Box>
     <Box 
-      backgroundColor="background-container-content"
-      borderRadius="4px"
+      color='text-status-info'
       padding="xxs"
     >
-      <Box
-        backgroundColor="color-background-status-info"
-        borderRadius="4px"
-        padding="xxs"
-        style={{ width: `${Math.min(100, Math.max(0, value))}%`, transition: 'width 0.3s ease' }}
-      />
+      <ProgressBar value={value} label="Procesando..." />
     </Box>
     {description && (
       <Box variant="small" color="text-body-secondary" margin={{ top: 'xs' }}>

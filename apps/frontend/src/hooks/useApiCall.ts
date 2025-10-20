@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { getErrorMessage, isRetryableError, withRetry } from '../utils/errorHandling';
+import { getErrorMessage, withRetry } from '../utils/errorHandling';
 
 interface UseApiCallOptions<T> {
   onSuccess?: (data: T) => void;
