@@ -22,11 +22,9 @@ const apiGatewayEndpoint = secret('CDK_API_GATEWAY_ENDPOINT');
 const s3BucketName = secret('CDK_S3_BUCKET_NAME');
 const awsRegion = secret('AWS_REGION');
 
-// Add outputs for existing CDK resources integration
+// Add custom outputs for existing CDK resources
 backend.addOutput({
   custom: {
-    healthcareSystem: 'true',
-    version: '2.0',
     apiGatewayEndpoint,
     s3BucketName,
     awsRegion,

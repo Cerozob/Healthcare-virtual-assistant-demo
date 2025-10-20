@@ -1,17 +1,17 @@
-import React, { useState } from 'react';
 import {
-  Container,
-  Header,
-  SpaceBetween,
-  Button,
-  FileUpload,
   Alert,
-  Box,
-  ProgressBar,
-  Cards,
   Badge,
-  Link
+  Box,
+  Button,
+  Cards,
+  Container,
+  FileUpload,
+  Header,
+  Link,
+  SpaceBetween
 } from '@cloudscape-design/components';
+import type React from 'react';
+import { useState } from 'react';
 import { storageService } from '../services/storageService';
 
 interface UploadedFile {

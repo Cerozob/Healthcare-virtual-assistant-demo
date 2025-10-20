@@ -36,7 +36,6 @@ class StorageService {
         key,
         data: file,
         options: {
-          accessLevel: options?.accessLevel || 'private',
           contentType: options?.contentType || file.type,
           onProgress: options?.onProgress,
         },
@@ -56,19 +55,13 @@ class StorageService {
    * Download a file from S3
    */
   async downloadFile(
-    key: string,
-    options?: {
-      accessLevel?: 'guest' | 'protected' | 'private';
-    }
+    key: string
   ): Promise<Blob> {
     try {
       console.log(`📥 Downloading file: ${key}`);
       
       const result = await downloadData({
         key,
-        options: {
-          accessLevel: options?.accessLevel || 'private',
-        },
       }).result;
 
       const blob = await result.body.blob();
