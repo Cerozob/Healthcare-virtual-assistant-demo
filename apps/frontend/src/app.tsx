@@ -10,23 +10,37 @@ import { configService } from './services/configService';
 
 // Configure Amplify with existing CDK resources
 const configureAmplify = async () => {
+  console.log('🔧 Loading configuration from Amplify outputs...');
+  console.log('Raw outputs:', outputs.custom);
+
   // Get CDK resource values from Amplify outputs (populated from secrets)
-  // Handle both resolved strings and secret objects
-  const apiEndpoint = typeof outputs.custom?.apiGatewayEndpoint === 'string' 
-    ? outputs.custom.apiGatewayEndpoint 
-    : 'http://localhost:3000/v1';
-  const bucketName = typeof outputs.custom?.s3BucketName === 'string'
-    ? outputs.custom.s3BucketName
-    : 'healthcare-documents-bucket';
-  const region = typeof outputs.custom?.awsRegion === 'string'
-    ? outputs.custom.awsRegion
-    : 'us-east-1';
-  
-  console.log('🔧 Configuring Amplify with CDK resources:');
+  const apiEndpoint = outputs.custom?.apiGatewayEndpoint;
+  const bucketName = outputs.custom?.s3BucketName;
+  const region = outputs.custom?.awsRegion;
+
+  // Validate that all required secrets are available
+  const missingSecrets = [];
+  if (!apiEndpoint || typeof apiEndpoint !== 'string' || apiEndpoint.includes('PLACEHOLDER') || apiEndpoint.includes('localhost')) {
+    missingSecrets.push('CDK_API_GATEWAY_ENDPOINT');
+  }
+  if (!bucketName || typeof bucketName !== 'string' || bucketName.includes('PLACEHOLDER')) {
+    missingSecrets.push('CDK_S3_BUCKET_NAME');
+  }
+  if (!region || typeof region !== 'string' || region.includes('PLACEHOLDER')) {
+    missingSecrets.push('AWS_REGION');
+  }
+
+  if (missingSecrets.length > 0) {
+    const errorMessage = `Missing or invalid Amplify secrets: ${missingSecrets.join(', ')}. Please configure these secrets in the Amplify Console under Hosting → Secrets.`;
+    console.error('❌ Configuration Error:', errorMessage);
+    throw new Error(errorMessage);
+  }
+
+  console.log('✅ Configuration loaded successfully:');
   console.log('   API Endpoint:', apiEndpoint);
   console.log('   S3 Bucket:', bucketName);
   console.log('   Region:', region);
-  
+
   // Merge Amplify auth config with existing CDK resources
   const amplifyConfig: ResourcesConfig = {
     ...outputs,
@@ -47,10 +61,10 @@ const configureAmplify = async () => {
   };
 
   Amplify.configure(amplifyConfig);
-  
+
   // Store config globally for other services to access
   (window as { amplifyConfig?: ResourcesConfig }).amplifyConfig = amplifyConfig;
-  
+
   // Also load config service for any additional configuration
   await configService.loadConfig();
 };
@@ -86,7 +100,15 @@ const App: React.FC = () => {
           Loading Configuration
         </Box>
         <Box variant="p" padding={{ top: 's' }} color="text-body-secondary">
-          Fetching API endpoint from AWS Systems Manager...
+          Loading configuration from Amplify secrets...
+        </Box>
+        <Box variant="small" padding={{ top: 's' }} color="text-body-secondary">
+          <details>
+            <summary>Debug Info</summary>
+            <pre style={{ fontSize: '12px', marginTop: '8px' }}>
+              {JSON.stringify(outputs.custom, null, 2)}
+            </pre>
+          </details>
         </Box>
       </Box>
     );
@@ -130,12 +152,21 @@ const App: React.FC = () => {
               <ContentLayout>
                 {configError && (
                   <Alert
-                    type="warning"
-                    header="Configuration Warning"
+                    type="error"
+                    header="Configuration Error"
                     dismissible
                     onDismiss={() => setConfigError(null)}
                   >
-                    {configError}. The application is using localhost fallback configuration.
+                    <div>
+                      <p>{configError}</p>
+                      <p><strong>To fix this:</strong></p>
+                      <ol>
+                        <li>Go to the <a href="https://console.aws.amazon.com/amplify/" target="_blank" rel="noopener noreferrer">Amplify Console</a></li>
+                        <li>Select your app → Hosting → Secrets</li>
+                        <li>Add the required secrets with values from your CDK deployment</li>
+                        <li>Redeploy the application</li>
+                      </ol>
+                    </div>
                   </Alert>
                 )}
                 <Routes>

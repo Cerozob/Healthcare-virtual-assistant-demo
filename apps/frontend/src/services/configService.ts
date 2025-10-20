@@ -71,7 +71,7 @@ class ConfigService {
   private async fetchConfigFromAPI(): Promise<RuntimeConfig> {
     // Try to get API base URL from Amplify configuration
     // This will be set by the main App component after Amplify is configured
-    const amplifyConfig = (window as { amplifyConfig?: any }).amplifyConfig;
+    const amplifyConfig = (window as { amplifyConfig?: { API?: { REST?: { HealthcareAPI?: { endpoint?: string; region?: string } } } } }).amplifyConfig;
     const apiBaseUrl = amplifyConfig?.API?.REST?.HealthcareAPI?.endpoint;
     
     if (apiBaseUrl) {
@@ -115,12 +115,9 @@ class ConfigService {
       }
     }
 
-    // Final fallback for development
-    console.log('🔄 Using localhost fallback');
-    return {
-      apiBaseUrl: 'http://localhost:3000/v1',
-      region: 'us-east-1'
-    };
+    // No fallback - configuration must be properly set
+    console.error('❌ No valid API configuration found');
+    throw new Error('API configuration not available. Please ensure Amplify secrets are properly configured.');
   }
 
   /**
