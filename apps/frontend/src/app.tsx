@@ -6,7 +6,9 @@ import { useEffect, useState } from 'react';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import outputs from '../amplify_outputs.json';
 import HomePage from './pages/HomePage';
+import DocumentTestPage from './pages/DocumentTestPage';
 import { configService } from './services/configService';
+import { type AmplifyOutputs, resolveSecretValue } from './types/amplify';
 
 // Configure Amplify with existing CDK resources
 const configureAmplify = async () => {
@@ -14,19 +16,22 @@ const configureAmplify = async () => {
   console.log('Raw outputs:', outputs.custom);
 
   // Get CDK resource values from Amplify outputs (populated from secrets)
-  const apiEndpoint = outputs.custom?.apiGatewayEndpoint;
-  const bucketName = outputs.custom?.s3BucketName;
-  const region = outputs.custom?.awsRegion;
+  const typedOutputs = outputs as AmplifyOutputs;
+
+  // Resolve secret values (handles both resolved strings and secret objects)
+  const apiEndpoint = resolveSecretValue(typedOutputs.custom.apiGatewayEndpoint);
+  const bucketName = resolveSecretValue(typedOutputs.custom.s3BucketName);
+  const region = resolveSecretValue(typedOutputs.custom.awsRegion);
 
   // Validate that all required secrets are available
-  const missingSecrets = [];
-  if (!apiEndpoint || typeof apiEndpoint !== 'string' || apiEndpoint.includes('PLACEHOLDER') || apiEndpoint.includes('localhost')) {
+  const missingSecrets: string[] = [];
+  if (!apiEndpoint || apiEndpoint.includes('PLACEHOLDER') || apiEndpoint.includes('localhost')) {
     missingSecrets.push('CDK_API_GATEWAY_ENDPOINT');
   }
-  if (!bucketName || typeof bucketName !== 'string' || bucketName.includes('PLACEHOLDER')) {
+  if (!bucketName || bucketName.includes('PLACEHOLDER')) {
     missingSecrets.push('CDK_S3_BUCKET_NAME');
   }
-  if (!region || typeof region !== 'string' || region.includes('PLACEHOLDER')) {
+  if (!region || region.includes('PLACEHOLDER')) {
     missingSecrets.push('AWS_REGION');
   }
 
@@ -47,15 +52,15 @@ const configureAmplify = async () => {
     API: {
       REST: {
         HealthcareAPI: {
-          endpoint: apiEndpoint,
-          region,
+          endpoint: apiEndpoint as string,
+          region: region as string,
         },
       },
     },
     Storage: {
       S3: {
-        bucket: bucketName,
-        region,
+        bucket: bucketName as string,
+        region: region as string,
       },
     },
   };
@@ -125,6 +130,11 @@ const App: React.FC = () => {
             }}
             utilities={[
               {
+                type: 'button',
+                text: 'Test Documents',
+                href: '/test-documents'
+              },
+              {
                 type: 'menu-dropdown',
                 text: user?.signInDetails?.loginId || 'User',
                 items: [
@@ -171,6 +181,7 @@ const App: React.FC = () => {
                 )}
                 <Routes>
                   <Route path="/" element={<HomePage />} />
+                  <Route path="/test-documents" element={<DocumentTestPage />} />
                 </Routes>
               </ContentLayout>
             }
