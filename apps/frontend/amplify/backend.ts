@@ -21,6 +21,8 @@ cfnUserPool.autoVerifiedAttributes = ['email'];
 const apiGatewayEndpoint = secret('CDK_API_GATEWAY_ENDPOINT');
 const s3BucketName = secret('CDK_S3_BUCKET_NAME');
 const awsRegion = secret('AWS_REGION');
+
+console.log("debugsecrets", apiGatewayEndpoint, s3BucketName, awsRegion)
 // Add custom outputs for existing CDK resources
 backend.addOutput({
   

@@ -8,9 +8,8 @@ export {
   useChatMessages, useChatSessions,
   useCreateChatSession, useSendMessage
 } from './useChat';
-export {
-  useDocumentStatus, useDocumentUpload
-} from './useDocuments';
+// Document hooks removed - using direct S3 upload via Amplify Storage
 export {
   useCreatePatient, useDeletePatient, usePatient, usePatients, useUpdatePatient
 } from './usePatients';
+export { useFileProcessing } from './useFileProcessing';

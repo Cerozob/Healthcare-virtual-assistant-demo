@@ -7,3 +7,6 @@ amplifyconfiguration*
 # Environment files (not used - configuration via Amplify secrets)
 .env*
 !.env.example
+
+# Generated runtime config (built from CDK outputs)
+public/runtime-config.json

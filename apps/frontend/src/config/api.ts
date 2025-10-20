@@ -26,7 +26,7 @@ export function getApiConfig(): ApiConfig {
     const runtimeConfig = configService.getConfig();
     return {
       ...defaultConfig,
-      baseUrl: runtimeConfig.apiBaseUrl || defaultConfig.baseUrl
+      baseUrl: runtimeConfig.apiBaseUrl
     };
   } catch (error) {
     console.warn('Failed to load runtime config, using default:', error);
@@ -60,7 +60,5 @@ export const API_ENDPOINTS = {
   // Agent endpoints
   agent: '/agent',
 
-  // Document endpoints
-  documentUpload: '/documents/upload',
-  documentStatus: (id: string) => `/documents/status/${id}`
+  // Document endpoints - removed, using direct S3 upload via Amplify Storage
 } as const;

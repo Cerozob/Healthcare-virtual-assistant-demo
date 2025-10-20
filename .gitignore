@@ -228,3 +228,8 @@ samconfig.toml
 Thumbs.db
 
 .kiro*
+
+*.csv
+*.ndjson.gz
+*.ndjson
+*lbmaske*

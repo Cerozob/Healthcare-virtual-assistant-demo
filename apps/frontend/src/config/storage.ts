@@ -1,16 +1,16 @@
 import { configService } from '../services/configService';
 
-export interface storageConfig {
+export interface StorageConfig {
     bucketName: string;
     region: string;
 }
 
-export const getStorageConfig = (): storageConfig => {
-   try {
+export const getStorageConfig = (): StorageConfig => {
+    try {
         const runtimeConfig = configService.getConfig();
         return {
-            bucketName: runtimeConfig.s3BucketName as string,
-            region: runtimeConfig.region || 'us-east-1'
+            bucketName: runtimeConfig.s3BucketName,
+            region: runtimeConfig.region
         };
     } catch (error) {
         console.warn('Failed to load runtime config, using default:', error);

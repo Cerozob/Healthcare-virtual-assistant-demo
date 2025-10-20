@@ -88,10 +88,19 @@ Edit `config/config.json` to enable/disable features:
 ```
 
 ### Frontend Configuration
-The frontend automatically discovers backend endpoints via:
-1. API config endpoint (`/config`)
-2. Environment variables
-3. Localhost fallback (development)
+The frontend uses hardcoded configuration values for demo/development purposes:
+
+**Current Configuration** (in `apps/frontend/src/services/configService.ts`):
+- **API Endpoint**: `https://pg5pv01t3j.execute-api.us-east-1.amazonaws.com/v1`
+- **S3 Bucket**: `ab2-cerozob-rawdata-us-east-1`
+- **Region**: `us-east-1`
+
+**To Update Configuration**:
+1. Deploy your CDK infrastructure to get new endpoints
+2. Update the hardcoded values in `configService.ts`
+3. Redeploy the frontend
+
+**Note**: For production deployments, consider using environment variables or AWS Parameter Store instead of hardcoded values.
 
 ## Development
 

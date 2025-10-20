@@ -18,49 +18,48 @@ class BDABlueprintsConstruct(Construct):
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        
+
         # Load and create blueprints
         self.blueprints = self._create_blueprints()
         self.project = self.create_data_automation_project()
-        
 
     def _create_blueprints(self) -> None:
         """
         Create BDA blueprints from JSON definitions.
         """
         blueprints_dir = Path(__file__).parent / "blueprints"
-        
+
         blueprint_files = {
             "document": "medical-record-blueprint.json",
-            "image": "medical-image-blueprint.json", 
+            "image": "medical-image-blueprint.json",
             "audio": "medical-audio-blueprint.json",
             "video": "medical-video-blueprint.json"
         }
 
         blueprints = {}
-        
+
         for blueprint_type, filename in blueprint_files.items():
             blueprint_path = blueprints_dir / filename
-            
+
             if blueprint_path.exists():
                 with blueprint_path.open('r', encoding='utf-8') as f:
                     blueprint_config = json.load(f)
-                
+
                 # Create the blueprint
                 blueprint = self._create_blueprint(
                     blueprint_type, blueprint_config)
                 blueprints[blueprint_type] = blueprint
-        
+
         return blueprints
 
     def _create_blueprint(self, blueprint_type: str, config: Dict) -> bedrock.CfnBlueprint:
         """
         Create a single BDA blueprint from configuration.
-        
+
         Args:
             blueprint_type: Type identifier for the blueprint
             config: Blueprint configuration dictionary
-            
+
         Returns:
             Created blueprint resource
         """
@@ -82,17 +81,16 @@ class BDABlueprintsConstruct(Construct):
                 }
             ]
         )
-        
-        return blueprint
 
+        return blueprint
 
     def create_data_automation_project(self, project_name: str = "healthcare-bda") -> bedrock.CfnDataAutomationProject:
         """
         Create a data automation project with custom output configuration using all blueprints.
-        
+
         Args:
             project_name: Name for the project
-            
+
         Returns:
             Created project resource
         """
@@ -136,7 +134,7 @@ class BDABlueprintsConstruct(Construct):
                         state="DISABLED"
                     ),
                     granularity=bedrock.CfnDataAutomationProject.DocumentExtractionGranularityProperty(
-                        types=["PAGE","DOCUMENT"]
+                        types=["PAGE", "DOCUMENT"]
                     )
                 ),
                 generative_field=bedrock.CfnDataAutomationProject.DocumentStandardGenerativeFieldProperty(
@@ -147,7 +145,7 @@ class BDABlueprintsConstruct(Construct):
                         state="ENABLED"
                     ),
                     text_format=bedrock.CfnDataAutomationProject.DocumentOutputTextFormatProperty(
-                        types=["HTML", "MARKDOWN","PLAIN_TEXT"]
+                        types=["HTML", "MARKDOWN", "PLAIN_TEXT"]
                     )
                 )
             ),
@@ -178,7 +176,7 @@ class BDABlueprintsConstruct(Construct):
                 )
             )
         )
-        
+
         # Create the project
         project = bedrock.CfnDataAutomationProject(
             self,
@@ -201,6 +199,5 @@ class BDABlueprintsConstruct(Construct):
                 }
             ]
         )
-        
+
         return project
-    

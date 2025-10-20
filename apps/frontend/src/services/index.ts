@@ -9,5 +9,5 @@ export { medicService, MedicService } from './medicService';
 export { examService, ExamService } from './examService';
 export { reservationService, ReservationService } from './reservationService';
 export { chatService, ChatService } from './chatService';
-export { documentService, DocumentService } from './documentService';
+// documentService removed - using direct S3 upload via Amplify Storage
 export { agentService, AgentService } from './agentService';

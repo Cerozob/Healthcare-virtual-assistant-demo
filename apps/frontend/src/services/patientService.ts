@@ -3,15 +3,15 @@
  * Service class for patient-related API operations
  */
 
-import { apiClient } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
-import {
-  Patient,
+import type {
   CreatePatientRequest,
-  UpdatePatientRequest,
+  PaginationParams,
+  Patient,
   PatientsResponse,
-  PaginationParams
+  UpdatePatientRequest
 } from '../types/api';
+import { apiClient } from './apiClient';
 
 export class PatientService {
   /**
@@ -26,6 +26,32 @@ export class PatientService {
    */
   async getPatient(id: string): Promise<{ patient: Patient }> {
     return apiClient.get<{ patient: Patient }>(API_ENDPOINTS.patient(id));
+  }
+
+  /**
+   * Get patient with their scheduled exams
+   */
+  async getPatientWithExams(id: string): Promise<{ patient: Patient; exams: import('../types/api').Exam[] }> {
+    // Fetch patient and exams in parallel
+    const [patientResponse, examsResponse] = await Promise.all([
+      this.getPatient(id),
+      apiClient.get<import('../types/api').ExamsResponse>(API_ENDPOINTS.exams, { patient_id: id })
+    ]);
+
+    return {
+      patient: patientResponse.patient,
+      exams: examsResponse.exams || []
+    };
+  }
+
+  /**
+   * Search patients by name or ID
+   */
+  async searchPatients(query: string, params?: PaginationParams): Promise<PatientsResponse> {
+    return apiClient.get<PatientsResponse>(API_ENDPOINTS.patients, {
+      ...params,
+      search: query
+    });
   }
 
   /**

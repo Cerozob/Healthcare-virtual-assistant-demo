@@ -1,7 +1,0 @@
-{
-  "AWSomeBuilder2-ApiStack": {
-    "ApiEndpoint": "https://pg5pv01t3j.execute-api.us-east-1.amazonaws.com/v1",
-    "ApiId": "pg5pv01t3j",
-    "ApiDomainName": "https://pg5pv01t3j.execute-api.us-east-1.amazonaws.com"
-  }
-}

@@ -71,14 +71,7 @@ def invoke_bda_processing(bucket: str, key: str) -> str:
             'dataAutomationProjectArn': os.environ['BDA_PROJECT_ARN'],
             'stage': 'DEVELOPMENT'
         },
-        blueprints=[
-            {'blueprintArn': os.environ['MEDICAL_RECORD_BLUEPRINT_ARN']},
-            {'blueprintArn': os.environ['MEDICAL_IMAGE_BLUEPRINT_ARN']},
-            {'blueprintArn': os.environ['MEDICAL_AUDIO_BLUEPRINT_ARN']},
-            {'blueprintArn': os.environ['MEDICAL_VIDEO_BLUEPRINT_ARN']}
-        ],
         dataAutomationProfileArn=os.environ['BDA_PROFILE_ARN'],
-
         notificationConfiguration={
             'eventBridgeConfiguration': {
                 'eventBridgeEnabled': True

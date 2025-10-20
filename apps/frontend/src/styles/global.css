@@ -1,0 +1,176 @@
+/**
+ * Global styles for the application
+ */
+
+/* Reset and base styles */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ensure full height for app container */
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background-container-content, #f5f5f5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-divider-default, #d5dbdb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-control-default, #aab7b8);
+}
+
+/* Amplify Authenticator custom styles */
+[data-amplify-authenticator] {
+  --amplify-colors-background-primary: var(--color-background-layout-main, #ffffff);
+  --amplify-colors-background-secondary: var(--color-background-container-content, #f5f5f5);
+  --amplify-colors-font-primary: var(--color-text-body-default, #000716);
+  --amplify-colors-font-secondary: var(--color-text-body-secondary, #5f6b7a);
+  --amplify-colors-brand-primary-10: var(--color-background-button-primary-default, #0972d3);
+  --amplify-colors-brand-primary-80: var(--color-background-button-primary-hover, #0962b8);
+  --amplify-colors-brand-primary-90: var(--color-background-button-primary-active, #07538c);
+  --amplify-colors-brand-primary-100: var(--color-background-button-primary-default, #0972d3);
+  --amplify-colors-border-primary: var(--color-border-input-default, #aab7b8);
+  --amplify-colors-border-secondary: var(--color-border-divider-default, #d5dbdb);
+  --amplify-radii-small: 4px;
+  --amplify-radii-medium: 8px;
+  --amplify-radii-large: 12px;
+  --amplify-space-small: 0.5rem;
+  --amplify-space-medium: 1rem;
+  --amplify-space-large: 1.5rem;
+  --amplify-space-xl: 2rem;
+}
+
+/* Center the authenticator on the page */
+[data-amplify-authenticator] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: var(--color-background-layout-main, #ffffff);
+}
+
+/* Authenticator container styling */
+[data-amplify-authenticator] [data-amplify-container] {
+  max-width: 460px;
+  width: 100%;
+  padding: 2rem;
+  background-color: var(--color-background-container-content, #ffffff);
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Form field spacing */
+[data-amplify-authenticator] [data-amplify-form] {
+  gap: 1rem;
+}
+
+/* Button styling */
+[data-amplify-authenticator] button[type='submit'] {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+/* Link styling */
+[data-amplify-authenticator] a {
+  color: var(--color-text-link-default, #0972d3);
+  text-decoration: none;
+}
+
+[data-amplify-authenticator] a:hover {
+  color: var(--color-text-link-hover, #0962b8);
+  text-decoration: underline;
+}
+
+/* Error message styling */
+[data-amplify-authenticator] [data-amplify-error] {
+  color: var(--color-text-status-error, #d91515);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+/* Loading state */
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background-color: var(--color-background-layout-main, #ffffff);
+}
+
+/* Utility classes */
+.full-height {
+  height: 100%;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.mt-1 {
+  margin-top: 0.5rem;
+}
+
+.mt-2 {
+  margin-top: 1rem;
+}
+
+.mt-3 {
+  margin-top: 1.5rem;
+}
+
+.mb-1 {
+  margin-bottom: 0.5rem;
+}
+
+.mb-2 {
+  margin-bottom: 1rem;
+}
+
+.mb-3 {
+  margin-bottom: 1.5rem;
+}
+
+.p-1 {
+  padding: 0.5rem;
+}
+
+.p-2 {
+  padding: 1rem;
+}
+
+.p-3 {
+  padding: 1.5rem;
+}

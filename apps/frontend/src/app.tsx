@@ -1,68 +1,106 @@
-import { Authenticator } from '@aws-amplify/ui-react';
-import '@aws-amplify/ui-react/styles.css';
-import { AppLayout, ContentLayout, TopNavigation } from '@cloudscape-design/components';
 import { Amplify } from 'aws-amplify';
-import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import outputs from '../amplify_outputs.json';
+import { SpanishAuthenticator } from './components/auth/SpanishAuthenticator';
+import { ProtectedRoute } from './components/routing/ProtectedRoute';
+import { LanguageProvider } from './contexts/LanguageContext';
+import { PatientProvider } from './contexts/PatientContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationCenter } from './components/notifications';
+import ChatPage from './pages/ChatPage';
+import ConfigurationPage from './pages/ConfigurationPage';
+import { PatientDashboardPage } from './pages/PatientDashboardPage';
 import DocumentTestPage from './pages/DocumentTestPage';
+import FileProcessingDemoPage from './pages/FileProcessingDemoPage';
 import HomePage from './pages/HomePage';
+import { initializeTheme } from './theme/cloudscape-theme';
 
-// Configure Amplify - it will automatically use the generated outputs
+// Configure Amplify
 Amplify.configure(outputs);
 
-const App: React.FC = () => {
+// Initialize Cloudscape theme
+initializeTheme();
+
+function App() {
   return (
-    <Authenticator>
-      {({ signOut, user }: { signOut?: () => void; user?: { signInDetails?: { loginId?: string } } }) => (
-        <Router>
-          <TopNavigation
-            identity={{
-              href: '/',
-              title: 'Healthcare System'
-            }}
-            utilities={[
-              {
-                type: 'button',
-                text: 'Test Documents',
-                href: '/test-documents'
-              },
-              {
-                type: 'menu-dropdown',
-                text: user?.signInDetails?.loginId || 'User',
-                items: [
-                  {
-                    id: 'profile',
-                    text: 'Profile'
-                  },
-                  {
-                    id: 'signout',
-                    text: 'Sign out'
-                  }
-                ],
-                onItemClick: ({ detail }) => {
-                  if (detail.id === 'signout') {
-                    signOut?.();
-                  }
-                }
-              }
-            ]}
-          />
-          <AppLayout
-            navigationHide
-            toolsHide
-            content={
-              <ContentLayout>
-                <Routes>
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/test-documents" element={<DocumentTestPage />} />
-                </Routes>
-              </ContentLayout>
-            }
-          />
-        </Router>
-      )}
-    </Authenticator>
+    <LanguageProvider>
+      <NotificationProvider>
+        <PatientProvider>
+          <SpanishAuthenticator>
+            {({ signOut, user }) => (
+              <>
+                <NotificationCenter />
+                <Router>
+                  <Routes>
+              {/* If not authenticated, show login message */}
+              {!user && (
+                <Route path="*" element={<div>Cargando...</div>} />
+              )}
+
+              {/* Protected routes */}
+              {user && (
+                <>
+                  <Route
+                    path="/"
+                    element={
+                      <ProtectedRoute>
+                        <HomePage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/chat"
+                    element={
+                      <ProtectedRoute>
+                        <ChatPage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <ProtectedRoute>
+                        <PatientDashboardPage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/configuration"
+                    element={
+                      <ProtectedRoute>
+                        <ConfigurationPage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/test-documents"
+                    element={
+                      <ProtectedRoute>
+                        <DocumentTestPage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/demo-notifications"
+                    element={
+                      <ProtectedRoute>
+                        <FileProcessingDemoPage signOut={signOut} user={user} />
+                      </ProtectedRoute>
+                    }
+                  />
+                  {/* Catch all - redirect to home */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </>
+              )}
+                  </Routes>
+                </Router>
+              </>
+            )}
+          </SpanishAuthenticator>
+        </PatientProvider>
+      </NotificationProvider>
+    </LanguageProvider>
   );
-};
+}
 
 export default App;

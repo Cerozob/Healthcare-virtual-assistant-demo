@@ -25,6 +25,18 @@ export function usePatient() {
   );
 }
 
+export function usePatientWithExams() {
+  return useApi<{ patient: Patient; exams: import('../types/api').Exam[] }>((id: string) => 
+    patientService.getPatientWithExams(id)
+  );
+}
+
+export function useSearchPatients() {
+  return useApi<PatientsResponse>((query: string, params?: PaginationParams) => 
+    patientService.searchPatients(query, params)
+  );
+}
+
 export function useCreatePatient() {
   return useApi<{ message: string; patient: Patient }>((data: CreatePatientRequest) => 
     patientService.createPatient(data)

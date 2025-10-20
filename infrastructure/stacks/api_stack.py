@@ -245,28 +245,6 @@ class ApiStack(Stack):
         )
         self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
-        # Document Upload Function
-        self.document_upload_function = lambda_.Function(
-            self,
-            "DocumentUploadFunction",
-            function_name="healthcare-document-upload",
-            code=lambda_.Code.from_asset("lambdas/api/document-upload"),
-            handler="handler.lambda_handler",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            timeout=Duration.seconds(30),
-            memory_size=512,
-            log_group=logs.LogGroup(
-                self,
-                "DocumentUploadLogGroup",
-                log_group_name="/aws/lambda/healthcare-document-upload",
-                retention=logs.RetentionDays.ONE_WEEK
-            )
-        )
-        self.document_upload_function.add_to_role_policy(ssm_policy)
-        self.document_upload_function.add_to_role_policy(rds_policy)
-        self.document_upload_function.add_to_role_policy(secrets_policy)
-        self.document_upload_function.add_to_role_policy(eventbridge_policy)
-
 
 
 
@@ -307,7 +285,6 @@ class ApiStack(Stack):
 
         chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
         agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
-        document_integration = HttpLambdaIntegration("DocumentIntegration", self.document_upload_function)
 
         # Helper function to create CRUD routes
         def create_crud_routes(path: str, integration: HttpLambdaIntegration):
@@ -357,19 +334,6 @@ class ApiStack(Stack):
             path="/agent",
             methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
             integration=agent_integration
-        )
-
-        # Document routes
-        self.api.add_routes(
-            path="/documents/upload",
-            methods=[apigwv2.HttpMethod.POST],
-            integration=document_integration
-        )
-        
-        self.api.add_routes(
-            path="/documents/status/{id}",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=document_integration
         )
 
 

@@ -146,6 +146,22 @@ export interface ReservationsResponse {
 }
 
 // Chat types
+export interface FileAttachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+  processingStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+}
+
+export interface ExternalSource {
+  title: string;
+  url: string;
+  description?: string;
+  type: 'document' | 'website' | 'database';
+}
+
 export interface ChatMessage {
   id: string;
   content: string;
@@ -153,6 +169,8 @@ export interface ChatMessage {
   agentType?: string;
   timestamp: string;
   metadata?: Record<string, unknown>;
+  attachments?: FileAttachment[];
+  sources?: ExternalSource[];
 }
 
 export interface ChatSession {
@@ -197,20 +215,7 @@ export interface ChatMessagesResponse {
   pagination: PaginationInfo;
 }
 
-// Document types
-export interface DocumentUploadRequest {
-  file: File;
-  documentType?: string;
-  patientId?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface DocumentUploadResponse {
-  documentId: string;
-  uploadUrl?: string;
-  status: string;
-  message: string;
-}
+// Document types - removed DocumentUploadRequest/Response, using direct S3 upload via Amplify Storage
 
 export interface DocumentStatus {
   documentId: string;

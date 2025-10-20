@@ -11,7 +11,8 @@ import {
   CreateSessionRequest,
   ChatSessionsResponse,
   ChatMessagesResponse,
-  PaginationParams
+  PaginationParams,
+  ChatMessage
 } from '../types/api';
 
 export class ChatService {
@@ -41,6 +42,35 @@ export class ChatService {
    */
   async getSessionMessages(sessionId: string, params?: PaginationParams): Promise<ChatMessagesResponse> {
     return apiClient.get<ChatMessagesResponse>(API_ENDPOINTS.chatSessionMessages(sessionId), params);
+  }
+
+  /**
+   * Echo message functionality (placeholder for AI integration)
+   * Simulates AI response by echoing the user's message
+   */
+  async sendEchoMessage(content: string, _sessionId?: string): Promise<{ userMessage: ChatMessage; agentMessage: ChatMessage }> {
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    const timestamp = new Date().toISOString();
+    const messageId = `msg_${Date.now()}`;
+
+    const userMessage: ChatMessage = {
+      id: messageId,
+      content,
+      type: 'user',
+      timestamp
+    };
+
+    const agentMessage: ChatMessage = {
+      id: `${messageId}_response`,
+      content: `Echo: ${content}`,
+      type: 'agent',
+      agentType: 'echo',
+      timestamp: new Date(Date.now() + 500).toISOString()
+    };
+
+    return { userMessage, agentMessage };
   }
 }
 

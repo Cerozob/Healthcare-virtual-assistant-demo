@@ -4,14 +4,12 @@ Document Workflow Stack for Healthcare Workflow System.
 
 from aws_cdk import Stack, Duration, RemovalPolicy, CfnOutput
 from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from constructs import Construct
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda
 from aws_cdk import aws_ssm as ssm
-# Removed Step Functions imports - using direct Lambda invocations
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_dynamodb as dynamodb
 from infrastructure.constructs.bda_blueprints_construct import BDABlueprintsConstruct
@@ -127,12 +125,30 @@ class DocumentWorkflowStack(Stack):
             )
         )
 
-        # S3 directly triggers BDA processing lambda on object creation
-        self.raw_bucket.add_event_notification(
-            s3.EventType.OBJECT_CREATED,
-            s3n.LambdaDestination(self.bda_trigger_lambda),
-            # Only process documents in documents/ folder
-            s3.NotificationKeyFilter(prefix="documents/")
+        # EventBridge Rule for S3 Object Created events
+        # This triggers BDA processing for any file uploaded to the raw bucket
+        self.s3_upload_rule = events.Rule(
+            self,
+            "S3UploadEventRule",
+            rule_name="healthcare-s3-upload-trigger",
+            description="Trigger BDA processing when files are uploaded to raw bucket",
+            event_pattern=events.EventPattern(
+                source=["aws.s3"],
+                detail_type=["Object Created"],
+                detail={
+                    "bucket": {
+                        "name": [self.raw_bucket.bucket_name]
+                    }
+                }
+            ),
+            targets=[
+                targets.LambdaFunction(
+                    self.bda_trigger_lambda,
+                    retry_attempts=2,
+                    max_event_age=Duration.hours(2)
+                )
+            ],
+            enabled=True
         )
 
         # * Data Extraction Lambda Function (Knowledge Base Integration)

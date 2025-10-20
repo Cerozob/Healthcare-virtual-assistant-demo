@@ -144,87 +144,51 @@ else:
     logger.info("No CDK Nag checks enabled")
 
 
-document_workflow_stack = None
-backend_stack = None
-assistant_stack = None
-api_stack = None
+logger.info("Creating CDK stacks...")
 
-logger.info("Creating CDK stacks based on configuration...")
+# Create the document workflow stack first (provides raw bucket)
+document_workflow_stack = DocumentWorkflowStack(
+    app,
+    "documentstack",
+    env=env,
+    stack_name="AWSomeBuilder2-DocumentWorkflowStack",
+    description="Workflow de procesamiento de documentos",
+)
 
-if config.get("enableDocumentProcessing"):
-    logger.info("Document processing enabled - creating DocumentWorkflowStack")
-    # Create the document workflow stack first (provides raw bucket)
-    document_workflow_stack = DocumentWorkflowStack(
-        app,
-        "documentstack",
-        env=env,
-        stack_name="AWSomeBuilder2-DocumentWorkflowStack",
-        description="Workflow de procesamiento de documentos",
-    )
-    logger.info("DocumentWorkflowStack created successfully")
-else:
-    logger.info("Document processing disabled - skipping DocumentWorkflowStack")
+# Create the backend stack (database only)
+backend_stack = BackendStack(
+    app,
+    "backendstack",
+    env=env,
+    stack_name="AWSomeBuilder2-BackendStack",
+    description="Database infrastructure for healthcare system",
+)
 
-if config.get("enableBackend"):
-    logger.info("Backend enabled - creating BackendStack")
-    # Create the backend stack (database only)
-    backend_stack = BackendStack(
-        app,
-        "backendstack",
-        env=env,
-        stack_name="AWSomeBuilder2-BackendStack",
-        description="Database infrastructure for healthcare system",
-    )
-    logger.info("BackendStack created successfully")
-else:
-    logger.info("Backend disabled - skipping BackendStack")
+# Create the API stack
+api_stack = ApiStack(
+    app,
+    "apistack",
+    env=env,
+    stack_name="AWSomeBuilder2-ApiStack",
+    description="API Gateway and Lambda functions for healthcare system",
+)
 
-if config.get("enableApi"):  # Default to enabled
-    logger.info("API enabled - creating ApiStack")
-    # Create the API stack
-    api_stack = ApiStack(
-        app,
-        "apistack",
-        env=env,
-        stack_name="AWSomeBuilder2-ApiStack",
-        description="API Gateway and Lambda functions for healthcare system",
-    )
-    logger.info("ApiStack created successfully")
-else:
-    logger.info("API disabled - skipping ApiStack")
-
-if config.get("enableVirtualAssistant"):
-    logger.info("Virtual assistant enabled - creating AssistantStack")
-    assistant_stack = AssistantStack(
-        app,
-        "genaistack",
-        processed_bucket=(
-            document_workflow_stack.processed_bucket if document_workflow_stack else None
-        ),
-        env=env,
-        stack_name="AWSomeBuilder2-VirtualAssistantStack",
-        description="Asistente virtual con GenAI",
-    )
-    logger.info("AssistantStack created successfully")
-else:
-    logger.info("Virtual assistant disabled - skipping AssistantStack")
+# Create the assistant stack
+assistant_stack = AssistantStack(
+    app,
+    "genaistack",
+    processed_bucket=document_workflow_stack.processed_bucket,
+    database_cluster=backend_stack.db_cluster,
+    env=env,
+    stack_name="AWSomeBuilder2-VirtualAssistantStack",
+    description="Asistente virtual con GenAI",
+)
 
 # Add stack dependencies
 logger.info("Configuring stack dependencies...")
-dependencies_added = 0
-
-if backend_stack and document_workflow_stack:
-    backend_stack.add_dependency(document_workflow_stack)
-    logger.info(
-        "Added dependency: BackendStack depends on DocumentWorkflowStack")
-    dependencies_added += 1
-
-if backend_stack and assistant_stack:
-    assistant_stack.add_dependency(backend_stack)
-    logger.info("Added dependency: AssistantStack depends on BackendStack")
-    dependencies_added += 1
-
-logger.info(f"Total stack dependencies configured: {dependencies_added}")
+backend_stack.add_dependency(document_workflow_stack)
+assistant_stack.add_dependency(backend_stack)
+logger.info("Stack dependencies configured successfully")
 
 logger.info("Starting CDK synthesis...")
 app.synth()

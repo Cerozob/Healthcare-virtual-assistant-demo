@@ -1,8 +1,4 @@
 {
-    "enableBackend": true,
-    "enableApi": true,
-    "enableDocumentProcessing": true,
-    "enableVirtualAssistant": false,
     "enableHIPAAChecks": false,
     "enableAWSSolutionsChecks": false,
     "enableServerlessChecks": false,

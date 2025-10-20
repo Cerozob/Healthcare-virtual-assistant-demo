@@ -13,6 +13,7 @@ import {
 } from '@cloudscape-design/components';
 import type React from 'react';
 import { useState } from 'react';
+import { MainLayout } from '../components/layout/MainLayout';
 import { storageService } from '../services/storageService';
 
 interface UploadedFile {
@@ -24,7 +25,16 @@ interface UploadedFile {
   progress?: number;
 }
 
-const DocumentTestPage: React.FC = () => {
+interface DocumentTestPageProps {
+  signOut?: () => void;
+  user?: {
+    signInDetails?: {
+      loginId?: string;
+    };
+  };
+}
+
+const DocumentTestPage: React.FC<DocumentTestPageProps> = ({ signOut, user }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -101,23 +111,24 @@ const DocumentTestPage: React.FC = () => {
   };
 
   return (
-    <Container>
-      <SpaceBetween size="l">
-        <Header
-          variant="h1"
-          description="Test the document workflow by uploading medical documents"
-          actions={
-            <Button
-              variant="normal"
-              onClick={clearHistory}
-              disabled={uploadedFiles.length === 0}
-            >
-              Clear History
-            </Button>
-          }
-        >
-          Document Workflow Testing
-        </Header>
+    <MainLayout signOut={signOut} user={user}>
+      <Container>
+        <SpaceBetween size="l">
+          <Header
+            variant="h1"
+            description="Pruebe el flujo de trabajo de documentos subiendo documentos médicos"
+            actions={
+              <Button
+                variant="normal"
+                onClick={clearHistory}
+                disabled={uploadedFiles.length === 0}
+              >
+                Limpiar Historial
+              </Button>
+            }
+          >
+            Prueba de Flujo de Documentos
+          </Header>
 
         <Alert
           type="info"
@@ -272,6 +283,7 @@ const DocumentTestPage: React.FC = () => {
         </Alert>
       </SpaceBetween>
     </Container>
+    </MainLayout>
   );
 };
 

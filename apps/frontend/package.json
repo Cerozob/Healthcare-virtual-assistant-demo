@@ -22,11 +22,12 @@
     "@cloudscape-design/design-tokens": "^3.0.35",
     "@cloudscape-design/global-styles": "^1.0.27",
     "aws-amplify": "^6.15.7",
+    "core-js": "3.46.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.22.0",
-    "uuid": "^9.0.0",
-    "core-js":"3.46.0"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.16.1",

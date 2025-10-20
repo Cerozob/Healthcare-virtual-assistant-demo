@@ -32,7 +32,7 @@ class ApiClient {
 
     this.configPromise = (async () => {
       try {
-        const config = await getApiConfig();
+        const config = getApiConfig();
         this.baseUrl = config.baseUrl;
         this.defaultTimeout = config.timeout;
         this.defaultRetries = config.retries;
