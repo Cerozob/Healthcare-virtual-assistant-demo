@@ -8,6 +8,7 @@ import {
   FileUpload,
   Header,
   Link,
+  ProgressBar,
   SpaceBetween
 } from '@cloudscape-design/components';
 import type React from 'react';
@@ -20,6 +21,7 @@ interface UploadedFile {
   status: 'uploading' | 'success' | 'error';
   key?: string;
   error?: string;
+  progress?: number;
 }
 
 const DocumentTestPage: React.FC = () => {
@@ -40,7 +42,7 @@ const DocumentTestPage: React.FC = () => {
       size: file.size,
       status: 'uploading' as const
     }));
-    
+
     setUploadedFiles(prev => [...prev, ...newUploadedFiles]);
 
     for (let i = 0; i < files.length; i++) {
@@ -50,34 +52,41 @@ const DocumentTestPage: React.FC = () => {
       try {
         // Upload to documents/ prefix to trigger the workflow
         const key = `documents/${Date.now()}-${file.name}`;
-        
+
         await storageService.uploadFile(file, key, {
-          accessLevel: 'private',
           contentType: file.type,
           onProgress: (event) => {
-            // Update progress if needed
-            console.log(`Upload progress for ${file.name}:`, event);
+            const progress = event.transferredBytes && event.totalBytes
+              ? Math.round((event.transferredBytes / event.totalBytes) * 100)
+              : 0;
+
+            // Update progress in real-time
+            setUploadedFiles(prev => prev.map((f, idx) =>
+              idx === fileIndex
+                ? { ...f, progress }
+                : f
+            ));
           }
         });
 
         // Update status to success
-        setUploadedFiles(prev => prev.map((f, idx) => 
-          idx === fileIndex 
+        setUploadedFiles(prev => prev.map((f, idx) =>
+          idx === fileIndex
             ? { ...f, status: 'success' as const, key }
             : f
         ));
 
       } catch (error) {
         console.error(`Failed to upload ${file.name}:`, error);
-        
+
         // Update status to error
-        setUploadedFiles(prev => prev.map((f, idx) => 
-          idx === fileIndex 
-            ? { 
-                ...f, 
-                status: 'error' as const, 
-                error: error instanceof Error ? error.message : 'Upload failed'
-              }
+        setUploadedFiles(prev => prev.map((f, idx) =>
+          idx === fileIndex
+            ? {
+              ...f,
+              status: 'error' as const,
+              error: error instanceof Error ? error.message : 'Upload failed'
+            }
             : f
         ));
       }
@@ -132,7 +141,7 @@ const DocumentTestPage: React.FC = () => {
 
         <SpaceBetween size="m">
           <Header variant="h2">Upload Documents</Header>
-          
+
           <FileUpload
             onChange={handleFileChange}
             value={files}
@@ -164,7 +173,7 @@ const DocumentTestPage: React.FC = () => {
         {uploadedFiles.length > 0 && (
           <SpaceBetween size="m">
             <Header variant="h2">Upload History</Header>
-            
+
             <Cards
               cardDefinition={{
                 header: item => (
@@ -173,7 +182,7 @@ const DocumentTestPage: React.FC = () => {
                     <Badge
                       color={
                         item.status === 'success' ? 'green' :
-                        item.status === 'error' ? 'red' : 'blue'
+                          item.status === 'error' ? 'red' : 'blue'
                       }
                     >
                       {item.status}
@@ -187,13 +196,28 @@ const DocumentTestPage: React.FC = () => {
                       <SpaceBetween size="xs">
                         <div>Size: {(item.size / 1024).toFixed(1)} KB</div>
                         {item.key && <div>Key: {item.key}</div>}
+
+                        {item.status === 'uploading' && (
+                          <Box>
+                            <SpaceBetween size="xs">
+                              <div>Uploading... {item.progress || 0}%</div>
+                              <ProgressBar
+                                value={item.progress || 0}
+                                variant="standalone"
+                                label="Upload progress"
+                                description={`${item.progress || 0}% complete`}
+                              />
+                            </SpaceBetween>
+                          </Box>
+                        )}
+
                         {item.error && (
-                          <Alert type="error" statusIconAriaLabel="Error">
+                          <Alert type="error">
                             {item.error}
                           </Alert>
                         )}
                         {item.status === 'success' && (
-                          <Alert type="success" statusIconAriaLabel="Success">
+                          <Alert type="success">
                             File uploaded successfully! Check AWS Console for processing status.
                           </Alert>
                         )}

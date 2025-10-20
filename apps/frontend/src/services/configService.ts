@@ -20,9 +20,9 @@ class ConfigService {
     const customOutputs = (outputs as { custom?: Record<string, unknown> }).custom || {};
     
     return {
-      apiBaseUrl: customOutputs.apiGatewayEndpoint as string | undefined,
-      s3BucketName: customOutputs.s3BucketName as string | undefined,
-      region: (customOutputs.awsRegion as string) || 'us-east-1'
+      apiBaseUrl: customOutputs.api_endpoint as string,
+      s3BucketName: customOutputs.s3_bucket_name as string,
+      region: (customOutputs.aws_region as string) || 'us-east-1'
     };
   }
 

@@ -3,7 +3,8 @@
  * Handles file uploads and downloads using existing CDK S3 bucket
  */
 
-import { uploadData, downloadData, remove, list, type TransferProgressEvent } from 'aws-amplify/storage';
+import { downloadData, list, remove, uploadData, type TransferProgressEvent } from 'aws-amplify/storage';
+import { getStorageConfig } from '../config/storage';
 
 interface UploadResult {
   key: string;
@@ -24,26 +25,34 @@ class StorageService {
     file: File,
     key: string,
     options?: {
-      accessLevel?: 'guest' | 'protected' | 'private';
       contentType?: string;
       onProgress?: (event: TransferProgressEvent) => void;
+      bucket?: string;
+      metadata?: { [key: string]: string };
     }
   ): Promise<UploadResult> {
     try {
       console.log(`📤 Uploading file: ${key}`);
       
       const result = await uploadData({
-        key,
+        path: key,
         data: file,
         options: {
           contentType: options?.contentType || file.type,
           onProgress: options?.onProgress,
+          useAccelerateEndpoint: true,
+          bucket: getStorageConfig().bucketName,
+          metadata: {
+            ...options?.metadata,
+            'Content-Type': file.type,
+          },
+
         },
       }).result;
 
       console.log(`✅ File uploaded successfully: ${key}`);
       return {
-        key: result.key,
+        key: result.path,
       };
     } catch (error) {
       console.error(`❌ Failed to upload file: ${key}`, error);
@@ -61,7 +70,7 @@ class StorageService {
       console.log(`📥 Downloading file: ${key}`);
       
       const result = await downloadData({
-        key,
+        path: key,
       }).result;
 
       const blob = await result.body.blob();
@@ -78,18 +87,12 @@ class StorageService {
    */
   async deleteFile(
     key: string,
-    options?: {
-      accessLevel?: 'guest' | 'protected' | 'private';
-    }
   ): Promise<void> {
     try {
       console.log(`🗑️ Deleting file: ${key}`);
       
       await remove({
-        key,
-        options: {
-          accessLevel: options?.accessLevel || 'private',
-        },
+        path: key,
       });
 
       console.log(`✅ File deleted successfully: ${key}`);
@@ -113,15 +116,14 @@ class StorageService {
       console.log(`📋 Listing files with prefix: ${prefix || 'all'}`);
       
       const result = await list({
-        prefix,
+        path: prefix || '',
         options: {
-          accessLevel: options?.accessLevel || 'private',
           pageSize: options?.pageSize || 100,
         },
       });
 
       const files = result.items.map(item => ({
-        key: item.key,
+        key: item.path,
         size: item.size,
         lastModified: item.lastModified,
       }));
