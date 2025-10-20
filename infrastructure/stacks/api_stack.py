@@ -267,24 +267,6 @@ class ApiStack(Stack):
         self.document_upload_function.add_to_role_policy(secrets_policy)
         self.document_upload_function.add_to_role_policy(eventbridge_policy)
 
-        # Config Function - provides configuration to frontend
-        self.config_function = lambda_.Function(
-            self,
-            "ConfigFunction",
-            function_name="healthcare-config",
-            code=lambda_.Code.from_asset("lambdas/api/config"),
-            handler="handler.lambda_handler",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            timeout=Duration.seconds(10),
-            memory_size=128,
-            log_group=logs.LogGroup(
-                self,
-                "ConfigLogGroup",
-                log_group_name="/aws/lambda/healthcare-config",
-                retention=logs.RetentionDays.ONE_WEEK
-            )
-        )
-        self.config_function.add_to_role_policy(ssm_policy)
 
 
 
@@ -326,7 +308,6 @@ class ApiStack(Stack):
         chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
         agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
         document_integration = HttpLambdaIntegration("DocumentIntegration", self.document_upload_function)
-        config_integration = HttpLambdaIntegration("ConfigIntegration", self.config_function)
 
         # Helper function to create CRUD routes
         def create_crud_routes(path: str, integration: HttpLambdaIntegration):
@@ -390,14 +371,6 @@ class ApiStack(Stack):
             methods=[apigwv2.HttpMethod.GET],
             integration=document_integration
         )
-
-        # Config route - public endpoint for frontend configuration
-        self.api.add_routes(
-            path="/config",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=config_integration
-        )
-
 
 
         # Create a production stage
