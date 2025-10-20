@@ -2,7 +2,7 @@
 Document Workflow Stack for Healthcare Workflow System.
 """
 
-from aws_cdk import Stack, Duration, RemovalPolicy
+from aws_cdk import Stack, Duration, RemovalPolicy, CfnOutput
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_notifications as s3n
 from aws_cdk import aws_events as events
@@ -240,4 +240,12 @@ class DocumentWorkflowStack(Stack):
                 )
             ],
             enabled=True
+        )
+
+        CfnOutput(
+            self,
+            "RawBucketName",
+            value=self.raw_bucket.bucket_name,
+            description="Name of the S3 bucket for raw data",
+        
         )

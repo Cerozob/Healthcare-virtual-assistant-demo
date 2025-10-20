@@ -1,19 +1,26 @@
-import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AppLayout, TopNavigation, ContentLayout, Spinner, Box, Alert } from '@cloudscape-design/components';
-import { Amplify, ResourcesConfig } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
+import { Alert, AppLayout, Box, ContentLayout, Spinner, TopNavigation } from '@cloudscape-design/components';
+import { Amplify, type ResourcesConfig } from 'aws-amplify';
+import { useEffect, useState } from 'react';
+import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
+import outputs from '../amplify_outputs.json';
 import HomePage from './pages/HomePage';
 import { configService } from './services/configService';
-import outputs from '../amplify_outputs.json';
 
 // Configure Amplify with existing CDK resources
 const configureAmplify = async () => {
   // Get CDK resource values from Amplify outputs (populated from secrets)
-  const apiEndpoint = outputs.custom?.apiGatewayEndpoint || 'http://localhost:3000/v1';
-  const bucketName = outputs.custom?.s3BucketName || 'healthcare-documents-bucket';
-  const region = outputs.custom?.awsRegion || 'us-east-1';
+  // Handle both resolved strings and secret objects
+  const apiEndpoint = typeof outputs.custom?.apiGatewayEndpoint === 'string' 
+    ? outputs.custom.apiGatewayEndpoint 
+    : 'http://localhost:3000/v1';
+  const bucketName = typeof outputs.custom?.s3BucketName === 'string'
+    ? outputs.custom.s3BucketName
+    : 'healthcare-documents-bucket';
+  const region = typeof outputs.custom?.awsRegion === 'string'
+    ? outputs.custom.awsRegion
+    : 'us-east-1';
   
   console.log('🔧 Configuring Amplify with CDK resources:');
   console.log('   API Endpoint:', apiEndpoint);
@@ -42,7 +49,7 @@ const configureAmplify = async () => {
   Amplify.configure(amplifyConfig);
   
   // Store config globally for other services to access
-  (window as { amplifyConfig?: any }).amplifyConfig = amplifyConfig;
+  (window as { amplifyConfig?: ResourcesConfig }).amplifyConfig = amplifyConfig;
   
   // Also load config service for any additional configuration
   await configService.loadConfig();
