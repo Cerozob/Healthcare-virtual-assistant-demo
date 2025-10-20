@@ -1,5 +1,4 @@
 import { defineBackend, secret } from '@aws-amplify/backend';
-import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { auth } from './auth/resource';
 
 /**
@@ -24,15 +23,7 @@ const s3BucketName = secret('CDK_S3_BUCKET_NAME');
 const awsRegion = secret('AWS_REGION');
 // Add custom outputs for existing CDK resources
 backend.addOutput({
-  auth: {
-    password_policy: {
-      min_length:8,
-      require_lowercase:false,
-      require_uppercase: false,
-      require_numbers: false,
-      require_symbols: false
-    }
-  },
+  
   custom: {
     api_endpoint: apiGatewayEndpoint,
     s3_bucket_name: s3BucketName,
