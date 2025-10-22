@@ -19,6 +19,12 @@ class ApiClient {
   private defaultTimeout: number = 30000;
   private defaultRetries: number = 3;
   private configPromise: Promise<void> | null = null;
+  
+  // Circuit breaker state
+  private failureCount: number = 0;
+  private lastFailureTime: number = 0;
+  private circuitBreakerThreshold: number = 5;
+  private circuitBreakerTimeout: number = 60000; // 1 minute
 
   constructor() {
     // Initialize configuration asynchronously
@@ -53,9 +59,46 @@ class ApiClient {
   }
 
   /**
+   * Check if circuit breaker is open
+   */
+  private isCircuitBreakerOpen(): boolean {
+    if (this.failureCount >= this.circuitBreakerThreshold) {
+      const timeSinceLastFailure = Date.now() - this.lastFailureTime;
+      if (timeSinceLastFailure < this.circuitBreakerTimeout) {
+        return true;
+      } else {
+        // Reset circuit breaker after timeout
+        this.failureCount = 0;
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Record a successful request
+   */
+  private recordSuccess(): void {
+    this.failureCount = 0;
+  }
+
+  /**
+   * Record a failed request
+   */
+  private recordFailure(): void {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+  }
+
+  /**
    * Make an HTTP request with automatic retries and error handling
    */
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    // Check circuit breaker
+    if (this.isCircuitBreakerOpen()) {
+      throw new ApiError('Circuit breaker is open - too many recent failures', 'CIRCUIT_BREAKER_OPEN', 503);
+    }
+
     // Ensure configuration is loaded before making requests
     await this.ensureConfigLoaded();
 
@@ -111,10 +154,12 @@ class ApiClient {
         }
 
         const data = await response.json();
+        this.recordSuccess();
         return data;
 
       } catch (error) {
         lastError = error as Error;
+        this.recordFailure();
         
         // Don't retry on client errors (4xx) or AbortError
         if (error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500) {

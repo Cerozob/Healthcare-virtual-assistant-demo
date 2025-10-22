@@ -42,7 +42,7 @@ const ApiExample: React.FC = () => {
     if (isConfigured) {
       patientsApi.execute({ limit: 10, offset: 0 });
     }
-  }, [isConfigured, patientsApi]);
+  }, [isConfigured, patientsApi.execute]);
 
   const handleCreatePatient = async () => {
     const result = await createPatientApi.execute(newPatient);

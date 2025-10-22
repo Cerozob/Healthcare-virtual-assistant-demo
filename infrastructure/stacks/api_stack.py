@@ -10,6 +10,9 @@ from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_ssm as ssm
+from aws_cdk import aws_cloudwatch as cloudwatch
+from aws_cdk import aws_cloudwatch_actions as cw_actions
+from aws_cdk import aws_sns as sns
 
 from constructs import Construct
 import os
@@ -34,7 +37,8 @@ class ApiStack(Stack):
         # Create API Gateway
         self._create_api_gateway()
         
-
+        # Create monitoring and alerting
+        self._create_monitoring()
         
         # Store API endpoint in SSM Parameter Store
         self._create_ssm_parameters()
@@ -286,8 +290,8 @@ class ApiStack(Stack):
         chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
         agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
 
-        # Helper function to create CRUD routes
-        def create_crud_routes(path: str, integration: HttpLambdaIntegration):
+        # Helper function to create CRUD routes with throttling
+        def create_crud_routes(path: str, integration: HttpLambdaIntegration, throttle_settings=None):
             # Collection routes
             self.api.add_routes(
                 path=path,
@@ -337,14 +341,104 @@ class ApiStack(Stack):
         )
 
 
-        # Create a production stage
+        # Create a production stage with throttling
         self.stage = apigwv2.HttpStage(
             self,
             "ProdStage",
             http_api=self.api,
             stage_name="v1",
             auto_deploy=True,
-            description="Production stage for healthcare API"
+            description="Production stage for healthcare API",
+            throttle=apigwv2.ThrottleSettings(
+                rate_limit=100,  # requests per second
+                burst_limit=200  # burst capacity
+            )
+        )
+
+    def _create_monitoring(self) -> None:
+        """Create CloudWatch monitoring and alerting for API Gateway."""
+        
+        # Create SNS topic for alerts
+        self.alert_topic = sns.Topic(
+            self,
+            "ApiAlertsTopics",
+            display_name="Healthcare API Alerts"
+        )
+        
+        # Create CloudWatch alarms for API throttling
+        throttle_alarm = cloudwatch.Alarm(
+            self,
+            "ApiThrottleAlarm",
+            alarm_name="Healthcare-API-Throttling",
+            alarm_description="Alert when API requests are being throttled",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ApiGateway",
+                metric_name="ThrottledCount",
+                dimensions_map={
+                    "ApiId": self.api.api_id,
+                    "Stage": "v1"
+                },
+                statistic="Sum",
+                period=Duration.minutes(5)
+            ),
+            threshold=10,  # Alert if more than 10 throttled requests in 5 minutes
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        # Add SNS action to the alarm
+        throttle_alarm.add_alarm_action(
+            cw_actions.SnsAction(self.alert_topic)
+        )
+        
+        # Create alarm for high error rate
+        error_rate_alarm = cloudwatch.Alarm(
+            self,
+            "ApiErrorRateAlarm",
+            alarm_name="Healthcare-API-ErrorRate",
+            alarm_description="Alert when API error rate is high",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ApiGateway",
+                metric_name="4XXError",
+                dimensions_map={
+                    "ApiId": self.api.api_id,
+                    "Stage": "v1"
+                },
+                statistic="Sum",
+                period=Duration.minutes(5)
+            ),
+            threshold=50,  # Alert if more than 50 4XX errors in 5 minutes
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        error_rate_alarm.add_alarm_action(
+            cw_actions.SnsAction(self.alert_topic)
+        )
+        
+        # Create alarm for high request count (potential DDoS or infinite loops)
+        high_request_alarm = cloudwatch.Alarm(
+            self,
+            "ApiHighRequestAlarm",
+            alarm_name="Healthcare-API-HighRequestCount",
+            alarm_description="Alert when API receives unusually high request volume",
+            metric=cloudwatch.Metric(
+                namespace="AWS/ApiGateway",
+                metric_name="Count",
+                dimensions_map={
+                    "ApiId": self.api.api_id,
+                    "Stage": "v1"
+                },
+                statistic="Sum",
+                period=Duration.minutes(1)
+            ),
+            threshold=1000,  # Alert if more than 1000 requests per minute
+            evaluation_periods=3,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
+        )
+        
+        high_request_alarm.add_alarm_action(
+            cw_actions.SnsAction(self.alert_topic)
         )
 
 
@@ -391,4 +485,11 @@ class ApiStack(Stack):
             "ApiDomainName",
             value=self.api.api_endpoint,
             description="Healthcare HTTP API Gateway domain name"
+        )
+        
+        CfnOutput(
+            self,
+            "AlertTopicArn",
+            value=self.alert_topic.topic_arn,
+            description="SNS Topic ARN for API alerts"
         )
