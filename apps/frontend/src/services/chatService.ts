@@ -62,9 +62,50 @@ export class ChatService {
       timestamp
     };
 
+    // Generate markdown response to demonstrate markdown rendering
+    const markdownResponse = `# Respuesta del Asistente IA
+
+Recibí tu mensaje: "${content}"
+
+## Análisis del mensaje
+
+- **Longitud**: ${content.length} caracteres
+- **Palabras**: ${content.split(' ').length} palabras
+- **Tipo**: ${content.includes('?') ? 'Pregunta' : 'Declaración'}
+
+### Capacidades de Markdown
+
+Este asistente puede mostrar contenido con formato **markdown** que incluye:
+
+1. **Texto en negrita** y *texto en cursiva*
+2. \`Código inline\` y bloques de código:
+
+\`\`\`javascript
+function ejemplo() {
+  console.log("¡Hola mundo!");
+  return "Markdown funciona correctamente";
+}
+\`\`\`
+
+3. Listas ordenadas y no ordenadas
+4. Enlaces como [este enlace a AWS](https://aws.amazon.com)
+5. Tablas:
+
+| Característica | Estado |
+|----------------|--------|
+| Markdown | ✅ Implementado |
+| Código | ✅ Soportado |
+| Tablas | ✅ Funcionando |
+
+> **Nota**: Este es un ejemplo de blockquote para mostrar citas o información importante.
+
+---
+
+¿Hay algo específico en lo que pueda ayudarte?`;
+
     const agentMessage: ChatMessage = {
       id: `${messageId}_response`,
-      content: `Echo: ${content}`,
+      content: markdownResponse,
       type: 'agent',
       agentType: 'echo',
       timestamp: new Date(Date.now() + 500).toISOString()

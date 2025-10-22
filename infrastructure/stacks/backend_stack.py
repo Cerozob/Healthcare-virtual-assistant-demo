@@ -10,6 +10,8 @@ from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_s3_assets as s3_assets
+from aws_cdk import aws_s3_deployment as s3_deployment
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import custom_resources as cr
 from constructs import Construct
@@ -26,13 +28,12 @@ class BackendStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
-        processed_bucket: s3.Bucket = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        
-        # Store reference to processed bucket for sample data
-        self.processed_bucket = processed_bucket
+
+        # Create sample data bucket and upload assets
+        self.sample_data_bucket, self.sample_data_deployment = self._create_sample_data_bucket()
 
         # Create VPC with private subnets
         self.vpc = self._create_vpc()
@@ -163,6 +164,44 @@ class BackendStack(Stack):
 
         return cluster
 
+    def _create_sample_data_bucket(self) -> tuple[s3.Bucket, s3_deployment.BucketDeployment]:
+        """Create S3 bucket for sample data and upload sample files using S3 Assets."""
+
+        # Create the sample data bucket
+        sample_bucket = s3.Bucket(
+            self,
+            "SampleDataBucket",
+            bucket_name="ab2-cerozob-sampledata-us-east-1",
+            versioned=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            enforce_ssl=True,
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True,
+        )
+
+        # Create S3 Asset for the sample data directory
+        sample_data_asset = s3_assets.Asset(
+            self,
+            "SampleDataAsset",
+            path="apps/SampleFileGeneration/output",
+            exclude=[".DS_Store", "**/.DS_Store"]
+        )
+
+        # Deploy the asset to the sample data bucket
+        sample_data_deployment = s3_deployment.BucketDeployment(
+            self,
+            "SampleDataDeployment",
+            sources=[s3_deployment.Source.asset(
+                "apps/SampleFileGeneration/output")],
+            destination_bucket=sample_bucket,
+            destination_key_prefix="output/",
+            exclude=[".DS_Store", "**/.DS_Store"],
+            retain_on_delete=False
+        )
+
+        return sample_bucket, sample_data_deployment
+
     def _create_ssm_parameters(self) -> None:
         """Create SSM parameters for database and VPC configuration."""
 
@@ -261,7 +300,7 @@ class BackendStack(Stack):
 
             environment={
                 'LOG_LEVEL': 'INFO',
-                'SAMPLE_DATA_BUCKET': self.processed_bucket.bucket_name if self.processed_bucket else '',
+                'SAMPLE_DATA_BUCKET': self.sample_data_bucket.bucket_name,
                 'BEDROCK_USER_SECRET_ARN': self.bedrock_user_secret.secret_arn
             }
         )
@@ -294,9 +333,8 @@ class BackendStack(Stack):
             )
         )
 
-        # Grant S3 permissions to read sample data
-        if self.processed_bucket:
-            self.processed_bucket.grant_read(db_init_lambda)
+        # Grant permissions to read from sample data bucket
+        self.sample_data_bucket.grant_read(db_init_lambda)
 
         # Create custom resource to trigger the Lambda
         db_init_provider = cr.Provider(
@@ -314,9 +352,13 @@ class BackendStack(Stack):
                 'ClusterArn': self.db_cluster.cluster_arn,
                 'DatabaseName': 'healthcare',
                 'TableName': 'ab2_knowledge_base',
-                'TriggerUpdate': str(uuid.uuid4())  # Forces re-execution on each deployment
+                # Forces re-execution on each deployment
+                'TriggerUpdate': str(uuid.uuid4())
             }
         )
+
+        # Ensure database initialization waits for sample data to be uploaded
+        custom_resource.node.add_dependency(self.sample_data_deployment)
 
         return custom_resource
 
@@ -386,4 +428,12 @@ class BackendStack(Stack):
                 [subnet.subnet_id for subnet in self.vpc.private_subnets]),
             description="Private subnet IDs for Lambda functions",
             export_name="HealthcarePrivateSubnetIds"
+        )
+
+        CfnOutput(
+            self,
+            "SampleDataBucketName",
+            value=self.sample_data_bucket.bucket_name,
+            description="S3 bucket containing sample data for database initialization",
+            export_name="HealthcareSampleDataBucketName"
         )

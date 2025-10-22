@@ -174,3 +174,38 @@ body {
 .p-3 {
   padding: 1.5rem;
 }
+
+/* Chat bubble customizations - ALIGNMENT ONLY */
+/* Chat container spacing */
+.chat-messages-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Individual chat bubble wrapper */
+.chat-bubble-wrapper {
+  display: flex;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+/* Right align user messages */
+.chat-bubble-wrapper.outgoing {
+  justify-content: flex-end;
+}
+
+/* Left align AI messages */
+.chat-bubble-wrapper.incoming {
+  justify-content: flex-start;
+}
+
+/* Limit width of chat bubbles for better readability */
+.chat-bubble-wrapper.outgoing > div {
+  max-width: 80%;
+}
+
+.chat-bubble-wrapper.incoming > div {
+  max-width: 80%;
+}

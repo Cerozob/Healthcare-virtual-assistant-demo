@@ -152,14 +152,20 @@ class MedicalDocumentGenerator:
         """
         # Use provided narrative or generate it
         if narrative is None:
-            # Convert profile dict to PatientProfile model for structured output
-            from models import PatientProfile
-            profile_model = PatientProfile.model_validate(profile)
-            narrative = self.agent.generate_medical_narrative(
-                profile=profile_model,
-                document_type=document_type,
-                language="es-LA"
-            )
+            try:
+                # Convert profile dict to PatientProfile model for structured output
+                from models import PatientProfile
+                profile_model = PatientProfile.model_validate(profile)
+                narrative = self.agent.generate_medical_narrative(
+                    profile=profile_model,
+                    document_type=document_type,
+                    language="es-LA"
+                )
+            except Exception as e:
+                logger.error(f"Failed to generate narrative for {document_type}: {e}")
+                # Provide a minimal fallback narrative
+                patient_name = profile.get('personal_info', {}).get('nombre_completo', 'Paciente')
+                narrative = f"Documento médico para {patient_name}. Contenido no disponible debido a limitaciones técnicas."
 
         # Extract patient information
         personal_info = profile.get('personal_info', {})

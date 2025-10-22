@@ -236,3 +236,4 @@ Thumbs.db
 *.ndjson.gz
 *.ndjson
 *lbmaske*
+apps/SampleFileGeneration/output/*

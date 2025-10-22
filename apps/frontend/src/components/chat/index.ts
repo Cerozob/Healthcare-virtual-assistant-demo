@@ -1,15 +1,10 @@
 /**
  * Chat Components
- * Export all chat-related components
+ * Export remaining chat-related components (ChatBubble and PromptInput now use official Cloudscape components)
  */
 
-export { ChatContainer } from './ChatContainer';
-export { ChatBubble } from './ChatBubble';
-export { PromptInput } from './PromptInput';
-export { AttachmentDisplay } from './AttachmentDisplay';
-export { SourceReferences } from './SourceReferences';
 export { PatientChatSidebar } from './PatientChatSidebar';
-export { ErrorState } from './ErrorState';
-
-export type { FileAttachment } from './AttachmentDisplay';
 export type { ExternalSource } from './SourceReferences';
+export { SourceReferences } from './SourceReferences';
+export { MarkdownRenderer } from './MarkdownRenderer';
+

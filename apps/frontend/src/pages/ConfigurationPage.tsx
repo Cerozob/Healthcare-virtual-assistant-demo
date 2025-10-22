@@ -90,19 +90,19 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       switch (activeTab) {
         case 'patients':
           const patientsData = await patientService.getPatients();
-          setPatients(patientsData.patients);
+          setPatients(patientsData?.patients || []);
           break;
         case 'medics':
           const medicsData = await medicService.getMedics();
-          setMedics(medicsData.medics);
+          setMedics(medicsData?.medics || []);
           break;
         case 'exams':
           const examsData = await examService.getExams();
-          setExams(examsData.exams);
+          setExams(examsData?.exams || []);
           break;
         case 'reservations':
           const reservationsData = await reservationService.getReservations();
-          setReservations(reservationsData.reservations);
+          setReservations(reservationsData?.reservations || []);
           break;
         case 'files':
           // Files are loaded per patient
@@ -380,7 +380,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                   onUpload={handleUploadFile}
                   onDownload={handleDownloadFile}
                   onDelete={handleDeleteFile}
-                  patients={patients.map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
+                  patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
                 />
               ),
             },
@@ -441,8 +441,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
               setExamFormMode(null);
               setEditingExam(undefined);
             }}
-            patients={patients.map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
-            medics={medics.map((m) => ({ medic_id: m.medic_id, full_name: m.full_name }))}
+            patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
+            medics={(medics || []).map((m) => ({ medic_id: m.medic_id, full_name: m.full_name }))}
           />
         </Modal>
 
@@ -462,8 +462,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
               setReservationFormMode(null);
               setEditingReservation(undefined);
             }}
-            patients={patients.map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
-            medics={medics.map((m) => ({ medic_id: m.medic_id, full_name: m.full_name }))}
+            patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
+            medics={(medics || []).map((m) => ({ medic_id: m.medic_id, full_name: m.full_name }))}
           />
         </Modal>
       </SpaceBetween>

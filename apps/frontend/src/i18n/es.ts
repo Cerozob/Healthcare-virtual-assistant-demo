@@ -74,8 +74,8 @@ export const es = {
   
   // Chat
   chat: {
-    title: 'Chat Médico',
-    placeholder: 'Escriba su mensaje aquí...',
+    title: 'Asistente Virtual',
+    placeholder: 'Envía un mensaje para iniciar una conversación',
     send: 'Enviar',
     uploadFile: 'Subir archivo',
     attachments: 'Archivos adjuntos',

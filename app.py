@@ -159,7 +159,6 @@ document_workflow_stack = DocumentWorkflowStack(
 backend_stack = BackendStack(
     app,
     "backendstack",
-    processed_bucket=document_workflow_stack.processed_bucket,
     env=env,
     stack_name="AWSomeBuilder2-BackendStack",
     description="Database infrastructure for healthcare system",
@@ -189,7 +188,6 @@ assistant_stack = AssistantStack(
 
 # Add stack dependencies
 logger.info("Configuring stack dependencies...")
-backend_stack.add_dependency(document_workflow_stack)
 assistant_stack.add_dependency(backend_stack)
 logger.info("Stack dependencies configured successfully")
 

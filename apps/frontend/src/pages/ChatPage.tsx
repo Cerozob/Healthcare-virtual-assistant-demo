@@ -1,7 +1,24 @@
 import { useState } from 'react';
-import { Container, Header, SpaceBetween, Alert, Box, Grid, Modal, Button, Icon } from '@cloudscape-design/components';
+import {
+  Container,
+  Header,
+  SpaceBetween,
+  Box,
+  Grid,
+  Modal,
+  Button,
+
+  PromptInput,
+  FileInput,
+  FileTokenGroup,
+
+} from '@cloudscape-design/components';
+
+import ChatBubble from '@cloudscape-design/chat-components/chat-bubble';
+import Avatar from '@cloudscape-design/chat-components/avatar';
+import SupportPromptGroup from '@cloudscape-design/chat-components/support-prompt-group';
 import { MainLayout } from '../components/layout';
-import { ChatContainer, ChatBubble, PromptInput, PatientChatSidebar } from '../components/chat';
+import { PatientChatSidebar, MarkdownRenderer } from '../components/chat';
 import { PatientSelector } from '../components/patient';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePatientContext } from '../contexts/PatientContext';
@@ -15,6 +32,13 @@ interface ChatPageProps {
     signInDetails?: {
       loginId?: string;
     };
+    username?: string;
+    attributes?: {
+      name?: string;
+      given_name?: string;
+      family_name?: string;
+      email?: string;
+    };
   };
 }
 
@@ -24,14 +48,14 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
 
   const handlePatientSelect = async (patient: Patient | null) => {
     setSelectedPatient(patient);
-    
+
     // Load patient exams if patient is selected
     if (patient) {
       try {
         // TODO: Implement patient-specific exam filtering in the API
         const examsResponse = await examService.getExams();
         // Filter exams by patient ID on the client side for now
-        const patientExams = examsResponse.exams.filter(exam => 
+        const patientExams = examsResponse.exams.filter(exam =>
           exam.patient_id === patient.patient_id
         );
         setPatientExams(patientExams);
@@ -45,12 +69,14 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
   };
 
   return (
-    <PatientSelector 
+    <PatientSelector
       onPatientSelect={handlePatientSelect}
       onPatientSelected={onComplete}
     />
   );
 }
+
+
 
 export default function ChatPage({ signOut, user }: ChatPageProps) {
   const { t } = useLanguage();
@@ -58,26 +84,65 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'processing' | 'generating'>('processing');
-  const [error, setError] = useState<string | null>(null);
   const [sessionId] = useState<string>(`session_${Date.now()}`);
   const [showPatientSelector, setShowPatientSelector] = useState(false);
 
-  const handleSendMessage = async (content: string, _files?: File[]) => {
+  // Prompt input state
+  const [promptValue, setPromptValue] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+
+  // Get user's full name for UI customization
+  const getUserDisplayName = () => {
+    if (user?.attributes?.name) return user.attributes.name;
+    if (user?.attributes?.given_name && user?.attributes?.family_name) {
+      return `${user.attributes.given_name} ${user.attributes.family_name}`;
+    }
+    if (user?.attributes?.given_name) return user.attributes.given_name;
+    if (user?.username) return user.username;
+    if (user?.signInDetails?.loginId) return user.signInDetails.loginId;
+    return 'Usuario';
+  };
+
+  const getUserInitials = () => {
+    const name = getUserDisplayName();
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+
+  const handleSendMessage = async () => {
+    if (!promptValue.trim() && files.length === 0) return;
+
+    // Create user message immediately
+    const userMessage: ChatMessage = {
+      id: `user_${Date.now()}`,
+      content: promptValue,
+      type: 'user',
+      timestamp: new Date().toISOString()
+    };
+
+    // Add user message immediately to UI
+    setMessages(prev => [...prev, userMessage]);
+
+    // Clear input immediately
+    const messageContent = promptValue;
+    setPromptValue('');
+    setFiles([]);
+
+    // Start loading process
     setIsLoading(true);
     setLoadingStage('processing');
-    setError(null);
 
     try {
       // Include patient context in the message if available
-      const contextualContent = selectedPatient 
-        ? `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${content}`
-        : content;
+      const contextualContent = selectedPatient
+        ? `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${messageContent}`
+        : messageContent;
 
       // Use echo functionality as placeholder
-      const { userMessage, agentMessage } = await chatService.sendEchoMessage(contextualContent, sessionId);
-
-      // Add user message immediately (show original content without context prefix)
-      setMessages(prev => [...prev, { ...userMessage, content }]);
+      const { agentMessage } = await chatService.sendEchoMessage(contextualContent, sessionId);
 
       // Simulate processing stage
       setTimeout(() => {
@@ -90,50 +155,17 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         setIsLoading(false);
       }, 1500);
 
-      // TODO: Replace with actual AI integration
-      // const response = await chatService.sendMessage({
-      //   content: contextualContent,
-      //   sessionId,
-      //   attachments: _files?.map(f => ({ name: f.name, type: f.type, url: '' }))
-      // });
-      // setMessages(prev => [...prev, response.userMessage, response.agentMessage]);
-      // setIsLoading(false);
-
     } catch (error) {
       console.error('Error sending message:', error);
       setIsLoading(false);
-      setError(error instanceof Error ? error.message : t.errors.generic);
     }
   };
 
-  const handleFeedback = async (messageId: string, feedback: 'positive' | 'negative', details?: string) => {
-    try {
-      // TODO: Implement actual feedback API call
-      console.log('Feedback submitted:', { messageId, feedback, details });
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // You could update the message with feedback status if needed
-      // setMessages(prev => prev.map(msg => 
-      //   msg.id === messageId 
-      //     ? { ...msg, feedback: { type: feedback, details } }
-      //     : msg
-      // ));
-    } catch (error) {
-      console.error('Error submitting feedback:', error);
-      throw error;
-    }
+  const handleCopy = (content: string) => {
+    navigator.clipboard.writeText(content);
   };
 
-  const handleRetry = () => {
-    setError(null);
-    // Optionally retry the last message
-  };
 
-  const handleErrorDismiss = () => {
-    setError(null);
-  };
 
   const handleChangePatient = () => {
     setShowPatientSelector(true);
@@ -168,116 +200,199 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   return (
     <MainLayout signOut={signOut} user={user}>
       <SpaceBetween size="l">
-        <Header variant="h1">{t.chat.title}</Header>
-        
-        {/* Patient Context Alert - Compact version */}
-        {!isPatientSelected && (
-          <Alert type="info" header="Sugerencia">
-            Puede seleccionar un paciente para incluir su contexto en las consultas del chat.
-          </Alert>
-        )}
-        
+        <Header
+          variant="h1"
+          description={`Bienvenido, ${getUserDisplayName()}`}
+        >
+          {t.chat.title}
+        </Header>
+
+
+
         <Grid gridDefinition={[{ colspan: { default: 12, s: 8 } }, { colspan: { default: 12, s: 4 } }]}>
           {/* Chat Area */}
           <Container>
-            <ChatContainer
-              sessionId={sessionId}
-              messages={messages}
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-              error={error || undefined}
-              onRetry={handleRetry}
-              onErrorDismiss={handleErrorDismiss}
-              hasPatientContext={isPatientSelected}
-            >
-              {messages.map((message) => (
-                <ChatBubble 
-                  key={message.id} 
-                  message={message} 
-                  onFeedback={handleFeedback}
-                />
-              ))}
-              {isLoading && (
-                <Box padding="s" variant="div">
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'row',
-                      gap: '12px',
-                      alignItems: 'flex-start'
-                    }}
-                  >
-                    {/* Avatar with loading state */}
-                    <div
-                      style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '50%',
-                        backgroundColor: '#037f0c',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}
-                      role="img"
-                      aria-label="Generative AI assistant"
-                    >
-                      <Icon name="gen-ai" variant="inverted" size="medium" />
-                    </div>
+            <SpaceBetween size="l">
+              {/* Chat Messages */}
+              <Box padding="l">
+                <div className="chat-messages-container">
+                  {messages.length === 0 ? (
+                    <Box textAlign="center" color="text-body-secondary" padding="xxl">
+                      {t.chat.placeholder}
+                    </Box>
+                  ) : (
+                    messages.map((message) => {
+                      const isUser = message.type === 'user';
+                      const isAgent = message.type === 'agent';
 
-                    {/* Loading message bubble */}
-                    <div
-                      style={{
-                        padding: '12px',
-                        backgroundColor: '#ffffff',
-                        border: '1px solid #e9ebed',
-                        borderRadius: '8px',
-                        minWidth: '120px'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Box fontSize="body-s" color="text-body-secondary">
-                          {loadingStage === 'processing' ? 'Processing your request' : 'Generating a response'}
+                      const formatTime = (timestamp: string) => {
+                        const date = new Date(timestamp);
+                        return date.toLocaleString('es-MX', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: 'numeric',
+                          month: 'short'
+                        });
+                      };
+
+                      const avatar = isUser ? (
+                        <Avatar
+                          ariaLabel={getUserDisplayName()}
+                          tooltipText={getUserDisplayName()}
+                          initials={getUserInitials()}
+                        />
+                      ) : (
+                        <Avatar
+                          ariaLabel="Generative AI assistant"
+                          color="gen-ai"
+                          iconName="gen-ai"
+                          tooltipText="Generative AI assistant"
+                        />
+                      );
+
+                      const actions = isAgent ? (
+                        <Button
+                          variant="icon"
+                          iconName="copy"
+                          onClick={() => handleCopy(message.content)}
+                          ariaLabel="Copy message"
+                        />
+                      ) : undefined;
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
+                        >
+                          <ChatBubble
+                            ariaLabel={`${isUser ? getUserDisplayName() : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
+                            type={isUser ? "outgoing" : "incoming"}
+                            avatar={avatar}
+                            actions={actions}
+                          >
+                            <MarkdownRenderer content={message.content} />
+                          </ChatBubble>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {/* Loading State */}
+                  {isLoading && (
+                    <div className="chat-bubble-wrapper incoming">
+                      <ChatBubble
+                        ariaLabel="Generative AI assistant generating response"
+                        showLoadingBar
+                        type="incoming"
+                        avatar={
+                          <Avatar
+                            loading={loadingStage === 'generating'}
+                            color="gen-ai"
+                            iconName="gen-ai"
+                            ariaLabel="Generative AI assistant"
+                            tooltipText="Generative AI assistant"
+                          />
+                        }
+                      >
+                        <Box color="text-status-inactive">
+                          {loadingStage === 'processing' ? 'Analizando solicitud' : 'Generando respuesta'}
                         </Box>
-                        {loadingStage === 'generating' && (
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            {[0, 1, 2].map((i) => (
-                              <div
-                                key={i}
-                                style={{
-                                  width: '6px',
-                                  height: '6px',
-                                  borderRadius: '50%',
-                                  backgroundColor: '#5f6b7a',
-                                  animation: `typing 1.4s infinite ${i * 0.2}s`
-                                }}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      </ChatBubble>
                     </div>
-                  </div>
-                  <style>{`
-                    @keyframes typing {
-                      0%, 60%, 100% {
-                        opacity: 0.3;
-                        transform: translateY(0);
+                  )}
+                </div>
+              </Box>
+
+              {/* Support Prompts */}
+              {!isLoading && messages.length === 0 && (
+                <Box padding="l">
+                  <SupportPromptGroup
+                    onItemClick={({ detail }) => {
+                      const selectedPrompt = [
+                        "¿Puedes ayudarme a revisar el historial médico de este paciente?",
+                        "¿Qué información necesitas para agendar una cita?",
+                        "Agenda una cita para este paciente",
+                        "¿Este paciente presenta síntomas recurrentes?"
+                      ].find((_, index) => `prompt-${index}` === detail.id);
+
+                      if (selectedPrompt) {
+                        setPromptValue(selectedPrompt);
+                        setTimeout(handleSendMessage, 0);
                       }
-                      30% {
-                        opacity: 1;
-                        transform: translateY(-4px);
+                    }}
+                    ariaLabel="Suggested prompts"
+                    items={[
+                      {
+                        text: "¿Puedes ayudarme a revisar el historial médico de este paciente?",
+                        id: "prompt-0"
+                      },
+                      {
+                        text: "¿Qué información necesitas para agendar una cita?",
+                        id: "prompt-1"
+                      },
+                      {
+                        text: "Agenda una cita para este paciente",
+                        id: "prompt-2"
+                      },
+                      {
+                        text: "¿Este paciente presenta síntomas recurrentes?",
+                        id: "prompt-3"
                       }
-                    }
-                  `}</style>
+                    ]}
+                  />
                 </Box>
               )}
-            </ChatContainer>
-            
-            <PromptInput
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-            />
+
+              {/* Prompt Input */}
+              <Box padding="l">
+                <PromptInput
+                  onChange={({ detail }) => setPromptValue(detail.value)}
+                  value={promptValue}
+                  actionButtonAriaLabel="Send message"
+                  actionButtonIconName="send"
+                  placeholder="Haz una pregunta, incluye archivos con el botón o arrastrandolos a la ventana"
+                  disabled={isLoading}
+                  onAction={handleSendMessage}
+                  secondaryActions={
+                    <Box padding={{ left: "xxs", top: "xs" }}>
+                      <FileInput
+                        variant="icon"
+                        multiple={true}
+                        value={files}
+
+                        onChange={({ detail }) => setFiles(detail.value)}
+                        accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
+                      />
+                    </Box>
+                  }
+                  secondaryContent={
+                    files.length > 0 && (
+                      <FileTokenGroup
+                        items={files.map(file => ({ file }))}
+                        onDismiss={({ detail }) =>
+                          setFiles(files =>
+                            files.filter((_, index) =>
+                              index !== detail.fileIndex
+                            )
+                          )
+                        }
+                        alignment="horizontal"
+                        showFileSize={true}
+                        showFileLastModified={true}
+                        showFileThumbnail={true}
+                        i18nStrings={{
+                          removeFileAriaLabel: () => "Remover archivo",
+                          limitShowFewer: "Mostrar menos archivos",
+                          limitShowMore: "Mostrar más archivos",
+                          errorIconAriaLabel: "Error",
+                          warningIconAriaLabel: "Warning"
+                        }}
+                      />
+                    )
+                  }
+                />
+              </Box>
+            </SpaceBetween>
           </Container>
 
           {/* Patient Sidebar */}

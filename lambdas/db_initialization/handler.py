@@ -26,12 +26,14 @@ def wait_for_database_ready(rds_data, cluster_arn: str, secret_arn: str, databas
             return
         except Exception as e:
             if "DatabaseResumingException" in str(e) or "resuming after being auto-paused" in str(e):
-                wait_time = min(5 + (attempt * 2), 30)  # Exponential backoff, max 30s
-                logger.info(f"Database resuming, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                # Exponential backoff, max 30s
+                wait_time = min(5 + (attempt * 2), 30)
+                logger.info(
+                    f"Database resuming, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
             else:
                 raise e
-    
+
     raise Exception("Database did not become ready after maximum retries")
 
 
@@ -51,7 +53,8 @@ def lambda_handler(event, context):
 
             # Enable pgvector extension with retry logic
             try:
-                wait_for_database_ready(rds_data, cluster_arn, secret_arn, database_name)
+                wait_for_database_ready(
+                    rds_data, cluster_arn, secret_arn, database_name)
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
@@ -104,19 +107,23 @@ def lambda_handler(event, context):
                 if bedrock_secret_arn:
                     # Get the password from the bedrock user secret
                     secretsmanager = boto3.client('secretsmanager')
-                    bedrock_secret_response = secretsmanager.get_secret_value(SecretId=bedrock_secret_arn)
-                    bedrock_secret_data = json.loads(bedrock_secret_response['SecretString'])
+                    bedrock_secret_response = secretsmanager.get_secret_value(
+                        SecretId=bedrock_secret_arn)
+                    bedrock_secret_data = json.loads(
+                        bedrock_secret_response['SecretString'])
                     bedrock_password = bedrock_secret_data['password']
-                    
+
                     rds_data.execute_statement(
                         resourceArn=cluster_arn,
                         secretArn=secret_arn,
                         database=database_name,
                         sql=f"ALTER USER bedrock_user PASSWORD '{bedrock_password}';"
                     )
-                    logger.info("Set password for bedrock_user using dedicated secret")
+                    logger.info(
+                        "Set password for bedrock_user using dedicated secret")
                 else:
-                    logger.warning("BEDROCK_USER_SECRET_ARN not provided, skipping password setup")
+                    logger.warning(
+                        "BEDROCK_USER_SECRET_ARN not provided, skipping password setup")
             except Exception as e:
                 logger.warning(f"Failed to set bedrock_user password: {e}")
 
@@ -128,9 +135,10 @@ def lambda_handler(event, context):
                     database=database_name,
                     sql="GRANT ALL ON SCHEMA bedrock_integration TO bedrock_user;"
                 )
-                logger.info("Granted permissions to bedrock_user")
-                
-                # Also ensure the main database user has vector extension permissions
+                logger.info(
+                    "Granted bedrock_integration schema permissions to bedrock_user")
+
+                # Grant usage on public schema
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
@@ -138,6 +146,46 @@ def lambda_handler(event, context):
                     sql="GRANT USAGE ON SCHEMA public TO bedrock_user;"
                 )
                 logger.info("Granted public schema usage to bedrock_user")
+
+                # Grant permissions on all tables in public schema
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql="GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bedrock_user;"
+                )
+                logger.info(
+                    "Granted table permissions on public schema to bedrock_user")
+
+                # Grant permissions on future tables in public schema
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bedrock_user;"
+                )
+                logger.info(
+                    "Granted default privileges on future tables to bedrock_user")
+
+                # Grant usage on sequences (for auto-generated IDs)
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql="GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO bedrock_user;"
+                )
+                logger.info("Granted sequence usage to bedrock_user")
+
+                # Grant default privileges on future sequences
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO bedrock_user;"
+                )
+                logger.info(
+                    "Granted default sequence privileges to bedrock_user")
+
             except Exception as e:
                 logger.warning(f"Failed to grant permissions: {e}")
 
@@ -151,13 +199,14 @@ def lambda_handler(event, context):
                     database=database_name,
                     sql="SELECT 1 FROM pg_extension WHERE extname = 'vector';"
                 )
-                
+
                 if not vector_check.get('records'):
-                    logger.error("Vector extension is not installed - knowledge base table creation will fail")
+                    logger.error(
+                        "Vector extension is not installed - knowledge base table creation will fail")
                     raise Exception("Vector extension not available")
-                
+
                 logger.info("Vector extension confirmed available")
-                
+
                 # Check if table exists with wrong column names and drop it
                 try:
                     check_columns = rds_data.execute_statement(
@@ -166,9 +215,10 @@ def lambda_handler(event, context):
                         database=database_name,
                         sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name IN ('id', 'embedding', 'chunks');"
                     )
-                    
+
                     if check_columns.get('records'):
-                        logger.info(f"Table {table_name} exists with old column names, dropping and recreating")
+                        logger.info(
+                            f"Table {table_name} exists with old column names, dropping and recreating")
                         rds_data.execute_statement(
                             resourceArn=cluster_arn,
                             secretArn=secret_arn,
@@ -177,8 +227,9 @@ def lambda_handler(event, context):
                         )
                         logger.info(f"Dropped existing table {table_name}")
                 except Exception as e:
-                    logger.info(f"Table check failed (table may not exist): {e}")
-                
+                    logger.info(
+                        f"Table check failed (table may not exist): {e}")
+
                 create_table_sql = f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     pk uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -189,16 +240,18 @@ def lambda_handler(event, context):
                 );
                 '''
 
-                logger.info(f"Creating knowledge base table with SQL: {create_table_sql}")
-                
+                logger.info(
+                    f"Creating knowledge base table with SQL: {create_table_sql}")
+
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
                     database=database_name,
                     sql=create_table_sql
                 )
-                logger.info(f"Knowledge base table {table_name} created successfully with AWS blog post structure")
-                
+                logger.info(
+                    f"Knowledge base table {table_name} created successfully with AWS blog post structure")
+
                 # Verify table was created with correct columns
                 verify_sql = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY ordinal_position;"
                 verify_result = rds_data.execute_statement(
@@ -207,15 +260,29 @@ def lambda_handler(event, context):
                     database=database_name,
                     sql=verify_sql
                 )
-                
+
                 columns = []
                 for record in verify_result.get('records', []):
                     column_name = record[0].get('stringValue', '')
                     data_type = record[1].get('stringValue', '')
                     columns.append(f"{column_name}({data_type})")
-                
-                logger.info(f"Knowledge base table columns verified: {', '.join(columns)}")
-                
+
+                logger.info(
+                    f"Knowledge base table columns verified: {', '.join(columns)}")
+
+                # Grant specific permissions on the knowledge base table to bedrock_user
+                try:
+                    rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table_name} TO bedrock_user;"
+                    )
+                    logger.info(
+                        f"Granted permissions on {table_name} to bedrock_user")
+                except Exception as e:
+                    logger.warning(f"Failed to grant table permissions: {e}")
+
                 # Create required indexes as per AWS documentation
                 # 1. HNSW index for vector similarity search (required)
                 try:
@@ -257,15 +324,18 @@ def lambda_handler(event, context):
                     )
                     logger.info("GIN custom metadata index created (optional)")
                 except Exception as e:
-                    logger.warning(f"Failed to create custom metadata index: {e}")
-                    
+                    logger.warning(
+                        f"Failed to create custom metadata index: {e}")
+
             except Exception as e:
                 if "type \"vector\" does not exist" in str(e) or "does not exist" in str(e):
-                    logger.error(f"Vector extension not available. Knowledge base table creation failed: {e}")
+                    logger.error(
+                        f"Vector extension not available. Knowledge base table creation failed: {e}")
                     # This will cause the knowledge base creation to fail, which is expected
                     raise
                 else:
-                    logger.warning(f"Knowledge base table creation failed: {e}")
+                    logger.warning(
+                        f"Knowledge base table creation failed: {e}")
 
             # Populate with sample data
             populate_sample_data(rds_data, cluster_arn,
@@ -334,72 +404,79 @@ def create_healthcare_tables(rds_data, cluster_arn: str, secret_arn: str, databa
         # Separate CREATE TABLE and CREATE INDEX statements
         table_statements = []
         index_statements = []
-        
+
         for statement in statements:
             if not statement.strip() or statement.strip().startswith('--'):
                 continue
-            
+
             statement_upper = statement.strip().upper()
             if statement_upper.startswith('CREATE TABLE'):
                 table_statements.append(statement)
             elif statement_upper.startswith('CREATE INDEX'):
                 index_statements.append(statement)
             else:
-                table_statements.append(statement)  # Other statements like extensions
-        
+                # Other statements like extensions
+                table_statements.append(statement)
+
         # Execute table creation first
         executed_count = 0
         logger.info(f"Creating {len(table_statements)} tables...")
-        
+
         for i, statement in enumerate(table_statements, 1):
             try:
-                logger.debug(f"Executing table statement {i}: {statement[:100]}...")
-                
+                logger.debug(
+                    f"Executing table statement {i}: {statement[:100]}...")
+
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
                     database=database_name,
                     sql=statement
                 )
-                
+
                 executed_count += 1
                 logger.info(f"Successfully executed table statement {i}")
-                
+
             except Exception as e:
                 error_msg = str(e).lower()
                 if any(phrase in error_msg for phrase in ["already exists", "duplicate"]):
-                    logger.info(f"Table statement {i} - object already exists, skipping")
+                    logger.info(
+                        f"Table statement {i} - object already exists, skipping")
                 elif "type \"vector\" does not exist" in error_msg:
-                    logger.warning(f"Vector type not available, skipping knowledge base table")
+                    logger.warning(
+                        f"Vector type not available, skipping knowledge base table")
                 else:
                     logger.error(f"Failed to execute table statement {i}: {e}")
                     logger.error(f"Statement was: {statement}")
                     # Continue with other statements
                     continue
-        
+
         # Execute index creation after tables
         logger.info(f"Creating {len(index_statements)} indexes...")
-        
+
         for i, statement in enumerate(index_statements, 1):
             try:
-                logger.debug(f"Executing index statement {i}: {statement[:100]}...")
-                
+                logger.debug(
+                    f"Executing index statement {i}: {statement[:100]}...")
+
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
                     database=database_name,
                     sql=statement
                 )
-                
+
                 executed_count += 1
                 logger.info(f"Successfully executed index statement {i}")
-                
+
             except Exception as e:
                 error_msg = str(e).lower()
                 if any(phrase in error_msg for phrase in ["already exists", "duplicate"]):
-                    logger.info(f"Index statement {i} - object already exists, skipping")
+                    logger.info(
+                        f"Index statement {i} - object already exists, skipping")
                 elif "does not exist" in error_msg:
-                    logger.warning(f"Index statement {i} - table doesn't exist yet, skipping")
+                    logger.warning(
+                        f"Index statement {i} - table doesn't exist yet, skipping")
                 else:
                     logger.error(f"Failed to execute index statement {i}: {e}")
                     logger.error(f"Statement was: {statement}")
@@ -502,10 +579,16 @@ def load_sample_patients_from_s3() -> List[Dict[str, Any]]:
             return []
 
         # List objects in the sample data bucket
+        logger.info(
+            f"Listing objects in bucket: {sample_bucket} with prefix: output/")
         response = s3.list_objects_v2(Bucket=sample_bucket, Prefix='output/')
+
+        total_objects = len(response.get('Contents', []))
+        logger.info(f"Found {total_objects} objects in S3 bucket")
 
         patients = []
         for obj in response.get('Contents', []):
+            logger.debug(f"Processing S3 object: {obj['Key']}")
             if obj['Key'].endswith('_profile.json'):
                 try:
                     # Download and parse the profile
@@ -517,6 +600,8 @@ def load_sample_patients_from_s3() -> List[Dict[str, Any]]:
                         f"Loaded patient profile from S3: {obj['Key']}")
                 except Exception as e:
                     logger.warning(f"Failed to load profile {obj['Key']}: {e}")
+            else:
+                logger.debug(f"Skipping non-profile file: {obj['Key']}")
 
         logger.info(f"Loaded {len(patients)} patient profiles from S3")
         return patients
@@ -623,7 +708,8 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
             else:
                 logger.warning(f"Unrecognized date format: {fecha_nacimiento}")
         except Exception as e:
-            logger.warning(f"Could not parse date of birth '{fecha_nacimiento}': {e}")
+            logger.warning(
+                f"Could not parse date of birth '{fecha_nacimiento}': {e}")
 
     return {
         'patient_id': profile.get('patient_id', str(uuid.uuid4())),
@@ -650,20 +736,26 @@ def insert_sample_patients(rds_data, cluster_arn: str, secret_arn: str, database
     for i, profile in enumerate(patients, 1):
         try:
             patient_data = convert_patient_profile_to_db_format(profile)
-            logger.info(f"Patient {i} data: date_of_birth={patient_data.get('date_of_birth')}, full_name={patient_data.get('full_name')}")
+            logger.info(
+                f"Patient {i} data: date_of_birth={patient_data.get('date_of_birth')}, full_name={patient_data.get('full_name')}")
 
-            # Check if patient already exists
+            # Check if patient already exists by patient_id or email (both should be unique)
             check_response = rds_data.execute_statement(
                 resourceArn=cluster_arn,
                 secretArn=secret_arn,
                 database=database_name,
-                sql="SELECT COUNT(*) as count FROM patients WHERE patient_id = :patient_id",
-                parameters=[{'name': 'patient_id', 'value': {
-                    'stringValue': patient_data['patient_id']}}]
+                sql="SELECT COUNT(*) as count FROM patients WHERE patient_id = :patient_id OR email = :email",
+                parameters=[
+                    {'name': 'patient_id', 'value': {
+                        'stringValue': patient_data['patient_id']}},
+                    {'name': 'email', 'value': {
+                        'stringValue': patient_data.get('email', '')}}
+                ]
             )
 
             if check_response['records'][0][0].get('longValue', 0) > 0:
-                logger.info(f"Patient {i} already exists, skipping")
+                logger.info(
+                    f"Patient {i} already exists (by patient_id or email), skipping")
                 continue
 
             # Insert patient
@@ -689,7 +781,8 @@ def insert_sample_patients(rds_data, cluster_arn: str, secret_arn: str, database
                     # Ensure date is in proper format for PostgreSQL DATE type
                     param_value = {'stringValue': str(value)}
                 else:
-                    param_value = {'stringValue': str(value) if value is not None else None}
+                    param_value = {'stringValue': str(
+                        value) if value is not None else None}
 
                 parameters.append({'name': key, 'value': param_value})
 
@@ -704,7 +797,13 @@ def insert_sample_patients(rds_data, cluster_arn: str, secret_arn: str, database
             logger.info(f"Inserted patient {i}: {patient_data['full_name']}")
 
         except Exception as e:
-            logger.error(f"Failed to insert patient {i}: {e}")
+            error_msg = str(e).lower()
+            if "duplicate key" in error_msg or "unique constraint" in error_msg:
+                logger.info(
+                    f"Patient {i} already exists (constraint violation), skipping: {patient_data.get('full_name', 'Unknown')}")
+            else:
+                logger.error(f"Failed to insert patient {i}: {e}")
+                # Continue with other patients instead of failing completely
 
 
 def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_name: str):

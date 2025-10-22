@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -207,9 +208,14 @@ def generate_patient_end_to_end(
             )
             # Convert back to dict for compatibility
             narratives = narratives_model.model_dump()
+            logging.info(f"Patient {patient_number}: Successfully generated narratives for {len(narratives)} document types")
         except Exception as e:
             logging.error(f"Patient {patient_number}: Failed to generate narratives: {e}")
+            # Create fallback narratives to allow document generation to continue
             narratives = {}
+            for doc_type in document_types:
+                narratives[doc_type] = f"Contenido no disponible para {doc_type} debido a limitaciones técnicas temporales."
+            logging.warning(f"Patient {patient_number}: Using fallback narratives to continue processing")
 
         # Step 5: Generate PDF documents using pre-generated narratives
         logging.info(f"Patient {patient_number}: Generating PDF documents...")
@@ -415,19 +421,33 @@ def generate_all_patients(
 
     profiles = []
     successful_count = 0
+    consecutive_failures = 0
+    max_consecutive_failures = 3
 
     for i in range(1, count + 1):
         try:
             profile = generate_patient_end_to_end(i, count, components, config)
             profiles.append(profile)
             successful_count += 1
+            consecutive_failures = 0  # Reset failure counter on success
 
             # Log progress
             logging.info(
                 f"Progress: {successful_count}/{count} patients completed successfully")
 
         except Exception as e:
+            consecutive_failures += 1
             logging.error(f"Failed to generate patient {i}: {e}")
+            
+            # If we have too many consecutive failures, add a longer delay
+            if consecutive_failures >= max_consecutive_failures:
+                delay = 30 + (consecutive_failures - max_consecutive_failures) * 10
+                logging.warning(
+                    f"Too many consecutive failures ({consecutive_failures}). "
+                    f"Adding {delay}s delay before continuing..."
+                )
+                time.sleep(delay)
+            
             # Continue with next patient instead of failing completely
             continue
 

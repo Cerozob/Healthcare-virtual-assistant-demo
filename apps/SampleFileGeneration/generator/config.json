@@ -13,7 +13,7 @@
     "model_id": "amazon.nova-premier-v1:0",
     "inference_profile_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "region": "us-east-1",
-    "max_tokens": 4096,
+    "max_tokens": 3584,
     "temperature": 0.4,
     "use_inference_profile": true
   },

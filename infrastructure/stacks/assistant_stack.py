@@ -26,11 +26,11 @@ class AssistantStack(Stack):
         processed_bucket: s3.Bucket = None,
         database_cluster: rds.DatabaseCluster = None,
         db_init_resource: CustomResource = None,
-        bedrock_user_secret = None,
+        bedrock_user_secret=None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        
+
         # Store references for use in methods
         self.processed_bucket = processed_bucket
         self.database_cluster = database_cluster
@@ -109,7 +109,7 @@ class AssistantStack(Stack):
         # Ensure database is initialized before creating Knowledge Base
         if self.db_init_resource:
             self.knowledge_base.node.add_dependency(self.db_init_resource)
-        
+
         # Also ensure the database cluster is fully created
         self.knowledge_base.node.add_dependency(self.database_cluster)
 
@@ -206,7 +206,8 @@ class AssistantStack(Stack):
                     "rds:DescribeDBClusterParameterGroups",
                     "rds:DescribeDBParameterGroups"
                 ],
-                resources=["*"],  # RDS describe actions require * resource for validation
+                # RDS describe actions require * resource for validation
+                resources=["*"],
             )
         )
 
@@ -275,5 +276,3 @@ class AssistantStack(Stack):
         )
 
         return knowledge_base_role.role_arn
-
-

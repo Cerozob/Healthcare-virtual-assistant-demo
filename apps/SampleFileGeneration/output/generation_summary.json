@@ -1,7 +1,7 @@
 {
-  "total_patients_requested": 1,
-  "total_patients_generated": 1,
-  "generation_timestamp": "2025-10-22T00:01:24.932397",
+  "total_patients_requested": 10,
+  "total_patients_generated": 9,
+  "generation_timestamp": "2025-10-22T14:17:20.470649",
   "config_used": {
     "$schema": "./config_schema.json",
     "data_sources": {
@@ -36,8 +36,48 @@
   },
   "patients": [
     {
-      "patient_id": "1d621da0-f89e-4691-8f56-5022bb20dcca",
-      "name": "Andrés Navarro Muñoz",
+      "patient_id": "accbf3e4-cd65-40b9-bf9e-ffee31a7bdb6",
+      "name": "María Fernanda González Rodríguez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "b6734a70-da62-4216-add9-c987ba983570",
+      "name": "María Fernanda González Rodríguez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "b870337a-64b1-4f9b-ad2b-c737c6cc4359",
+      "name": "María Fernanda González Rodríguez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "afcc8163-045e-45f7-90a0-f955c1f9c6d7",
+      "name": "Carlos Andrés Rodríguez Martínez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "6dd356a9-7ba1-4c46-8bd6-4f51feb01c79",
+      "name": "María Elena Rodríguez García",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "6958d505-8575-422c-b775-0174f31932e0",
+      "name": "María Fernanda González Rodríguez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "67b6c074-cdd5-4a33-98c7-e903fa31ada0",
+      "name": "María Elena Rodríguez García",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "3d7cf427-cb43-4eef-a8f5-5c7d4e04bd17",
+      "name": "María Fernanda González Rodríguez",
+      "documents_generated": 3
+    },
+    {
+      "patient_id": "4c89aaee-78ba-46cf-88fc-2b81578137ab",
+      "name": "María Elena Rodríguez García",
       "documents_generated": 3
     }
   ]

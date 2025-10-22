@@ -1,0 +1,183 @@
+/* Markdown Renderer Styles */
+.markdown-renderer {
+  line-height: 1.6;
+  color: #16191f;
+}
+
+/* Headings */
+.markdown-h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 1rem 0;
+  color: #16191f;
+}
+
+.markdown-h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.875rem 0;
+  color: #16191f;
+}
+
+.markdown-h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem 0;
+  color: #16191f;
+}
+
+.markdown-h4 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0 0 0.625rem 0;
+  color: #16191f;
+}
+
+.markdown-h5 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  color: #16191f;
+}
+
+.markdown-h6 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem 0;
+  color: #16191f;
+}
+
+/* Paragraphs */
+.markdown-p {
+  margin: 0 0 1rem 0;
+  color: #16191f;
+}
+
+/* Code */
+.markdown-code-inline {
+  background-color: #f2f3f3;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  color: #5f6b7a;
+}
+
+.markdown-code-block {
+  background-color: #f2f3f3;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 0 0 1rem 0;
+  overflow: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.markdown-code-block code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Lists */
+.markdown-ul,
+.markdown-ol {
+  margin: 0 0 1rem 1.5rem;
+  padding: 0;
+}
+
+.markdown-li {
+  margin: 0 0 0.25rem 0;
+}
+
+/* Blockquotes */
+.markdown-blockquote {
+  border-left: 4px solid #037f0c;
+  background-color: #f9f9f9;
+  margin: 0 0 1rem 0;
+  padding: 0.75rem 0 0.75rem 1rem;
+  font-style: italic;
+  color: #5f6b7a;
+}
+
+/* Links */
+.markdown-link {
+  color: #0972d3;
+  text-decoration: underline;
+}
+
+.markdown-link:hover {
+  color: #0258a3;
+}
+
+.markdown-link:visited {
+  color: #7d2105;
+}
+
+/* Tables */
+.markdown-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1rem 0;
+  border: 1px solid #e9ebed;
+}
+
+.markdown-th {
+  border: 1px solid #e9ebed;
+  background-color: #f2f3f3;
+  padding: 0.75rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.markdown-td {
+  border: 1px solid #e9ebed;
+  padding: 0.75rem;
+}
+
+/* Horizontal Rules */
+.markdown-hr {
+  border: none;
+  border-top: 1px solid #e9ebed;
+  margin: 1.5rem 0;
+}
+
+/* Text Formatting */
+.markdown-strong {
+  font-weight: 700;
+}
+
+.markdown-em {
+  font-style: italic;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .markdown-h1 {
+    font-size: 1.5rem;
+  }
+  
+  .markdown-h2 {
+    font-size: 1.25rem;
+  }
+  
+  .markdown-h3 {
+    font-size: 1.125rem;
+  }
+  
+  .markdown-code-block {
+    padding: 0.75rem;
+    font-size: 0.8em;
+  }
+  
+  .markdown-table {
+    font-size: 0.875rem;
+  }
+  
+  .markdown-th,
+  .markdown-td {
+    padding: 0.5rem;
+  }
+}
