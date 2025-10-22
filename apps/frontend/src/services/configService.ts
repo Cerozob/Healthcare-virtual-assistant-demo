@@ -41,6 +41,7 @@ class ConfigService {
     return this.getConfig();
   }
 
+  
   /**
    * Check if configuration is available
    */
