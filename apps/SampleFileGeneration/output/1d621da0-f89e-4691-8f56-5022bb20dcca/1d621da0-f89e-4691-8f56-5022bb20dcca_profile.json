@@ -1,0 +1,249 @@
+{
+  "patient_id": "1d621da0-f89e-4691-8f56-5022bb20dcca",
+  "personal_info": {
+    "nombre_completo": "Andrés Navarro Muñoz",
+    "primer_nombre": "Andrés",
+    "segundo_nombre": null,
+    "primer_apellido": "Navarro",
+    "segundo_apellido": "Muñoz",
+    "fecha_nacimiento": "15/06/1955",
+    "edad": 70,
+    "sexo": "M",
+    "tipo_documento": "Cédula",
+    "numero_documento": "50532266",
+    "direccion": {
+      "calle": "Calle 86",
+      "numero": "6260",
+      "ciudad": "Ciudad 42",
+      "provincia": "Provincia 14",
+      "codigo_postal": "44021",
+      "pais": "Venezuela"
+    },
+    "telefono": "+58 733396909",
+    "email": "andrés.navarro@hotmail.com"
+  },
+  "medical_history": {
+    "conditions": [
+      {
+        "codigo": "E78.0",
+        "descripcion": "Hipercolesterolemia pura",
+        "fecha_diagnostico": "12/03/2018",
+        "estado": "activo"
+      },
+      {
+        "codigo": "I10",
+        "descripcion": "Hipertensión arterial esencial",
+        "fecha_diagnostico": "08/11/2016",
+        "estado": "activo"
+      },
+      {
+        "codigo": "E79.0",
+        "descripcion": "Hiperuricemia asintomática",
+        "fecha_diagnostico": "22/05/2020",
+        "estado": "activo"
+      }
+    ],
+    "medications": [
+      {
+        "nombre": "Atorvastatina",
+        "dosis": "40 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "15/03/2018",
+        "activo": true
+      },
+      {
+        "nombre": "Enalapril",
+        "dosis": "10 mg",
+        "frecuencia": "Dos veces al día",
+        "fecha_inicio": "10/11/2016",
+        "activo": true
+      },
+      {
+        "nombre": "Alopurinol",
+        "dosis": "300 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "25/05/2020",
+        "activo": true
+      },
+      {
+        "nombre": "Ácido acetilsalicílico (Aspirina)",
+        "dosis": "100 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "15/03/2018",
+        "activo": true
+      },
+      {
+        "nombre": "Omeprazol",
+        "dosis": "20 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "15/03/2018",
+        "activo": true
+      }
+    ],
+    "procedures": [
+      {
+        "nombre": "Electrocardiograma de reposo",
+        "fecha": "14/01/2024",
+        "notas": "Ritmo sinusal normal, sin alteraciones significativas"
+      },
+      {
+        "nombre": "Ecocardiograma transtorácico",
+        "fecha": "20/03/2023",
+        "notas": "Función ventricular izquierda preservada, fracción de eyección 60%"
+      },
+      {
+        "nombre": "Ecografía abdominal",
+        "fecha": "10/08/2022",
+        "notas": "Esteatosis hepática leve, sin otras alteraciones"
+      }
+    ]
+  },
+  "lab_results": [
+    {
+      "nombre_prueba": "Colesterol total",
+      "valor": "215",
+      "unidad": "mg/dL",
+      "rango_referencia": "< 200",
+      "fecha": "18/02/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Colesterol LDL",
+      "valor": "138",
+      "unidad": "mg/dL",
+      "rango_referencia": "< 100",
+      "fecha": "18/02/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Colesterol HDL",
+      "valor": "42",
+      "unidad": "mg/dL",
+      "rango_referencia": "> 40",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Triglicéridos",
+      "valor": "175",
+      "unidad": "mg/dL",
+      "rango_referencia": "< 150",
+      "fecha": "18/02/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Ácido úrico",
+      "valor": "8.2",
+      "unidad": "mg/dL",
+      "rango_referencia": "2.4 - 5.7",
+      "fecha": "18/02/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Glucosa en ayunas",
+      "valor": "98",
+      "unidad": "mg/dL",
+      "rango_referencia": "70 - 100",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Creatinina",
+      "valor": "1.1",
+      "unidad": "mg/dL",
+      "rango_referencia": "0.7 - 1.3",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Potasio",
+      "valor": "4.5",
+      "unidad": "mEq/L",
+      "rango_referencia": "3.3 - 5.1",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Sodio",
+      "valor": "140",
+      "unidad": "mEq/L",
+      "rango_referencia": "136 - 145",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Hemoglobina",
+      "valor": "14.8",
+      "unidad": "g/dL",
+      "rango_referencia": "13.5 - 17.5",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Hematocrito",
+      "valor": "44.2",
+      "unidad": "%",
+      "rango_referencia": "41 - 53",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Leucocitos",
+      "valor": "7200",
+      "unidad": "/μL",
+      "rango_referencia": "4000 - 11000",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Plaquetas",
+      "valor": "245000",
+      "unidad": "/μL",
+      "rango_referencia": "150000 - 400000",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "TGO (AST)",
+      "valor": "28",
+      "unidad": "U/L",
+      "rango_referencia": "< 40",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "TGP (ALT)",
+      "valor": "35",
+      "unidad": "U/L",
+      "rango_referencia": "< 41",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "TSH",
+      "valor": "2.8",
+      "unidad": "μUI/mL",
+      "rango_referencia": "0.4 - 4.0",
+      "fecha": "18/02/2025",
+      "estado": "normal"
+    }
+  ],
+  "source_scan": "reference_scan.png",
+  "generated_documents": [
+    {
+      "tipo": "historia_clinica",
+      "ruta_archivo": "../output/1d621da0-f89e-4691-8f56-5022bb20dcca/patient_1d621da0-f89e-4691-8f56-5022bb20dcca_historia_clinica_20251022_000124.pdf",
+      "fecha_generacion": 1761109284.9079692
+    },
+    {
+      "tipo": "resultados_laboratorio",
+      "ruta_archivo": "../output/1d621da0-f89e-4691-8f56-5022bb20dcca/patient_1d621da0-f89e-4691-8f56-5022bb20dcca_resultados_laboratorio_20251022_000124.pdf",
+      "fecha_generacion": 1761109284.91693
+    },
+    {
+      "tipo": "receta_medica",
+      "ruta_archivo": "../output/1d621da0-f89e-4691-8f56-5022bb20dcca/patient_1d621da0-f89e-4691-8f56-5022bb20dcca_receta_medica_20251022_000124.pdf",
+      "fecha_generacion": 1761109284.9216313
+    }
+  ]
+}

@@ -145,7 +145,7 @@ class BDABlueprintsConstruct(Construct):
                         state="ENABLED"
                     ),
                     text_format=bedrock.CfnDataAutomationProject.DocumentOutputTextFormatProperty(
-                        types=["HTML", "MARKDOWN", "PLAIN_TEXT"]
+                        types=["MARKDOWN"]
                     )
                 )
             ),

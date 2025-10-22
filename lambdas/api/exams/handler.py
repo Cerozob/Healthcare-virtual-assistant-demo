@@ -90,19 +90,13 @@ def list_exams(event: Dict[str, Any]) -> Dict[str, Any]:
         LIMIT :limit OFFSET :offset
         """
         
-        response = db_manager.execute_sql(sql, parameters)
-        exams = db_manager.parse_records(
-            response.get('records', []),
-            response.get('columnMetadata', [])
-        )
+        exams = db_manager.execute_query(sql, parameters)
         
         # Get total count for pagination
         count_sql = f"SELECT COUNT(*) as total FROM exams {where_clause}"
         count_params = [p for p in parameters if p['name'] == 'exam_type'] if exam_type_filter else []
-        count_response = db_manager.execute_sql(count_sql, count_params)
-        total_count = 0
-        if count_response.get('records'):
-            total_count = count_response['records'][0][0].get('longValue', 0)
+        count_results = db_manager.execute_query(count_sql, count_params)
+        total_count = count_results[0]['total'] if count_results else 0
         
         return create_response(200, {
             'exams': exams,
@@ -153,9 +147,9 @@ def create_exam(event: Dict[str, Any]) -> Dict[str, Any]:
         SELECT COUNT(*) as count FROM exams WHERE LOWER(exam_name) = LOWER(:exam_name)
         """
         name_params = [db_manager.create_parameter('exam_name', body['exam_name'], 'string')]
-        name_response = db_manager.execute_sql(name_check_sql, name_params)
+        name_results = db_manager.execute_query(name_check_sql, name_params)
         
-        if name_response.get('records') and name_response['records'][0][0].get('longValue', 0) > 0:
+        if name_results and name_results[0]['count'] > 0:
             return create_error_response(400, "Exam name already exists", "DUPLICATE_EXAM_NAME")
         
         # Generate exam ID
@@ -174,15 +168,12 @@ def create_exam(event: Dict[str, Any]) -> Dict[str, Any]:
             db_manager.create_parameter('description', body.get('description', ''), 'string')
         ]
         
-        response = db_manager.execute_sql(sql, parameters)
+        exam_results = db_manager.execute_query(sql, parameters)
         
-        if not response.get('records'):
+        if not exam_results:
             return create_error_response(500, "Failed to create exam")
         
-        exam = db_manager.parse_records(
-            response['records'],
-            response.get('columnMetadata', [])
-        )[0]
+        exam = exam_results[0]
         
         logger.info(f"Created exam: {exam_id}")
         
@@ -221,16 +212,12 @@ def get_exam(exam_id: str) -> Dict[str, Any]:
             db_manager.create_parameter('exam_id', exam_id, 'string')
         ]
         
-        response = db_manager.execute_sql(sql, parameters)
-        records = response.get('records', [])
+        exam_results = db_manager.execute_query(sql, parameters)
         
-        if not records:
+        if not exam_results:
             return create_error_response(404, "Exam not found", "EXAM_NOT_FOUND")
         
-        exam = db_manager.parse_records(
-            records,
-            response.get('columnMetadata', [])
-        )[0]
+        exam = exam_results[0]
         
         return create_response(200, {'exam': exam})
         
@@ -271,9 +258,9 @@ def update_exam(exam_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
                 db_manager.create_parameter('exam_name', body['exam_name'], 'string'),
                 db_manager.create_parameter('exam_id', exam_id, 'string')
             ]
-            name_response = db_manager.execute_sql(name_check_sql, name_params)
+            name_results = db_manager.execute_query(name_check_sql, name_params)
             
-            if name_response.get('records') and name_response['records'][0][0].get('longValue', 0) > 0:
+            if name_results and name_results[0]['count'] > 0:
                 return create_error_response(400, "Exam name already exists", "DUPLICATE_EXAM_NAME")
             
             update_fields.append('exam_name = :exam_name')
@@ -300,16 +287,12 @@ def update_exam(exam_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         RETURNING exam_id, exam_name, exam_type, description, created_at, updated_at
         """
         
-        response = db_manager.execute_sql(sql, parameters)
-        records = response.get('records', [])
+        exam_results = db_manager.execute_query(sql, parameters)
         
-        if not records:
+        if not exam_results:
             return create_error_response(404, "Exam not found", "EXAM_NOT_FOUND")
         
-        exam = db_manager.parse_records(
-            records,
-            response.get('columnMetadata', [])
-        )[0]
+        exam = exam_results[0]
         
         logger.info(f"Updated exam: {exam_id}")
         
@@ -344,9 +327,9 @@ def delete_exam(exam_id: str) -> Dict[str, Any]:
         WHERE exam_id = :exam_id AND status IN ('scheduled', 'confirmed')
         """
         reservations_params = [db_manager.create_parameter('exam_id', exam_id, 'string')]
-        reservations_response = db_manager.execute_sql(reservations_check_sql, reservations_params)
+        reservations_results = db_manager.execute_query(reservations_check_sql, reservations_params)
         
-        if reservations_response.get('records') and reservations_response['records'][0][0].get('longValue', 0) > 0:
+        if reservations_results and reservations_results[0]['count'] > 0:
             return create_error_response(400, "Cannot delete exam with active reservations", "ACTIVE_RESERVATIONS")
         
         sql = """
@@ -359,10 +342,9 @@ def delete_exam(exam_id: str) -> Dict[str, Any]:
             db_manager.create_parameter('exam_id', exam_id, 'string')
         ]
         
-        response = db_manager.execute_sql(sql, parameters)
-        records = response.get('records', [])
+        delete_results = db_manager.execute_query(sql, parameters)
         
-        if not records:
+        if not delete_results:
             return create_error_response(404, "Exam not found", "EXAM_NOT_FOUND")
         
         logger.info(f"Deleted exam: {exam_id}")

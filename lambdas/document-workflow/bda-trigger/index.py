@@ -69,7 +69,7 @@ def invoke_bda_processing(bucket: str, key: str) -> str:
         },
         dataAutomationConfiguration={
             'dataAutomationProjectArn': os.environ['BDA_PROJECT_ARN'],
-            'stage': 'DEVELOPMENT'
+            'stage': 'LIVE'
         },
         dataAutomationProfileArn=os.environ['BDA_PROFILE_ARN'],
         notificationConfiguration={

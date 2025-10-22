@@ -2,13 +2,11 @@
 Assistant Stack for Healthcare Workflow System.
 """
 
-from aws_cdk import Stack, CfnOutput, RemovalPolicy
+from aws_cdk import Stack, CfnOutput, RemovalPolicy, CustomResource, Duration
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_bedrockagentcore as agentcore
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_lambda as lambda_
-from aws_cdk import aws_logs as logs
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
@@ -25,11 +23,19 @@ class AssistantStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
-        processed_bucket: s3.IBucket = None,
+        processed_bucket: s3.Bucket = None,
         database_cluster: rds.DatabaseCluster = None,
+        db_init_resource: CustomResource = None,
+        bedrock_user_secret = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        
+        # Store references for use in methods
+        self.processed_bucket = processed_bucket
+        self.database_cluster = database_cluster
+        self.db_init_resource = db_init_resource
+        self.bedrock_user_secret = bedrock_user_secret
 
         self.supplemental_data_storage = s3.Bucket(
             self,
@@ -56,36 +62,36 @@ class AssistantStack(Stack):
                         dimensions=1024,
                         embedding_data_type="FLOAT32"
                     )),
-                    supplemental_data_storage_configuration=bedrock.CfnKnowledgeBase.SupplementalDataStorageConfigurationProperty(
-                        supplemental_data_storage_locations=[
-                            bedrock.CfnKnowledgeBase.SupplementalDataStorageLocationProperty(
-                                supplemental_data_storage_location_type="S3",
-                                s3_location=bedrock.CfnKnowledgeBase.S3LocationProperty(
-                                    uri=f"s3://{self.supplemental_data_storage.bucket_name}"
+                supplemental_data_storage_configuration=bedrock.CfnKnowledgeBase.SupplementalDataStorageConfigurationProperty(
+                    supplemental_data_storage_locations=[
+                        bedrock.CfnKnowledgeBase.SupplementalDataStorageLocationProperty(
+                            supplemental_data_storage_location_type="S3",
+                            s3_location=bedrock.CfnKnowledgeBase.S3LocationProperty(
+                                uri=f"s3://{self.supplemental_data_storage.bucket_name}"
 
-                                )
                             )
+                        )
 
-                        ],
+                    ],
 
-                    ),
+                ),
 
-                
+
             )
 
         )
         knowledge_base_storage_config = bedrock.CfnKnowledgeBase.StorageConfigurationProperty(
             type="RDS",
             rds_configuration=bedrock.CfnKnowledgeBase.RdsConfigurationProperty(
-                credentials_secret_arn=database_cluster.secret.secret_arn,
-                database_name=database_cluster.cluster_resource_identifier,
-                resource_arn=database_cluster.cluster_arn,
+                credentials_secret_arn=self.bedrock_user_secret.secret_arn if self.bedrock_user_secret else self.database_cluster.secret.secret_arn,
+                database_name="healthcare",
+                resource_arn=self.database_cluster.cluster_arn,
                 table_name="ab2_knowledge_base",
                 field_mapping=bedrock.CfnKnowledgeBase.RdsFieldMappingProperty(
                     metadata_field="metadata",
-                    primary_key_field="pk",
-                    text_field="text",
-                    vector_field="vector",
+                    primary_key_field="id",
+                    text_field="chunks",
+                    vector_field="embedding",
                     custom_metadata_field="custom_metadata"
                 )
             )
@@ -99,6 +105,13 @@ class AssistantStack(Stack):
             name="HealthcareWorkflowKnowledgeBase",
             role_arn=self.create_knowledge_base_role()
         )
+
+        # Ensure database is initialized before creating Knowledge Base
+        if self.db_init_resource:
+            self.knowledge_base.node.add_dependency(self.db_init_resource)
+        
+        # Also ensure the database cluster is fully created
+        self.knowledge_base.node.add_dependency(self.database_cluster)
 
         data_source = bedrock.CfnDataSource(
             self,
@@ -119,7 +132,7 @@ class AssistantStack(Stack):
                 parsing_configuration=bedrock.CfnDataSource.ParsingConfigurationProperty(
                     parsing_strategy="BEDROCK_DATA_AUTOMATION",
                     bedrock_data_automation_configuration=bedrock.CfnDataSource.BedrockDataAutomationConfigurationProperty(
-                        parsing_modality="MULTI_MODAL",
+                        parsing_modality="MULTIMODAL",
                     )
                 ),
                 chunking_configuration=bedrock.CfnDataSource.ChunkingConfigurationProperty(
@@ -140,7 +153,8 @@ class AssistantStack(Stack):
 
     def create_knowledge_base_role(self):
         """
-        Create the role for the knowledge base.
+        Create the role for the knowledge base with complete permissions for Aurora and S3.
+        Based on: https://docs.aws.amazon.com/bedrock/latest/userguide/kb-permissions.html
         """
         knowledge_base_role = iam.Role(
             self,
@@ -159,16 +173,27 @@ class AssistantStack(Stack):
             )
         )
 
-        # Allow access to RDS cluster for vector storage
+        # Complete RDS permissions for Aurora Serverless v2 with Knowledge Base
         knowledge_base_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "rds-data:ExecuteStatement",
                     "rds-data:BatchExecuteStatement",
+                    "rds-data:BeginTransaction",
+                    "rds-data:CommitTransaction",
+                    "rds-data:RollbackTransaction",
+                    "rds:DescribeDBClusters",
+                    "rds:DescribeDBInstances",
+                    "rds:DescribeDBClusterParameters",
+                    "rds:DescribeDBParameters",
+                    "rds:DescribeDBSubnetGroups",
+                    "rds:ListTagsForResource",
+                    "rds:DescribeDBClusterEndpoints"
                 ],
                 resources=[
-                    f"arn:aws:rds:{self.region}:{self.account}:cluster:*"
+                    self.database_cluster.cluster_arn,
+                    f"{self.database_cluster.cluster_arn}:*"
                 ],
             )
         )
@@ -179,26 +204,64 @@ class AssistantStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
                 ],
                 resources=[
-                    f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:*"
+                    self.bedrock_user_secret.secret_arn if self.bedrock_user_secret else self.database_cluster.secret.secret_arn
                 ],
             )
         )
 
-        # Allow S3 access for knowledge base data sources and supplemental data
+        # Complete S3 permissions for data sources and supplemental data
         knowledge_base_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "s3:GetObject",
+                    "s3:GetObjectVersion",
                     "s3:ListBucket",
+                    "s3:GetBucketLocation",
+                    "s3:GetBucketNotification",
+                    "s3:ListBucketVersions"
                 ],
                 resources=[
-                    f"arn:aws:s3:::*",
-                    f"arn:aws:s3:::*/*",
+                    self.processed_bucket.bucket_arn,
+                    f"{self.processed_bucket.bucket_arn}/*",
+                    self.supplemental_data_storage.bucket_arn,
+                    f"{self.supplemental_data_storage.bucket_arn}/*"
+                ],
+            )
+        )
+
+        # Allow EC2 permissions for VPC and security group validation
+        knowledge_base_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ec2:DescribeVpcs",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeSecurityGroups",
+                    "ec2:DescribeNetworkInterfaces"
+                ],
+                resources=["*"],  # EC2 describe actions require * resource
+            )
+        )
+
+        # Allow CloudWatch Logs for Knowledge Base operations
+        knowledge_base_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                resources=[
+                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock/*"
                 ],
             )
         )
 
         return knowledge_base_role.role_arn
+
+

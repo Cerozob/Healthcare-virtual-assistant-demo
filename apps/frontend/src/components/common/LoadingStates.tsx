@@ -52,23 +52,31 @@ interface SkeletonTextProps {
   lines?: number;
 }
 
-export const SkeletonText: React.FC<SkeletonTextProps> = ({ lines = 3 }) => (
-  <Box>
-    {Array.from({ length: lines }).map((_, index) => (
-      <Box
-        key={index}
-        margin={{ bottom: 's' }}
-        padding="s"
-        color="text-body-secondary"
-      >
-        <Box 
-          color='text-body-secondary'
-          padding="xs"
-        />
-      </Box>
-    ))}
-  </Box>
-);
+export const SkeletonText: React.FC<SkeletonTextProps> = ({ lines = 3 }) => {
+  // Generate stable unique keys for skeleton lines
+  const skeletonLines = Array.from({ length: lines }, (_, index) => ({
+    id: `skeleton-line-${index}`,
+    index
+  }));
+
+  return (
+    <Box>
+      {skeletonLines.map((line) => (
+        <Box
+          key={line.id}
+          margin={{ bottom: 's' }}
+          padding="s"
+          color="text-body-secondary"
+        >
+          <Box 
+            color='text-body-secondary'
+            padding="xs"
+          />
+        </Box>
+      ))}
+    </Box>
+  );
+};
 
 interface ProgressLoadingProps {
   value: number;

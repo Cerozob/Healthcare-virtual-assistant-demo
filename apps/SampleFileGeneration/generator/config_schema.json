@@ -1,0 +1,318 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://awsome-builder.com/schemas/synthetic-medical-data-generator-config.json",
+  "title": "Synthetic Medical Data Generator Configuration",
+  "description": "Configuration schema for the synthetic medical data generator that creates realistic patient profiles and medical documents in Latin American Spanish using AWS Bedrock.",
+  "type": "object",
+  "required": ["data_sources", "output", "bedrock", "generation"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "title": "JSON Schema Reference",
+      "description": "Reference to the JSON Schema file for validation and IDE support",
+      "examples": ["./config.json.schema"]
+    },
+    "data_sources": {
+      "type": "object",
+      "title": "Data Sources Configuration",
+      "description": "Paths to input data files and directories used for generating synthetic medical data",
+      "required": ["fhir_dir", "csv_path", "template_dir"],
+      "properties": {
+        "fhir_dir": {
+          "type": "string",
+          "title": "FHIR Data Directory",
+          "description": "Path to directory containing MIMIC IV FHIR NDJSON files (MimicPatient.ndjson, MimicCondition.ndjson, etc.)",
+          "examples": [
+            "apps/SampleFileGeneration/data/mimic-iv-clinical-database-demo-on-fhir-2.1.0/fhir",
+            "/path/to/mimic-iv-fhir-data"
+          ]
+        },
+        "csv_path": {
+          "type": "string",
+          "title": "Healthcare Dataset CSV",
+          "description": "Path to CSV file containing demographic data for patient profile generation",
+          "examples": [
+            "apps/SampleFileGeneration/data/healthcare_dataset.csv",
+            "/path/to/demographics.csv"
+          ]
+        },
+        "template_dir": {
+          "type": "string",
+          "title": "PDF Template Directory",
+          "description": "Path to directory containing PDF template files for document styling (optional, can be empty directory)",
+          "examples": [
+            "apps/SampleFileGeneration/data/lbmaske",
+            "/path/to/pdf/templates"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "title": "Output Configuration",
+      "description": "Settings for organizing and saving generated files",
+      "required": ["base_dir"],
+      "properties": {
+        "base_dir": {
+          "type": "string",
+          "title": "Output Base Directory",
+          "description": "Base directory where all generated files will be saved",
+          "examples": [
+            "apps/SampleFileGeneration/output",
+            "/path/to/output"
+          ]
+        },
+        "organize_by_patient": {
+          "type": "boolean",
+          "title": "Organize by Patient",
+          "description": "Whether to create separate subdirectories for each patient's files",
+          "default": true,
+          "examples": [true, false]
+        }
+      },
+      "additionalProperties": false
+    },
+    "bedrock": {
+      "type": "object",
+      "title": "AWS Bedrock Configuration",
+      "description": "Configuration for AWS Bedrock foundation model access",
+      "required": ["region", "use_inference_profile"],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "title": "Bedrock Model ID",
+          "description": "AWS Bedrock foundation model identifier for direct access (used when use_inference_profile=false)",
+          "examples": [
+            "anthropic.claude-3-sonnet-20240229-v1:0",
+            "anthropic.claude-3-haiku-20240307-v1:0",
+            "amazon.nova-premier-v1:0",
+            "amazon.nova-pro-v1:0",
+            "amazon.nova-lite-v1:0",
+            "meta.llama3-2-90b-instruct-v1:0"
+          ]
+        },
+        "inference_profile_id": {
+          "type": "string",
+          "title": "Bedrock Inference Profile ID",
+          "description": "AWS Bedrock inference profile identifier for cross-region resilience and higher throughput (used when use_inference_profile=true)",
+          "examples": [
+            "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            "us.anthropic.claude-3-opus-20240229-v1:0",
+            "us.meta.llama-3-2-90b-instruct-v1:0",
+            "us.amazon.nova-premier-v1:0",
+            "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+          ]
+        },
+        "use_inference_profile": {
+          "type": "boolean",
+          "title": "Use Inference Profile",
+          "description": "Whether to use inference profile (true) or direct model access (false). When true, inference_profile_id is required. When false, model_id is required.",
+          "examples": [true, false]
+        },
+        "region": {
+          "type": "string",
+          "title": "AWS Region",
+          "description": "AWS region where Bedrock service is available",
+          "examples": [
+            "us-east-1",
+            "us-west-2",
+            "eu-west-1",
+            "ap-southeast-1"
+          ]
+        },
+        "max_tokens": {
+          "type": "integer",
+          "title": "Maximum Tokens",
+          "description": "Maximum number of tokens to generate in model responses",
+          "minimum": 1,
+          "maximum": 200000,
+          "default": 4096,
+          "examples": [1024, 4096, 8192, 10000]
+        },
+        "temperature": {
+          "type": "number",
+          "title": "Temperature",
+          "description": "Controls randomness in model responses (0.0 = deterministic, 1.0 = very random)",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.7,
+          "examples": [0.1, 0.4, 0.7, 0.9]
+        }
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "use_inference_profile": { "const": true }
+        }
+      },
+      "then": {
+        "required": ["inference_profile_id"]
+      },
+      "else": {
+        "required": ["model_id"]
+      }
+    },
+    "generation": {
+      "type": "object",
+      "title": "Generation Settings",
+      "description": "Configuration for synthetic data generation behavior",
+      "required": ["language", "document_types"],
+      "properties": {
+        "language": {
+          "type": "string",
+          "title": "Target Language",
+          "description": "Language code for generated content",
+          "enum": ["es-LA"],
+          "default": "es-LA",
+          "examples": ["es-LA"]
+        },
+
+        "document_types": {
+          "type": "array",
+          "title": "Document Types",
+          "description": "Types of medical documents to generate for each patient",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "historia_clinica",
+              "resultados_laboratorio", 
+              "receta_medica",
+              "informe_medico"
+            ],
+            "title": "Document Type",
+            "description": "Medical document type to generate"
+          },
+          "default": ["historia_clinica", "resultados_laboratorio", "receta_medica"],
+          "examples": [
+            ["historia_clinica"],
+            ["historia_clinica", "resultados_laboratorio"],
+            ["historia_clinica", "resultados_laboratorio", "receta_medica", "informe_medico"]
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "title": "Validation Settings",
+      "description": "Configuration for data validation and quality assurance",
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "title": "Maximum Retries",
+          "description": "Maximum number of retry attempts for failed API calls",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3,
+          "examples": [1, 3, 5]
+        },
+        "enable_coherence_check": {
+          "type": "boolean",
+          "title": "Enable Coherence Check",
+          "description": "Whether to validate clinical coherence of generated medical data",
+          "default": true,
+          "examples": [true, false]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "title": "Direct Model Configuration",
+      "description": "Example configuration using direct Bedrock model access",
+      "data": {
+        "data_sources": {
+          "fhir_dir": "apps/SampleFileGeneration/data/mimic-iv-clinical-database-demo-on-fhir-2.1.0/fhir",
+          "csv_path": "apps/SampleFileGeneration/data/healthcare_dataset.csv",
+          "template_dir": "apps/SampleFileGeneration/data/lbmaske"
+        },
+        "output": {
+          "base_dir": "apps/SampleFileGeneration/output",
+          "organize_by_patient": true
+        },
+        "bedrock": {
+          "model_id": "amazon.nova-premier-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 4096,
+          "temperature": 0.7,
+          "use_inference_profile": false
+        },
+        "generation": {
+          "language": "es-LA",
+          "document_types": ["historia_clinica", "resultados_laboratorio", "receta_medica"]
+        },
+        "validation": {
+          "max_retries": 3,
+          "enable_coherence_check": true
+        }
+      }
+    },
+    {
+      "title": "Inference Profile Configuration",
+      "description": "Example configuration using Bedrock inference profile (recommended for production)",
+      "data": {
+        "data_sources": {
+          "fhir_dir": "apps/SampleFileGeneration/data/mimic-iv-clinical-database-demo-on-fhir-2.1.0/fhir",
+          "csv_path": "apps/SampleFileGeneration/data/healthcare_dataset.csv",
+          "template_dir": "apps/SampleFileGeneration/data/lbmaske"
+        },
+        "output": {
+          "base_dir": "apps/SampleFileGeneration/output",
+          "organize_by_patient": true
+        },
+        "bedrock": {
+          "model_id": "amazon.nova-premier-v1:0",
+          "inference_profile_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 10000,
+          "temperature": 0.4,
+          "use_inference_profile": true
+        },
+        "generation": {
+          "language": "es-LA",
+          "document_types": ["historia_clinica", "resultados_laboratorio", "receta_medica"]
+        },
+        "validation": {
+          "max_retries": 3,
+          "enable_coherence_check": true
+        }
+      }
+    },
+    {
+      "title": "High-Performance Configuration",
+      "description": "Example configuration optimized for high-volume generation with faster model",
+      "data": {
+        "data_sources": {
+          "fhir_dir": "apps/SampleFileGeneration/data/mimic-iv-clinical-database-demo-on-fhir-2.1.0/fhir",
+          "csv_path": "apps/SampleFileGeneration/data/healthcare_dataset.csv",
+          "template_dir": "apps/SampleFileGeneration/data/lbmaske"
+        },
+        "output": {
+          "base_dir": "apps/SampleFileGeneration/output",
+          "organize_by_patient": true
+        },
+        "bedrock": {
+          "inference_profile_id": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+          "region": "us-east-1",
+          "max_tokens": 2048,
+          "temperature": 0.5,
+          "use_inference_profile": true
+        },
+        "generation": {
+          "language": "es-LA",
+          "document_types": ["historia_clinica", "resultados_laboratorio"]
+        },
+        "validation": {
+          "max_retries": 2,
+          "enable_coherence_check": false
+        }
+      }
+    }
+  ]
+}

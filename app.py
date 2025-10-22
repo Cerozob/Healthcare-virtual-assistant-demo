@@ -159,6 +159,7 @@ document_workflow_stack = DocumentWorkflowStack(
 backend_stack = BackendStack(
     app,
     "backendstack",
+    processed_bucket=document_workflow_stack.processed_bucket,
     env=env,
     stack_name="AWSomeBuilder2-BackendStack",
     description="Database infrastructure for healthcare system",
@@ -179,6 +180,8 @@ assistant_stack = AssistantStack(
     "genaistack",
     processed_bucket=document_workflow_stack.processed_bucket,
     database_cluster=backend_stack.db_cluster,
+    db_init_resource=backend_stack.db_init_resource,
+    bedrock_user_secret=backend_stack.bedrock_user_secret,
     env=env,
     stack_name="AWSomeBuilder2-VirtualAssistantStack",
     description="Asistente virtual con GenAI",

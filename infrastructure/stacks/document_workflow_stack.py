@@ -112,15 +112,22 @@ class DocumentWorkflowStack(Stack):
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "bedrock:InvokeDataAutomationAsync",
-                    "bedrock:GetDataAutomationStatus"
+                    "bedrock:GetDataAutomationStatus",
+                    "bedrock:ListDataAutomationProjects",
+                    "bedrock:GetDataAutomationProject"
                 ],
                 resources=[
                     self.bda_project.attr_project_arn,
-                    self.bda_profile_arn,
                     self.data_automation.blueprints["document"].attr_blueprint_arn,
                     self.data_automation.blueprints["image"].attr_blueprint_arn,
                     self.data_automation.blueprints["audio"].attr_blueprint_arn,
-                    self.data_automation.blueprints["video"].attr_blueprint_arn
+                    self.data_automation.blueprints["video"].attr_blueprint_arn,
+                    f"arn:aws:bedrock:{self.region}:{self.account}:data-automation-project/*",
+                    f"arn:aws:bedrock:{self.region}:{self.account}:blueprint/*",
+                    f"arn:aws:bedrock:us-east-1:{self.account}:data-automation-profile/us.data-automation-v1",
+                    f"arn:aws:bedrock:us-east-2:{self.account}:data-automation-profile/us.data-automation-v1",
+                    f"arn:aws:bedrock:us-west-1:{self.account}:data-automation-profile/us.data-automation-v1",
+                    f"arn:aws:bedrock:us-west-2:{self.account}:data-automation-profile/us.data-automation-v1"
                 ]
             )
         )
@@ -157,9 +164,9 @@ class DocumentWorkflowStack(Stack):
             "DataExtractionLambda",
             function_name="healthcare-data-extraction",
             runtime=aws_lambda.Runtime.PYTHON_3_13,
-            handler="index.lambda_handler",
+            handler="document_workflow.extraction.index.lambda_handler",
             code=aws_lambda.Code.from_asset(
-                "lambdas/document-workflow/extraction"),
+                "lambdas", exclude=["**/__pycache__/**"]),
             timeout=Duration.minutes(10),
             memory_size=1024,
             environment={
@@ -243,10 +250,7 @@ class DocumentWorkflowStack(Stack):
             description="Trigger knowledge base ingestion when BDA processing completes",
             event_pattern=events.EventPattern(
                 source=["aws.bedrock"],
-                detail_type=["Bedrock Data Automation Status Change"],
-                detail={
-                    "status": ["SUCCEEDED", "FAILED"]
-                }
+                detail_type=["Bedrock Data Automation Job Succeeded"]
             ),
             targets=[
                 targets.LambdaFunction(

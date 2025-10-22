@@ -1,0 +1,241 @@
+{
+  "patient_id": "b4e57ff0-5569-4fd8-9b35-bcf86f3fed6a",
+  "personal_info": {
+    "nombre_completo": "Pablo Andrés Molina Serrano",
+    "primer_nombre": "Pablo",
+    "segundo_nombre": "Andrés",
+    "primer_apellido": "Molina",
+    "segundo_apellido": "Serrano",
+    "fecha_nacimiento": "22/08/1976",
+    "edad": 49,
+    "sexo": "M",
+    "tipo_documento": "Cédula",
+    "numero_documento": "81563983",
+    "direccion": {
+      "calle": "Calle 43",
+      "numero": "1381",
+      "ciudad": "Ciudad 15",
+      "provincia": "Provincia 8",
+      "codigo_postal": "49350",
+      "pais": "Brasil"
+    },
+    "telefono": "+55 958959741",
+    "email": "pablo.molina@outlook.com"
+  },
+  "medical_history": {
+    "conditions": [
+      {
+        "codigo": "E66.9",
+        "descripcion": "Obesidad no especificada",
+        "fecha_diagnostico": "15/03/2019",
+        "estado": "activo"
+      },
+      {
+        "codigo": "G47.33",
+        "descripcion": "Apnea obstructiva del sueño",
+        "fecha_diagnostico": "22/11/2020",
+        "estado": "activo"
+      },
+      {
+        "codigo": "I25.2",
+        "descripcion": "Infarto de miocardio antiguo",
+        "fecha_diagnostico": "08/06/2018",
+        "estado": "activo"
+      },
+      {
+        "codigo": "I20.9",
+        "descripcion": "Angina de pecho no especificada",
+        "fecha_diagnostico": "08/06/2018",
+        "estado": "activo"
+      }
+    ],
+    "medications": [
+      {
+        "nombre": "Atorvastatina",
+        "dosis": "40 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "10/06/2018",
+        "activo": true
+      },
+      {
+        "nombre": "Ácido acetilsalicílico (Aspirina)",
+        "dosis": "100 mg",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "10/06/2018",
+        "activo": true
+      },
+      {
+        "nombre": "Metoprolol",
+        "dosis": "50 mg",
+        "frecuencia": "Dos veces al día",
+        "fecha_inicio": "10/06/2018",
+        "activo": true
+      },
+      {
+        "nombre": "Enalapril",
+        "dosis": "10 mg",
+        "frecuencia": "Dos veces al día",
+        "fecha_inicio": "15/03/2019",
+        "activo": true
+      },
+      {
+        "nombre": "Cloruro de potasio",
+        "dosis": "20 mEq",
+        "frecuencia": "Una vez al día",
+        "fecha_inicio": "20/03/2019",
+        "activo": true
+      },
+      {
+        "nombre": "Metformina",
+        "dosis": "850 mg",
+        "frecuencia": "Dos veces al día",
+        "fecha_inicio": "28/09/2019",
+        "activo": true
+      }
+    ],
+    "procedures": [
+      {
+        "nombre": "Cateterismo cardíaco con angioplastia coronaria",
+        "fecha": "09/06/2018",
+        "notas": "Colocación de stent en arteria descendente anterior. Procedimiento exitoso sin complicaciones."
+      },
+      {
+        "nombre": "Estudio de polisomnografía",
+        "fecha": "18/11/2020",
+        "notas": "Diagnóstico confirmado de apnea obstructiva del sueño moderada-severa. IAH: 32 eventos/hora."
+      },
+      {
+        "nombre": "Ecocardiograma transtorácico",
+        "fecha": "14/02/2024",
+        "notas": "Fracción de eyección del ventrículo izquierdo: 48%. Hipocinesia de pared anterior."
+      }
+    ]
+  },
+  "lab_results": [
+    {
+      "nombre_prueba": "Volumen corpuscular medio (VCM)",
+      "valor": "88",
+      "unidad": "fL",
+      "rango_referencia": "82-98 fL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Amplitud de distribución eritrocitaria (RDW)",
+      "valor": "13.5",
+      "unidad": "%",
+      "rango_referencia": "10.5-15.5%",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Cloruro sérico",
+      "valor": "102",
+      "unidad": "mEq/L",
+      "rango_referencia": "96-108 mEq/L",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Urobilinógeno en orina",
+      "valor": "0.8",
+      "unidad": "mg/dL",
+      "rango_referencia": "0.2-1.0 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Colesterol total",
+      "valor": "185",
+      "unidad": "mg/dL",
+      "rango_referencia": "<200 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Colesterol LDL",
+      "valor": "95",
+      "unidad": "mg/dL",
+      "rango_referencia": "<100 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Colesterol HDL",
+      "valor": "38",
+      "unidad": "mg/dL",
+      "rango_referencia": ">40 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Triglicéridos",
+      "valor": "210",
+      "unidad": "mg/dL",
+      "rango_referencia": "<150 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Glucosa en ayunas",
+      "valor": "118",
+      "unidad": "mg/dL",
+      "rango_referencia": "70-100 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Hemoglobina glicosilada (HbA1c)",
+      "valor": "6.8",
+      "unidad": "%",
+      "rango_referencia": "<5.7%",
+      "fecha": "12/01/2025",
+      "estado": "anormal"
+    },
+    {
+      "nombre_prueba": "Creatinina sérica",
+      "valor": "1.1",
+      "unidad": "mg/dL",
+      "rango_referencia": "0.7-1.3 mg/dL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Potasio sérico",
+      "valor": "4.2",
+      "unidad": "mEq/L",
+      "rango_referencia": "3.5-5.0 mEq/L",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Troponina I cardíaca",
+      "valor": "0.02",
+      "unidad": "ng/mL",
+      "rango_referencia": "<0.04 ng/mL",
+      "fecha": "12/01/2025",
+      "estado": "normal"
+    },
+    {
+      "nombre_prueba": "Péptido natriurético cerebral (BNP)",
+      "valor": "145",
+      "unidad": "pg/mL",
+      "rango_referencia": "<100 pg/mL",
+      "fecha": "12/01/2025",
+      "estado": "anormal"
+    }
+  ],
+  "source_scan": null,
+  "generated_documents": [
+    {
+      "tipo": "resultados_laboratorio",
+      "ruta_archivo": "../output/b4e57ff0-5569-4fd8-9b35-bcf86f3fed6a/patient_b4e57ff0-5569-4fd8-9b35-bcf86f3fed6a_resultados_laboratorio_20251021_235741.pdf",
+      "fecha_generacion": 1761109062.0352736
+    },
+    {
+      "tipo": "receta_medica",
+      "ruta_archivo": "../output/b4e57ff0-5569-4fd8-9b35-bcf86f3fed6a/patient_b4e57ff0-5569-4fd8-9b35-bcf86f3fed6a_receta_medica_20251021_235811.pdf",
+      "fecha_generacion": 1761109091.3200493
+    }
+  ]
+}

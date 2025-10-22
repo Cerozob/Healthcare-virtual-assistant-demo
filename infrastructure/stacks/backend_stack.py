@@ -3,11 +3,17 @@ Backend Stack for Healthcare Management System.
 Manages only the Aurora PostgreSQL database and related infrastructure.
 """
 
-from aws_cdk import Stack, Duration, RemovalPolicy, CfnOutput
+from aws_cdk import Stack, Duration, RemovalPolicy, CfnOutput, CustomResource
 from aws_cdk import aws_rds as rds
 from aws_cdk import aws_ec2 as ec2
 from aws_cdk import aws_ssm as ssm
+from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import custom_resources as cr
 from constructs import Construct
+import uuid
 
 
 class BackendStack(Stack):
@@ -20,15 +26,22 @@ class BackendStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
+        processed_bucket: s3.Bucket = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        
+        # Store reference to processed bucket for sample data
+        self.processed_bucket = processed_bucket
 
         # Create VPC with private subnets
         self.vpc = self._create_vpc()
 
         # Create Aurora Postgres cluster
         self.db_cluster = self._create_database()
+
+        # Initialize database with schema and sample data
+        self.db_init_resource = self._create_database_initialization()
 
         # Create SSM parameters for database configuration
         self._create_ssm_parameters()
@@ -109,11 +122,11 @@ class BackendStack(Stack):
                                       security_groups=[self.db_security_group],
                                       default_database_name="healthcare",
                                       writer=rds.ClusterInstance.serverless_v2(id="AuroraWriter",
-                                                                                   instance_identifier="HealthcareDatabase-writer",
-                                                                                   auto_minor_version_upgrade=True,
-                                                                                   allow_major_version_upgrade=True,
-                                                                                   publicly_accessible=False,
-                                                                                   ),
+                                                                               instance_identifier="HealthcareDatabase-writer",
+                                                                               auto_minor_version_upgrade=True,
+                                                                               allow_major_version_upgrade=True,
+                                                                               publicly_accessible=False,
+                                                                               ),
                                       readers=[rds.ClusterInstance.serverless_v2(id="reader",
                                                                                  instance_identifier="HealthcareDatabase-readers",
                                                                                  auto_minor_version_upgrade=True,
@@ -134,6 +147,19 @@ class BackendStack(Stack):
                                       storage_encrypted=True,
                                       iam_authentication=True
                                       )
+
+        # Create a dedicated secret for bedrock_user following AWS best practices
+        self.bedrock_user_secret = secretsmanager.Secret(
+            self,
+            "BedrockUserSecret",
+            description="Credentials for bedrock_user in Aurora PostgreSQL cluster",
+            generate_secret_string=secretsmanager.SecretStringGenerator(
+                secret_string_template='{"username": "bedrock_user"}',
+                generate_string_key="password",
+                exclude_characters=" %+~`#$&*()|[]{}:;<>?!'/\"\\",
+                password_length=32
+            )
+        )
 
         return cluster
 
@@ -165,6 +191,15 @@ class BackendStack(Stack):
             parameter_name="/healthcare/database/name",
             string_value="healthcare",
             description="Database name for healthcare system",
+            tier=ssm.ParameterTier.STANDARD
+        )
+
+        self.bedrock_user_secret_arn_param = ssm.StringParameter(
+            self,
+            "BedrockUserSecretArnParam",
+            parameter_name="/healthcare/database/bedrock-user-secret-arn",
+            string_value=self.bedrock_user_secret.secret_arn,
+            description="Bedrock user secret ARN for Knowledge Base",
             tier=ssm.ParameterTier.STANDARD
         )
 
@@ -208,6 +243,83 @@ class BackendStack(Stack):
             tier=ssm.ParameterTier.STANDARD
         )
 
+    def _create_database_initialization(self) -> CustomResource:
+        """
+        Create a Lambda function to initialize the database with schema and sample data.
+        """
+        # Lambda function to initialize the database
+        db_init_lambda = lambda_.Function(
+            self,
+            "DatabaseInitializationFunction",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            # Increased timeout for data population
+            timeout=Duration.minutes(10),
+            memory_size=512,  # Increased memory for processing sample data
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="db_initialization.handler.lambda_handler",
+
+            environment={
+                'LOG_LEVEL': 'INFO',
+                'SAMPLE_DATA_BUCKET': self.processed_bucket.bucket_name if self.processed_bucket else '',
+                'BEDROCK_USER_SECRET_ARN': self.bedrock_user_secret.secret_arn
+            }
+        )
+
+        # Grant Lambda permissions to access RDS and Secrets Manager
+        db_init_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                    "rds-data:BeginTransaction",
+                    "rds-data:CommitTransaction",
+                    "rds:DescribeDBClusters"
+                ],
+                resources=[self.db_cluster.cluster_arn]
+            )
+        )
+
+        db_init_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[
+                    self.db_cluster.secret.secret_arn,
+                    self.bedrock_user_secret.secret_arn
+                ]
+            )
+        )
+
+        # Grant S3 permissions to read sample data
+        if self.processed_bucket:
+            self.processed_bucket.grant_read(db_init_lambda)
+
+        # Create custom resource to trigger the Lambda
+        db_init_provider = cr.Provider(
+            self,
+            "DatabaseInitProvider",
+            on_event_handler=db_init_lambda
+        )
+
+        custom_resource = CustomResource(
+            self,
+            "DatabaseInitialization",
+            service_token=db_init_provider.service_token,
+            properties={
+                'SecretArn': self.db_cluster.secret.secret_arn,
+                'ClusterArn': self.db_cluster.cluster_arn,
+                'DatabaseName': 'healthcare',
+                'TableName': 'ab2_knowledge_base',
+                'TriggerUpdate': str(uuid.uuid4())  # Forces re-execution on each deployment
+            }
+        )
+
+        return custom_resource
+
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""
 
@@ -225,6 +337,14 @@ class BackendStack(Stack):
             value=self.db_cluster.secret.secret_arn,
             description="Aurora PostgreSQL Secret ARN",
             export_name="HealthcareDatabaseSecretArn"
+        )
+
+        CfnOutput(
+            self,
+            "BedrockUserSecretArn",
+            value=self.bedrock_user_secret.secret_arn,
+            description="Bedrock User Secret ARN for Knowledge Base",
+            export_name="HealthcareBedrockUserSecretArn"
         )
 
         CfnOutput(

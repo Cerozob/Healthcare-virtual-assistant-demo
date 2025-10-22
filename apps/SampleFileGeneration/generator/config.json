@@ -1,0 +1,32 @@
+{
+  "$schema": "./config_schema.json",
+  "data_sources": {
+    "fhir_dir": "../data/mimic-iv-clinical-database-demo-on-fhir-2.1.0/fhir",
+    "csv_path": "../data/healthcare_dataset.csv",
+    "template_dir": "../data/lbmaske"
+  },
+  "output": {
+    "base_dir": "../output",
+    "organize_by_patient": true
+  },
+  "bedrock": {
+    "model_id": "amazon.nova-premier-v1:0",
+    "inference_profile_id": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 4096,
+    "temperature": 0.4,
+    "use_inference_profile": true
+  },
+  "generation": {
+    "language": "es-LA",
+    "document_types": [
+      "historia_clinica",
+      "resultados_laboratorio",
+      "receta_medica"
+    ]
+  },
+  "validation": {
+    "max_retries": 3,
+    "enable_coherence_check": true
+  }
+}
