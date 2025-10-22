@@ -17,8 +17,6 @@ applications:
             - rm -f package-lock.json
             # Install dependencies fresh for current platform
             - npm install --cache .npm --prefer-offline
-            # Generate runtime config from CDK outputs
-            - node scripts/generate-config.js
         build:
           commands:
             - npm run build
