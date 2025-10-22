@@ -77,7 +77,13 @@ def lambda_handler(event, context):
                     sql="CREATE SCHEMA IF NOT EXISTS bedrock_integration;"
                 )
                 logger.info("Created bedrock_integration schema")
+            except Exception as e:
+                if "already exists" in str(e).lower():
+                    logger.info("Bedrock schema already exists")
+                else:
+                    logger.error(f"Failed to create bedrock schema: {e}")
 
+            try:
                 # Create bedrock_user role
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
@@ -88,9 +94,9 @@ def lambda_handler(event, context):
                 logger.info("Created bedrock_user role")
             except Exception as e:
                 if "already exists" in str(e).lower():
-                    logger.info("Bedrock schema and user already exist")
+                    logger.info("Bedrock user already exists")
                 else:
-                    logger.warning(f"Failed to create bedrock schema/user: {e}")
+                    logger.error(f"Failed to create bedrock user: {e}")
 
             try:
                 # Set password for bedrock_user using the dedicated secret
@@ -138,16 +144,53 @@ def lambda_handler(event, context):
             # Create the knowledge base table following AWS documentation structure
             # https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-setup.html
             try:
+                # First check if vector extension is available
+                vector_check = rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql="SELECT 1 FROM pg_extension WHERE extname = 'vector';"
+                )
+                
+                if not vector_check.get('records'):
+                    logger.error("Vector extension is not installed - knowledge base table creation will fail")
+                    raise Exception("Vector extension not available")
+                
+                logger.info("Vector extension confirmed available")
+                
+                # Check if table exists with wrong column names and drop it
+                try:
+                    check_columns = rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name IN ('id', 'embedding', 'chunks');"
+                    )
+                    
+                    if check_columns.get('records'):
+                        logger.info(f"Table {table_name} exists with old column names, dropping and recreating")
+                        rds_data.execute_statement(
+                            resourceArn=cluster_arn,
+                            secretArn=secret_arn,
+                            database=database_name,
+                            sql=f"DROP TABLE IF EXISTS {table_name};"
+                        )
+                        logger.info(f"Dropped existing table {table_name}")
+                except Exception as e:
+                    logger.info(f"Table check failed (table may not exist): {e}")
+                
                 create_table_sql = f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
-                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                    embedding vector(1024),
-                    chunks text,
-                    metadata json,
+                    pk uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    vector vector(1024),
+                    text text,
+                    metadata jsonb,
                     custom_metadata jsonb
                 );
                 '''
 
+                logger.info(f"Creating knowledge base table with SQL: {create_table_sql}")
+                
                 rds_data.execute_statement(
                     resourceArn=cluster_arn,
                     secretArn=secret_arn,
@@ -155,56 +198,74 @@ def lambda_handler(event, context):
                     sql=create_table_sql
                 )
                 logger.info(f"Knowledge base table {table_name} created successfully with AWS blog post structure")
+                
+                # Verify table was created with correct columns
+                verify_sql = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY ordinal_position;"
+                verify_result = rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql=verify_sql
+                )
+                
+                columns = []
+                for record in verify_result.get('records', []):
+                    column_name = record[0].get('stringValue', '')
+                    data_type = record[1].get('stringValue', '')
+                    columns.append(f"{column_name}({data_type})")
+                
+                logger.info(f"Knowledge base table columns verified: {', '.join(columns)}")
+                
+                # Create required indexes as per AWS documentation
+                # 1. HNSW index for vector similarity search (required)
+                try:
+                    vector_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_vector_hnsw_idx ON {table_name} USING hnsw (vector vector_cosine_ops);"
+
+                    rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=vector_index_sql
+                    )
+                    logger.info("HNSW vector index created (required)")
+                except Exception as e:
+                    logger.warning(f"Failed to create vector index: {e}")
+
+                # 2. GIN index for text search (required)
+                try:
+                    text_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_text_gin_idx ON {table_name} USING gin (to_tsvector('simple', text));"
+
+                    rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=text_index_sql
+                    )
+                    logger.info("GIN text index created (required)")
+                except Exception as e:
+                    logger.warning(f"Failed to create text index: {e}")
+
+                # 3. GIN index for custom metadata (optional but recommended)
+                try:
+                    metadata_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_custom_metadata_gin_idx ON {table_name} USING gin (custom_metadata);"
+
+                    rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=metadata_index_sql
+                    )
+                    logger.info("GIN custom metadata index created (optional)")
+                except Exception as e:
+                    logger.warning(f"Failed to create custom metadata index: {e}")
+                    
             except Exception as e:
-                if "type \"vector\" does not exist" in str(e):
+                if "type \"vector\" does not exist" in str(e) or "does not exist" in str(e):
                     logger.error(f"Vector extension not available. Knowledge base table creation failed: {e}")
                     # This will cause the knowledge base creation to fail, which is expected
                     raise
                 else:
                     logger.warning(f"Knowledge base table creation failed: {e}")
-
-            # Create required indexes as per AWS documentation
-            # 1. HNSW index for vector similarity search (required)
-            try:
-                vector_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_embedding_hnsw_idx ON {table_name} USING hnsw (embedding vector_cosine_ops);"
-
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql=vector_index_sql
-                )
-                logger.info("HNSW vector index created (required)")
-            except Exception as e:
-                logger.warning(f"Failed to create vector index: {e}")
-
-            # 2. GIN index for text search (required)
-            try:
-                text_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_chunks_gin_idx ON {table_name} USING gin (to_tsvector('simple', chunks));"
-
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql=text_index_sql
-                )
-                logger.info("GIN text index created (required)")
-            except Exception as e:
-                logger.warning(f"Failed to create text index: {e}")
-
-            # 3. GIN index for custom metadata (optional but recommended)
-            try:
-                metadata_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_custom_metadata_gin_idx ON {table_name} USING gin (custom_metadata);"
-
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql=metadata_index_sql
-                )
-                logger.info("GIN custom metadata index created (optional)")
-            except Exception as e:
-                logger.warning(f"Failed to create custom metadata index: {e}")
 
             # Populate with sample data
             populate_sample_data(rds_data, cluster_arn,
@@ -553,11 +614,16 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
     if fecha_nacimiento:
         try:
             # Convert from DD/MM/YYYY to YYYY-MM-DD
-            day, month, year = fecha_nacimiento.split('/')
-            date_of_birth = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-        except:
-            logger.warning(
-                f"Could not parse date of birth: {fecha_nacimiento}")
+            if '/' in fecha_nacimiento:
+                day, month, year = fecha_nacimiento.split('/')
+                date_of_birth = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            elif '-' in fecha_nacimiento and len(fecha_nacimiento) == 10:
+                # Already in YYYY-MM-DD format
+                date_of_birth = fecha_nacimiento
+            else:
+                logger.warning(f"Unrecognized date format: {fecha_nacimiento}")
+        except Exception as e:
+            logger.warning(f"Could not parse date of birth '{fecha_nacimiento}': {e}")
 
     return {
         'patient_id': profile.get('patient_id', str(uuid.uuid4())),
@@ -584,6 +650,7 @@ def insert_sample_patients(rds_data, cluster_arn: str, secret_arn: str, database
     for i, profile in enumerate(patients, 1):
         try:
             patient_data = convert_patient_profile_to_db_format(profile)
+            logger.info(f"Patient {i} data: date_of_birth={patient_data.get('date_of_birth')}, full_name={patient_data.get('full_name')}")
 
             # Check if patient already exists
             check_response = rds_data.execute_statement(
@@ -607,19 +674,22 @@ def insert_sample_patients(rds_data, cluster_arn: str, secret_arn: str, database
                 address, medical_history, lab_results, source_scan
             ) VALUES (
                 :patient_id, :first_name, :last_name, :full_name, :email, :phone,
-                :date_of_birth, :age, :gender, :document_type, :document_number,
+                :date_of_birth::date, :age, :gender, :document_type, :document_number,
                 :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan
             )
             """
 
             parameters = []
             for key, value in patient_data.items():
-                param_value = {'stringValue': str(
-                    value) if value is not None else None}
                 if value is None:
                     param_value = {'isNull': True}
                 elif key == 'age' and value is not None:
                     param_value = {'longValue': int(value)}
+                elif key == 'date_of_birth' and value is not None:
+                    # Ensure date is in proper format for PostgreSQL DATE type
+                    param_value = {'stringValue': str(value)}
+                else:
+                    param_value = {'stringValue': str(value) if value is not None else None}
 
                 parameters.append({'name': key, 'value': param_value})
 

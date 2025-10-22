@@ -89,9 +89,9 @@ class AssistantStack(Stack):
                 table_name="ab2_knowledge_base",
                 field_mapping=bedrock.CfnKnowledgeBase.RdsFieldMappingProperty(
                     metadata_field="metadata",
-                    primary_key_field="id",
-                    text_field="chunks",
-                    vector_field="embedding",
+                    primary_key_field="pk",
+                    text_field="text",
+                    vector_field="vector",
                     custom_metadata_field="custom_metadata"
                 )
             )
@@ -182,19 +182,31 @@ class AssistantStack(Stack):
                     "rds-data:BatchExecuteStatement",
                     "rds-data:BeginTransaction",
                     "rds-data:CommitTransaction",
-                    "rds-data:RollbackTransaction",
+                    "rds-data:RollbackTransaction"
+                ],
+                resources=[
+                    self.database_cluster.cluster_arn,
+                    f"{self.database_cluster.cluster_arn}:*"
+                ],
+            )
+        )
+
+        # RDS describe permissions (these require broader resource access)
+        knowledge_base_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
                     "rds:DescribeDBClusters",
                     "rds:DescribeDBInstances",
                     "rds:DescribeDBClusterParameters",
                     "rds:DescribeDBParameters",
                     "rds:DescribeDBSubnetGroups",
                     "rds:ListTagsForResource",
-                    "rds:DescribeDBClusterEndpoints"
+                    "rds:DescribeDBClusterEndpoints",
+                    "rds:DescribeDBClusterParameterGroups",
+                    "rds:DescribeDBParameterGroups"
                 ],
-                resources=[
-                    self.database_cluster.cluster_arn,
-                    f"{self.database_cluster.cluster_arn}:*"
-                ],
+                resources=["*"],  # RDS describe actions require * resource for validation
             )
         )
 
