@@ -42,7 +42,8 @@ const ApiExample: React.FC = () => {
     if (isConfigured) {
       patientsApi.execute({ limit: 10, offset: 0 });
     }
-  }, [isConfigured, patientsApi.execute]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConfigured]); // Intentionally exclude patientsApi.execute to prevent infinite loops
 
   const handleCreatePatient = async () => {
     const result = await createPatientApi.execute(newPatient);

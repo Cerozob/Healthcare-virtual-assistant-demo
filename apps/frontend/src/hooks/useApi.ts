@@ -3,7 +3,7 @@
  * Generic hook for API calls with loading, error, and data state management
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { ApiError } from '../services/apiClient';
 
 export interface UseApiState<T> {
@@ -26,11 +26,18 @@ export function useApi<T>(
     error: null
   });
 
+  // Use ref to store the latest apiFunction to avoid stale closures
+  const apiFunctionRef = useRef(apiFunction);
+  
+  useEffect(() => {
+    apiFunctionRef.current = apiFunction;
+  }, [apiFunction]);
+
   const execute = useCallback(async (...args: any[]): Promise<T | null> => {
     setState(prev => ({ ...prev, loading: true, error: null }));
     
     try {
-      const result = await apiFunction(...args);
+      const result = await apiFunctionRef.current(...args);
       setState({ data: result, loading: false, error: null });
       return result;
     } catch (error) {
@@ -43,7 +50,7 @@ export function useApi<T>(
       setState({ data: null, loading: false, error: errorMessage });
       return null;
     }
-  }, [apiFunction]);
+  }, []); // Remove apiFunction from dependencies to prevent infinite loops
 
   const reset = useCallback(() => {
     setState({ data: null, loading: false, error: null });

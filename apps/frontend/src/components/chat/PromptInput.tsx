@@ -1,17 +1,17 @@
 /**
  * PromptInput Component
- * Message input with file upload capabilities
+ * Simplified implementation using available Cloudscape components
  */
 
-import { useState, useRef, ChangeEvent, DragEvent } from 'react';
+import { useState, useRef, type ChangeEvent, type DragEvent } from 'react';
 import {
   Box,
-  Button,
-  FormField,
-  Textarea,
   SpaceBetween,
   Alert,
-  Icon
+  Icon,
+  Button,
+  FormField,
+  Textarea
 } from '@cloudscape-design/components';
 import { useLanguage } from '../../contexts/LanguageContext';
 
@@ -53,7 +53,7 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
   };
 
   const handleKeyPress = (event: any) => {
-    const e = event.detail as KeyboardEvent;
+    const e = event.detail;
     if (e.key === 'Enter' && !e.shiftKey) {
       event.preventDefault();
       handleSend();
@@ -61,9 +61,9 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
   };
 
   const validateFile = (file: File): boolean => {
-    const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+    const extension = `.${file.name.split('.').pop()?.toLowerCase()}`;
     const isSupported = ALL_SUPPORTED_TYPES.split(',').includes(extension);
-    
+
     if (!isSupported) {
       setUploadError(`${t.fileUpload.invalidType}: ${file.name}`);
       return false;
@@ -125,28 +125,37 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
   };
 
   const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
     <Box padding="s">
       <SpaceBetween size="m">
         {/* File Upload Area */}
-        <div
+        <button
+          type="button"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
           style={{
             border: `2px dashed ${isDragging ? '#0972d3' : '#e9ebed'}`,
             borderRadius: '8px',
             padding: '16px',
             backgroundColor: isDragging ? '#f2f8fd' : '#fafafa',
             transition: 'all 0.2s ease',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            width: '100%'
           }}
           onClick={() => fileInputRef.current?.click()}
+          aria-label="Upload files by clicking or dragging and dropping"
         >
           <Box textAlign="center">
             <Icon name="upload" size="medium" />
@@ -165,7 +174,7 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
             onChange={handleFileInputChange}
             style={{ display: 'none' }}
           />
-        </div>
+        </button>
 
         {/* Upload Error */}
         {uploadError && (
@@ -180,7 +189,7 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
             <SpaceBetween size="xs">
               {files.map((file, index) => (
                 <div
-                  key={index}
+                  key={`${file.name}-${file.size}-${index}`}
                   style={{
                     backgroundColor: '#ffffff',
                     border: '1px solid #e9ebed',
@@ -209,6 +218,7 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
                       e.stopPropagation();
                       removeFile(index);
                     }}
+                    ariaLabel={`Remove ${file.name}`}
                   />
                 </div>
               ))}
@@ -217,12 +227,14 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
         )}
 
         {/* Message Input */}
-        <FormField>
+        <FormField
+          constraintText="Generative AI can make mistakes. Verify important information."
+        >
           <Textarea
             value={message}
             onChange={({ detail }) => setMessage(detail.value)}
             onKeyDown={handleKeyPress}
-            placeholder={t.chat.placeholder}
+            placeholder="Submit your prompt to the generative AI assistant"
             disabled={disabled || isLoading}
             rows={3}
           />
@@ -236,7 +248,7 @@ export function PromptInput({ onSendMessage, disabled = false, isLoading = false
             disabled={disabled || isLoading || (!message.trim() && files.length === 0)}
             loading={isLoading}
           >
-            {t.chat.send}
+            Submit
           </Button>
         </Box>
       </SpaceBetween>

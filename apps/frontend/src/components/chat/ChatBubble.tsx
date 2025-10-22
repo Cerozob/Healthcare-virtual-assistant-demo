@@ -1,28 +1,47 @@
 /**
  * ChatBubble Component
- * Displays individual chat messages with avatars and markdown support
+ * Simplified implementation using available Cloudscape components
  */
 
-import { Box, Icon } from '@cloudscape-design/components';
+import {
+  Box,
+  Icon,
+  SpaceBetween,
+  Button,
+  Modal,
+  FormField,
+  Textarea,
+  RadioGroup,
+  Alert,
+  CopyToClipboard
+} from '@cloudscape-design/components';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { ChatMessage } from '../../types/api';
+import type { ChatMessage } from '../../types/api';
 import { AttachmentDisplay } from './AttachmentDisplay';
 import { SourceReferences } from './SourceReferences';
 
 interface ChatBubbleProps {
   message: ChatMessage;
+  onFeedback?: (messageId: string, feedback: 'positive' | 'negative', details?: string) => void;
 }
 
-export function ChatBubble({ message }: ChatBubbleProps) {
+export function ChatBubble({ message, onFeedback }: ChatBubbleProps) {
   const isUser = message.type === 'user';
   const isAgent = message.type === 'agent';
+
+  // Feedback state
+  const [feedbackState, setFeedbackState] = useState<'none' | 'positive' | 'negative' | 'loading'>('none');
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackReason, setFeedbackReason] = useState('');
+  const [feedbackDetails, setFeedbackDetails] = useState('');
 
   // Format timestamp
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('es-MX', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
@@ -40,79 +59,210 @@ export function ChatBubble({ message }: ChatBubbleProps) {
     return '#5f6b7a';
   };
 
-  return (
-    <Box
-      padding="s"
-      variant="div"
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: isUser ? 'row-reverse' : 'row',
-          gap: '12px',
-          alignItems: 'flex-start'
-        }}
-      >
-        {/* Avatar */}
-        <div
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            backgroundColor: getAvatarColor(),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}
-        >
-          <Icon name={getAvatarIcon()} variant="inverted" size="medium" />
-        </div>
+  // Handle feedback
+  const handleFeedback = async (type: 'positive' | 'negative') => {
+    if (type === 'negative') {
+      setShowFeedbackModal(true);
+      return;
+    }
 
-        {/* Message Content */}
+    setFeedbackState('loading');
+    try {
+      await onFeedback?.(message.id, type);
+      setFeedbackState('positive');
+    } catch {
+      setFeedbackState('none');
+    }
+  };
+
+  const handleNegativeFeedback = async () => {
+    setFeedbackState('loading');
+    setShowFeedbackModal(false);
+    try {
+      await onFeedback?.(message.id, 'negative', `${feedbackReason}: ${feedbackDetails}`);
+      setFeedbackState('negative');
+    } catch {
+      setFeedbackState('none');
+    }
+    setFeedbackReason('');
+    setFeedbackDetails('');
+  };
+
+  return (
+    <>
+      <Box padding="s" variant="div">
         <div
           style={{
-            maxWidth: '70%',
             display: 'flex',
-            flexDirection: 'column',
-            gap: '4px'
+            flexDirection: isUser ? 'row-reverse' : 'row',
+            gap: '12px',
+            alignItems: 'flex-start'
           }}
         >
-          {/* Message Bubble */}
+          {/* Avatar */}
           <div
             style={{
-              backgroundColor: isUser ? '#f2f8fd' : '#ffffff',
-              border: '1px solid #e9ebed',
-              borderRadius: '8px',
-              wordBreak: 'break-word',
-              padding: '12px'
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              backgroundColor: getAvatarColor(),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
             }}
+            role="img"
+            aria-label={isUser ? 'User' : isAgent ? 'Generative AI assistant' : 'System'}
           >
-            <div style={{ fontSize: '14px', lineHeight: '20px' }}>
-              <ReactMarkdown>{message.content}</ReactMarkdown>
-            </div>
+            <Icon name={getAvatarIcon()} variant="inverted" size="medium" />
           </div>
 
-          {/* Attachments */}
-          {message.attachments && message.attachments.length > 0 && (
-            <AttachmentDisplay attachments={message.attachments} />
-          )}
-
-          {/* Source References */}
-          {message.sources && message.sources.length > 0 && (
-            <SourceReferences sources={message.sources} />
-          )}
-
-          {/* Timestamp */}
-          <Box
-            fontSize="body-s"
-            color="text-body-secondary"
-            textAlign={isUser ? 'right' : 'left'}
+          {/* Message Content */}
+          <div
+            style={{
+              maxWidth: '70%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}
           >
-            {formatTime(message.timestamp)}
-          </Box>
+            {/* AI Output Label */}
+            {isAgent && (
+              <Box padding={{ bottom: 'xs' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Icon name="gen-ai" size="small" />
+                  <Box fontSize="body-s" color="text-body-secondary">
+                    Generated by AI
+                  </Box>
+                </div>
+              </Box>
+            )}
+
+            {/* Message Bubble */}
+            <div
+              style={{
+                backgroundColor: isUser ? '#f2f8fd' : '#ffffff',
+                border: '1px solid #e9ebed',
+                borderRadius: '8px',
+                wordBreak: 'break-word',
+                padding: '12px'
+              }}
+            >
+              <ReactMarkdown>{message.content}</ReactMarkdown>
+            </div>
+
+            {/* Attachments */}
+            {message.attachments && message.attachments.length > 0 && (
+              <AttachmentDisplay attachments={message.attachments} />
+            )}
+
+            {/* Source References */}
+            {message.sources && message.sources.length > 0 && (
+              <SourceReferences sources={message.sources} />
+            )}
+
+            {/* Inline Actions for AI messages */}
+            {isAgent && (
+              <Box padding={{ top: 'xs' }}>
+                <SpaceBetween direction="horizontal" size="xs">
+                  <Button
+                    variant="icon"
+                    iconName={feedbackState === 'positive' ? 'thumbs-up-filled' : 'thumbs-up'}
+                    disabled={feedbackState !== 'none'}
+                    loading={feedbackState === 'loading'}
+                    onClick={() => handleFeedback('positive')}
+                    ariaLabel={feedbackState === 'positive' ? 'Feedback submitted - helpful' : 'Mark as helpful'}
+                  />
+                  <Button
+                    variant="icon"
+                    iconName={feedbackState === 'negative' ? 'thumbs-down-filled' : 'thumbs-down'}
+                    disabled={feedbackState !== 'none'}
+                    loading={feedbackState === 'loading'}
+                    onClick={() => handleFeedback('negative')}
+                    ariaLabel={feedbackState === 'negative' ? 'Feedback submitted - not helpful' : 'Mark as not helpful'}
+                  />
+                  <CopyToClipboard
+                    textToCopy={message.content}
+                    copyButtonAriaLabel="Copy message to clipboard"
+                    copySuccessText="Copied!"
+                    copyErrorText="Failed to copy"
+                  />
+                </SpaceBetween>
+              </Box>
+            )}
+
+            {/* Timestamp */}
+            <Box
+              fontSize="body-s"
+              color="text-body-secondary"
+              textAlign={isUser ? 'right' : 'left'}
+              padding={{ top: 'xs' }}
+            >
+              {formatTime(message.timestamp)}
+            </Box>
+          </div>
         </div>
-      </div>
-    </Box>
+      </Box>
+
+      {/* Feedback Modal */}
+      <Modal
+        visible={showFeedbackModal}
+        onDismiss={() => setShowFeedbackModal(false)}
+        header="Tell us more"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setShowFeedbackModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleNegativeFeedback}
+                disabled={!feedbackReason}
+              >
+                Submit feedback
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Box>
+            What did you dislike about the generative AI response?
+          </Box>
+
+          <FormField>
+            <RadioGroup
+              value={feedbackReason}
+              onChange={({ detail }) => setFeedbackReason(detail.value)}
+              items={[
+                { value: 'harmful', label: 'Harmful' },
+                { value: 'incomplete', label: 'Incomplete' },
+                { value: 'inaccurate', label: 'Inaccurate' },
+                { value: 'other', label: 'Other' }
+              ]}
+            />
+          </FormField>
+
+          <FormField label="Additional notes (optional)">
+            <Textarea
+              value={feedbackDetails}
+              onChange={({ detail }) => setFeedbackDetails(detail.value)}
+              placeholder="Please provide more details about your feedback..."
+              rows={3}
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      {/* Feedback confirmation */}
+      {feedbackState === 'negative' && (
+        <Box padding={{ top: 's' }}>
+          <Alert type="success" dismissible>
+            Thank you for your feedback. We'll use it to improve our generative AI responses.
+          </Alert>
+        </Box>
+      )}
+    </>
   );
 }

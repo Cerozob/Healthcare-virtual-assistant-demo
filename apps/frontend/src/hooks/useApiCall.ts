@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { getErrorMessage, withRetry } from '../utils/errorHandling';
 
 interface UseApiCallOptions<T> {
@@ -28,6 +28,13 @@ export const useApiCall = <T, Args extends unknown[]>(
 
   const { onSuccess, onError, enableRetry = true, maxRetries = 3 } = options;
 
+  // Use ref to store the latest apiFunction to avoid stale closures
+  const apiFunctionRef = useRef(apiFunction);
+  
+  useEffect(() => {
+    apiFunctionRef.current = apiFunction;
+  }, [apiFunction]);
+
   const execute = useCallback(
     async (...args: Args): Promise<T | null> => {
       setLoading(true);
@@ -36,8 +43,8 @@ export const useApiCall = <T, Args extends unknown[]>(
 
       try {
         const result = enableRetry
-          ? await withRetry(() => apiFunction(...args), { maxRetries })
-          : await apiFunction(...args);
+          ? await withRetry(() => apiFunctionRef.current(...args), { maxRetries })
+          : await apiFunctionRef.current(...args);
 
         setData(result);
         onSuccess?.(result);
@@ -51,7 +58,7 @@ export const useApiCall = <T, Args extends unknown[]>(
         setLoading(false);
       }
     },
-    [apiFunction, onSuccess, onError, enableRetry, maxRetries]
+    [onSuccess, onError, enableRetry, maxRetries] // Remove apiFunction from dependencies
   );
 
   const retry = useCallback(async (): Promise<T | null> => {
