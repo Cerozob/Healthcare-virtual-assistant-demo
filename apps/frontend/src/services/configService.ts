@@ -11,75 +11,34 @@ interface RuntimeConfig {
 
 class ConfigService {
   private config: RuntimeConfig | null = null;
-  private configPromise: Promise<RuntimeConfig> | null = null;
 
   /**
-   * Get configuration - loads from runtime-config.json generated at build time
-   * Falls back to development defaults if config file is not available
+   * Get configuration - uses environment variables set in build environment
+   * Falls back to development defaults if environment variables are not available
    */
   getConfig(): RuntimeConfig {
-    // If already loaded synchronously, return it
+    // If already loaded, return it
     if (this.config) {
       return this.config;
     }
 
-    // Try to load synchronously from window object (if pre-loaded)
-    if (typeof window !== 'undefined' && (window as any).__RUNTIME_CONFIG__) {
-      const config = (window as any).__RUNTIME_CONFIG__ as RuntimeConfig;
-      this.config = config;
-      return config;
-    }
-
-    // Fallback to development defaults
-    console.warn('Runtime config not loaded, using development defaults');
-    return {
-      apiBaseUrl: 'http://localhost:3000/v1',
-      s3BucketName: 'dev-bucket',
-      region: 'us-east-1'
+    // Load from environment variables (set in Amplify console)
+    const config: RuntimeConfig = {
+      apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/v1',
+      s3BucketName: import.meta.env.VITE_S3_BUCKET_NAME || 'dev-bucket',
+      region: import.meta.env.VITE_AWS_REGION || 'us-east-1'
     };
+
+    this.config = config;
+    return config;
   }
 
   /**
-   * Async method to load configuration from runtime-config.json
-   * Should be called during app initialization
+   * Async method to load configuration (now synchronous since using env vars)
+   * Kept for backward compatibility
    */
   async loadConfig(): Promise<RuntimeConfig> {
-    if (this.config) {
-      return this.config;
-    }
-
-    if (this.configPromise) {
-      return this.configPromise;
-    }
-
-    this.configPromise = fetch('/runtime-config.json')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`Failed to load config: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then(config => {
-        this.config = config;
-        // Store in window for synchronous access
-        if (typeof window !== 'undefined') {
-          (window as any).__RUNTIME_CONFIG__ = config;
-        }
-        return config;
-      })
-      .catch(error => {
-        console.error('Failed to load runtime config:', error);
-        // Use development defaults
-        const defaultConfig: RuntimeConfig = {
-          apiBaseUrl: 'http://localhost:3000/v1',
-          s3BucketName: 'dev-bucket',
-          region: 'us-east-1'
-        };
-        this.config = defaultConfig;
-        return defaultConfig;
-      });
-
-    return this.configPromise;
+    return this.getConfig();
   }
 
   /**
