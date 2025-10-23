@@ -10,8 +10,12 @@ from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
+from aws_cdk import aws_ecr_assets as ecr_assets
+from aws_cdk import aws_logs as logs
 from constructs import Construct
 import json
+import os
+from pathlib import Path
 
 
 class AssistantStack(Stack):
@@ -27,6 +31,7 @@ class AssistantStack(Stack):
         database_cluster: rds.DatabaseCluster = None,
         db_init_resource: CustomResource = None,
         bedrock_user_secret=None,
+        api_gateway_endpoint: str = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -36,6 +41,7 @@ class AssistantStack(Stack):
         self.database_cluster = database_cluster
         self.db_init_resource = db_init_resource
         self.bedrock_user_secret = bedrock_user_secret
+        self.api_gateway_endpoint = api_gateway_endpoint
 
         self.supplemental_data_storage = s3.Bucket(
             self,
@@ -147,9 +153,33 @@ class AssistantStack(Stack):
             data_deletion_policy="DELETE"
         )
 
-        self.orchestrator_agent = None
-        self.information_agent = None
-        self.scheduling_agent = None
+        # Create ECR asset for agent container
+        self.agent_container_asset = ecr_assets.DockerImageAsset(
+            self,
+            "HealthcareAssistantContainer",
+            directory=str(Path(__file__).parent.parent.parent / "agents"),
+            file="Dockerfile",
+            platform=ecr_assets.Platform.LINUX_ARM64,
+            build_args={
+                "BUILDPLATFORM": "linux/arm64",
+                "TARGETPLATFORM": "linux/arm64"
+            }
+        )
+
+        # Create CloudWatch log group for agent runtime
+        self.agent_log_group = logs.LogGroup(
+            self,
+            "HealthcareAssistantLogGroup",
+            log_group_name="/aws/bedrock/agentcore/healthcare-assistant",
+            retention=logs.RetentionDays.ONE_MONTH,
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
+        # # Create AgentCore Runtime
+        # self.agent_runtime = self.create_agent_runtime()
+
+        # # Create CloudFormation outputs
+        # self.create_outputs()
 
     def create_knowledge_base_role(self):
         """
@@ -276,3 +306,270 @@ class AssistantStack(Stack):
         )
 
         return knowledge_base_role.role_arn
+
+    def create_agent_runtime(self):
+        """
+        Create Bedrock AgentCore Runtime for healthcare assistant.
+        """
+        # Create IAM role for agent runtime
+        agent_runtime_role = self.create_agent_runtime_role()
+
+        # Create AgentCore Runtime
+        agent_runtime = agentcore.CfnRuntime(
+            self,
+            "HealthcareAssistantRuntime",
+            agent_runtime_name="healthcare-assistant",
+            agent_runtime_artifact=agentcore.CfnRuntime.AgentRuntimeArtifactProperty(
+                container_configuration=agentcore.CfnRuntime.ContainerConfigurationProperty(
+                    container_uri=self.agent_container_asset.image_uri
+                )
+            ),
+            network_configuration=agentcore.CfnRuntime.NetworkConfigurationProperty(
+                network_mode="PUBLIC"
+            ),
+            role_arn=agent_runtime_role.role_arn,
+            environment_variables=self.get_agent_environment_variables(),
+            # Guardrails configuration for PII/PHI protection
+            guardrail_configuration=agentcore.CfnRuntime.GuardrailConfigurationProperty(
+                guardrail_identifier="",  # TODO: To be configured during deployment
+                guardrail_version=""  # TODO: To be configured during deployment
+            )
+        )
+
+        # Add dependency on knowledge base
+        agent_runtime.node.add_dependency(self.knowledge_base)
+
+        return agent_runtime
+
+    def create_agent_runtime_role(self):
+        """
+        Create IAM role for AgentCore Runtime with necessary permissions.
+        """
+        agent_runtime_role = iam.Role(
+            self,
+            "HealthcareAssistantRuntimeRole",
+            assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
+            description="Role for Healthcare Assistant AgentCore Runtime"
+        )
+
+        # Bedrock model invocation permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:InvokeModel",
+                    "bedrock:InvokeModelWithResponseStream"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}::foundation-model/*"
+                ]
+            )
+        )
+
+        # Bedrock Knowledge Base permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:Retrieve",
+                    "bedrock:RetrieveAndGenerate"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/{self.knowledge_base.attr_knowledge_base_id}"
+                ]
+            )
+        )
+
+        # Bedrock Guardrails permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:ApplyGuardrail"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}:{self.account}:guardrail/*"
+                ]
+            )
+        )
+
+        # RDS Data API permissions for database access
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                    "rds-data:BeginTransaction",
+                    "rds-data:CommitTransaction",
+                    "rds-data:RollbackTransaction"
+                ],
+                resources=[
+                    self.database_cluster.cluster_arn
+                ]
+            )
+        )
+
+        # Secrets Manager permissions for database credentials
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                ],
+                resources=[
+                    self.database_cluster.secret.secret_arn
+                ]
+            )
+        )
+
+        # S3 permissions for supplemental data storage
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:ListBucket"
+                ],
+                resources=[
+                    self.supplemental_data_storage.bucket_arn,
+                    f"{self.supplemental_data_storage.bucket_arn}/*"
+                ]
+            )
+        )
+
+        # CloudWatch Logs permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                resources=[
+                    self.agent_log_group.log_group_arn,
+                    f"{self.agent_log_group.log_group_arn}:*"
+                ]
+            )
+        )
+
+        # CloudWatch Metrics permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "cloudwatch:PutMetricData"
+                ],
+                resources=["*"],
+                conditions={
+                    "StringEquals": {
+                        "cloudwatch:namespace": "Healthcare/Agents"
+                    }
+                }
+            )
+        )
+
+        # X-Ray tracing permissions for observability
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "xray:PutTraceSegments",
+                    "xray:PutTelemetryRecords"
+                ],
+                resources=["*"]
+            )
+        )
+
+        return agent_runtime_role
+
+    def get_agent_environment_variables(self) -> dict:
+        """
+        Return environment variables for agent runtime configuration.
+        Values are left empty for manual configuration during deployment.
+        """
+        return {
+            # Model Configuration - Values to be set during deployment
+            "MODEL_ID": "",  # TODO: e.g., "anthropic.claude-3-5-sonnet-20241022-v2:0"
+            "MODEL_TEMPERATURE": "",  # TODO: e.g., "0.1"
+            "MODEL_MAX_TOKENS": "",  # TODO: e.g., "4096"
+            "MODEL_TOP_P": "",  # TODO: e.g., "0.9"
+
+            # Knowledge Base Configuration - Populated by CDK
+            "KNOWLEDGE_BASE_ID": self.knowledge_base.attr_knowledge_base_id,
+            "SUPPLEMENTAL_DATA_BUCKET": self.supplemental_data_storage.bucket_name,
+
+            # API Configuration - Populated by CDK
+            "HEALTHCARE_API_ENDPOINT": self.api_gateway_endpoint or "",  # API Gateway endpoint URL
+
+            # Database Configuration - Populated by CDK
+            "DATABASE_CLUSTER_ARN": self.database_cluster.cluster_arn,
+            "DATABASE_SECRET_ARN": self.database_cluster.secret.secret_arn,
+
+            # Agent Configuration - Values to be set during deployment
+            "DEFAULT_LANGUAGE": "",  # TODO: e.g., "es-LATAM"
+            "STREAMING_ENABLED": "",  # TODO: e.g., "true"
+            "SESSION_TIMEOUT_MINUTES": "",  # TODO: e.g., "30"
+
+            # Guardrails Configuration - Values to be set during deployment
+            "GUARDRAIL_ID": "",  # TODO: Bedrock Guardrail ID for PII/PHI protection
+            "GUARDRAIL_VERSION": "",  # TODO: Guardrail version
+
+            # Observability Configuration - Values to be set during deployment
+            "ENABLE_TRACING": "",  # TODO: e.g., "true"
+            "LOG_LEVEL": "",  # TODO: e.g., "INFO"
+            "METRICS_NAMESPACE": "",  # TODO: e.g., "Healthcare/Agents"
+        }
+
+    def get_guardrail_configuration(self) -> dict:
+        """
+        Return guardrail configuration for PII/PHI protection.
+        Values to be configured during deployment.
+        """
+        return {
+            "guardrail_identifier": "",  # TODO: To be set during deployment
+            "guardrail_version": ""  # TODO: To be set during deployment
+        }
+
+    def create_outputs(self):
+        """
+        Create CloudFormation outputs for the assistant stack.
+        """
+        CfnOutput(
+            self,
+            "KnowledgeBaseId",
+            value=self.knowledge_base.attr_knowledge_base_id,
+            description="Bedrock Knowledge Base ID"
+        )
+
+        CfnOutput(
+            self,
+            "SupplementalDataBucket",
+            value=self.supplemental_data_storage.bucket_name,
+            description="S3 bucket for supplemental data storage"
+        )
+
+        CfnOutput(
+            self,
+            "AgentRuntimeArn",
+            value=self.agent_runtime.attr_agent_runtime_arn,
+            description="Healthcare Assistant AgentCore Runtime ARN"
+        )
+
+        CfnOutput(
+            self,
+            "AgentContainerImageUri",
+            value=self.agent_container_asset.image_uri,
+            description="ECR image URI for agent container"
+        )
+
+        CfnOutput(
+            self,
+            "AgentLogGroupName",
+            value=self.agent_log_group.log_group_name,
+            description="CloudWatch log group for agent runtime"
+        )

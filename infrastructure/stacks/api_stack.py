@@ -33,16 +33,16 @@ class ApiStack(Stack):
 
         # Create Lambda functions
         self._create_lambda_functions()
-        
+
         # Create API Gateway
         self._create_api_gateway()
-        
+
         # Create monitoring and alerting
         self._create_monitoring()
-        
+
         # Store API endpoint in SSM Parameter Store
         self._create_ssm_parameters()
-        
+
         # Create outputs
         self._create_outputs()
 
@@ -53,14 +53,14 @@ class ApiStack(Stack):
 
     def _create_lambda_functions(self) -> None:
         """Create all Lambda functions for the healthcare API."""
-        
+
         # Common Lambda configuration for Python functions
         lambda_config = {
             "runtime": lambda_.Runtime.PYTHON_3_13,
             "timeout": Duration.seconds(30),
             "memory_size": 256,
         }
-        
+
         # SSM policy for healthcare configuration
         ssm_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -73,7 +73,7 @@ class ApiStack(Stack):
                 f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/*"
             ]
         )
-        
+
         # RDS Data API policy
         rds_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -85,7 +85,7 @@ class ApiStack(Stack):
                 f"arn:aws:rds:{self.region}:{self.account}:cluster:*"
             ]
         )
-        
+
         # Secrets Manager policy
         secrets_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -96,7 +96,7 @@ class ApiStack(Stack):
                 f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:*"
             ]
         )
-        
+
         # Bedrock policy for agent functions
         bedrock_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -106,7 +106,7 @@ class ApiStack(Stack):
             ],
             resources=["*"]
         )
-        
+
         # EventBridge policy for document functions
         eventbridge_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -121,7 +121,8 @@ class ApiStack(Stack):
             self,
             "PatientsFunction",
             function_name="healthcare-patients",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.patients.handler.lambda_handler",
             log_group=logs.LogGroup(
                 self,
@@ -140,7 +141,8 @@ class ApiStack(Stack):
             self,
             "MedicsFunction",
             function_name="healthcare-medics",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.medics.handler.lambda_handler",
             log_group=logs.LogGroup(
                 self,
@@ -159,7 +161,8 @@ class ApiStack(Stack):
             self,
             "ExamsFunction",
             function_name="healthcare-exams",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.exams.handler.lambda_handler",
             log_group=logs.LogGroup(
                 self,
@@ -178,7 +181,8 @@ class ApiStack(Stack):
             self,
             "ReservationsFunction",
             function_name="healthcare-reservations",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.reservations.handler.lambda_handler",
             log_group=logs.LogGroup(
                 self,
@@ -197,7 +201,8 @@ class ApiStack(Stack):
             self,
             "FilesFunction",
             function_name="healthcare-files",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.files.handler.lambda_handler",
             log_group=logs.LogGroup(
                 self,
@@ -214,7 +219,7 @@ class ApiStack(Stack):
         self.files_function.add_to_role_policy(ssm_policy)
         self.files_function.add_to_role_policy(rds_policy)
         self.files_function.add_to_role_policy(secrets_policy)
-        
+
         # Add S3 permissions for file operations
         s3_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -228,7 +233,7 @@ class ApiStack(Stack):
             ]
         )
         self.files_function.add_to_role_policy(s3_policy)
-        
+
         # Add Bedrock permissions for Knowledge Base queries
         bedrock_kb_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -242,14 +247,13 @@ class ApiStack(Stack):
         )
         self.files_function.add_to_role_policy(bedrock_kb_policy)
 
-
-
         # Chat Function (higher memory and timeout)
         self.chat_function = lambda_.Function(
             self,
             "ChatFunction",
             function_name="healthcare-chat",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.chat.handler.lambda_handler",
             runtime=lambda_.Runtime.PYTHON_3_13,
             timeout=Duration.seconds(60),
@@ -271,7 +275,8 @@ class ApiStack(Stack):
             self,
             "AgentIntegrationFunction",
             function_name="healthcare-agent-integration",
-            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.agent_integration.handler.lambda_handler",
             runtime=lambda_.Runtime.PYTHON_3_13,
             timeout=Duration.seconds(60),
@@ -287,7 +292,7 @@ class ApiStack(Stack):
         self.agent_integration_function.add_to_role_policy(rds_policy)
         self.agent_integration_function.add_to_role_policy(secrets_policy)
         self.agent_integration_function.add_to_role_policy(bedrock_policy)
-        
+
         # Add CloudWatch permissions for metrics
         cloudwatch_policy = iam.PolicyStatement(
             effect=iam.Effect.ALLOW,
@@ -299,12 +304,9 @@ class ApiStack(Stack):
         )
         self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
-
-
-
     def _create_api_gateway(self) -> None:
         """Create HTTP API Gateway v2 with all endpoints."""
-        
+
         # Create HTTP API with CORS configuration
         self.api = apigwv2.HttpApi(
             self,
@@ -322,24 +324,37 @@ class ApiStack(Stack):
                 ],
                 allow_headers=[
                     "Content-Type",
-                    "X-Amz-Date", 
+                    "X-Amz-Date",
                     "Authorization",
                     "X-Api-Key",
-                    "X-Amz-Security-Token"
+                    "X-Amz-Security-Token",
+                    "X-Requested-With"
                 ],
-                max_age=Duration.days(1)
+                max_age=Duration.days(1),
+                expose_headers=[
+                    "Access-Control-Allow-Origin",
+                    "Access-Control-Allow-Methods",
+                    "Access-Control-Allow-Headers"
+                ]
             )
         )
 
         # Create Lambda integrations
-        patients_integration = HttpLambdaIntegration("PatientsIntegration", self.patients_function)
-        medics_integration = HttpLambdaIntegration("MedicsIntegration", self.medics_function)
-        exams_integration = HttpLambdaIntegration("ExamsIntegration", self.exams_function)
-        reservations_integration = HttpLambdaIntegration("ReservationsIntegration", self.reservations_function)
-        files_integration = HttpLambdaIntegration("FilesIntegration", self.files_function)
+        patients_integration = HttpLambdaIntegration(
+            "PatientsIntegration", self.patients_function)
+        medics_integration = HttpLambdaIntegration(
+            "MedicsIntegration", self.medics_function)
+        exams_integration = HttpLambdaIntegration(
+            "ExamsIntegration", self.exams_function)
+        reservations_integration = HttpLambdaIntegration(
+            "ReservationsIntegration", self.reservations_function)
+        files_integration = HttpLambdaIntegration(
+            "FilesIntegration", self.files_function)
 
-        chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
-        agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
+        chat_integration = HttpLambdaIntegration(
+            "ChatIntegration", self.chat_function)
+        agent_integration = HttpLambdaIntegration(
+            "AgentIntegration", self.agent_integration_function)
 
         # Helper function to create CRUD routes with throttling
         def create_crud_routes(path: str, integration: HttpLambdaIntegration, throttle_settings=None):
@@ -349,11 +364,12 @@ class ApiStack(Stack):
                 methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
                 integration=integration
             )
-            
+
             # Item routes
             self.api.add_routes(
                 path=f"{path}/{{id}}",
-                methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
+                methods=[apigwv2.HttpMethod.GET,
+                         apigwv2.HttpMethod.PUT, apigwv2.HttpMethod.DELETE],
                 integration=integration
             )
 
@@ -363,32 +379,37 @@ class ApiStack(Stack):
         create_crud_routes("/exams", exams_integration)
         create_crud_routes("/reservations", reservations_integration)
         
+        # Additional reservations routes
+        self.api.add_routes(
+            path="/reservations/availability",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=reservations_integration
+        )
+
         # Files routes (custom routes for file operations)
         self.api.add_routes(
             path="/files",
             methods=[apigwv2.HttpMethod.GET],
             integration=files_integration
         )
-        
+
         self.api.add_routes(
             path="/files/upload",
             methods=[apigwv2.HttpMethod.POST],
             integration=files_integration
         )
-        
+
         self.api.add_routes(
             path="/files/{id}",
             methods=[apigwv2.HttpMethod.DELETE],
             integration=files_integration
         )
-        
+
         self.api.add_routes(
             path="/files/{id}/classification",
             methods=[apigwv2.HttpMethod.PUT],
             integration=files_integration
         )
-
-
 
         # Chat routes
         self.api.add_routes(
@@ -396,13 +417,13 @@ class ApiStack(Stack):
             methods=[apigwv2.HttpMethod.POST],
             integration=chat_integration
         )
-        
+
         self.api.add_routes(
             path="/chat/sessions",
             methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
             integration=chat_integration
         )
-        
+
         self.api.add_routes(
             path="/chat/sessions/{id}/messages",
             methods=[apigwv2.HttpMethod.GET],
@@ -416,6 +437,23 @@ class ApiStack(Stack):
             integration=agent_integration
         )
 
+        self.api.add_routes(
+            path="/agent/query",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=agent_integration
+        )
+
+        self.api.add_routes(
+            path="/agent/health",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=agent_integration
+        )
+
+        self.api.add_routes(
+            path="/agent/metrics",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=agent_integration
+        )
 
         # Create a production stage with throttling
         self.stage = apigwv2.HttpStage(
@@ -433,14 +471,14 @@ class ApiStack(Stack):
 
     def _create_monitoring(self) -> None:
         """Create CloudWatch monitoring and alerting for API Gateway."""
-        
+
         # Create SNS topic for alerts
         self.alert_topic = sns.Topic(
             self,
             "ApiAlertsTopics",
             display_name="Healthcare API Alerts"
         )
-        
+
         # Create CloudWatch alarms for API throttling
         throttle_alarm = cloudwatch.Alarm(
             self,
@@ -461,12 +499,12 @@ class ApiStack(Stack):
             evaluation_periods=1,
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
         )
-        
+
         # Add SNS action to the alarm
         throttle_alarm.add_alarm_action(
             cw_actions.SnsAction(self.alert_topic)
         )
-        
+
         # Create alarm for high error rate
         error_rate_alarm = cloudwatch.Alarm(
             self,
@@ -487,11 +525,11 @@ class ApiStack(Stack):
             evaluation_periods=2,
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
         )
-        
+
         error_rate_alarm.add_alarm_action(
             cw_actions.SnsAction(self.alert_topic)
         )
-        
+
         # Create alarm for high request count (potential DDoS or infinite loops)
         high_request_alarm = cloudwatch.Alarm(
             self,
@@ -512,16 +550,14 @@ class ApiStack(Stack):
             evaluation_periods=3,
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
         )
-        
+
         high_request_alarm.add_alarm_action(
             cw_actions.SnsAction(self.alert_topic)
         )
 
-
-
     def _create_ssm_parameters(self) -> None:
         """Store API configuration in SSM Parameter Store."""
-        
+
         # Store the API endpoint URL
         self.api_endpoint_parameter = ssm.StringParameter(
             self,
@@ -534,35 +570,35 @@ class ApiStack(Stack):
 
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""
-        
+
         CfnOutput(
             self,
             "ApiEndpoint",
             value=f"{self.api.api_endpoint}/v1",
             description="Healthcare HTTP API Gateway endpoint URL"
         )
-        
+
         CfnOutput(
             self,
             "ApiEndpointParameterName",
             value=self.api_endpoint_parameter.parameter_name,
             description="SSM Parameter name for API endpoint"
         )
-        
+
         CfnOutput(
             self,
             "ApiId",
             value=self.api.api_id,
             description="Healthcare HTTP API Gateway ID"
         )
-        
+
         CfnOutput(
             self,
             "ApiDomainName",
             value=self.api.api_endpoint,
             description="Healthcare HTTP API Gateway domain name"
         )
-        
+
         CfnOutput(
             self,
             "AlertTopicArn",

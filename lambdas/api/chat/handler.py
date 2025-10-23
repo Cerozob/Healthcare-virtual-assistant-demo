@@ -19,7 +19,7 @@ from shared.utils import (
     extract_path_parameters, extract_query_parameters, validate_required_fields,
     handle_exceptions, generate_uuid, get_current_timestamp
 )
-from shared.config import SSMConfig
+from shared.ssm_config import SSMConfig
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -35,9 +35,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler for chat requests.
     Routes to appropriate handler based on HTTP method and path.
     """
-    http_method = event.get('httpMethod', '')
-    path = event.get('path', '')
-    path_params = extract_path_parameters(event)
+    # Handle both API Gateway v1 and v2 event formats
+    http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+    path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
     logger.info(f"Received request: method={http_method}, path={path}")
@@ -56,7 +57,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_list_sessions(event)
         elif http_method == 'POST':
             return handle_create_session(event)
-    elif normalized_path.startswith('/chat/sessions/') and normalized_path.endswith('/messages') and 'id' in path_params:
+    elif normalized_path.startswith('/chat/sessions/') and normalized_path.endswith('/messages') and path_params and 'id' in path_params:
         session_id = path_params['id']
         if http_method == 'GET':
             return handle_get_messages(session_id, event)

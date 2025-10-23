@@ -56,6 +56,7 @@ def format_response(content: str, response_type: str = "markdown") -> str:
 def sanitize_for_logging(data: Any) -> Any:
     """
     Sanitize data for logging by removing PII/PHI information.
+    Uses Bedrock Guardrails integration for comprehensive PII detection.
     
     Args:
         data: Data to sanitize
@@ -63,28 +64,38 @@ def sanitize_for_logging(data: Any) -> Any:
     Returns:
         Any: Sanitized data safe for logging
     """
-    if isinstance(data, dict):
-        sanitized = {}
-        for key, value in data.items():
-            # Remove common PII/PHI fields
-            if key.lower() in [
-                'patient_id', 'cedula', 'ssn', 'phone', 'email', 
-                'address', 'full_name', 'first_name', 'last_name',
-                'medical_history', 'lab_results', 'diagnosis'
-            ]:
-                sanitized[key] = "[REDACTED]"
-            else:
-                sanitized[key] = sanitize_for_logging(value)
-        return sanitized
-    elif isinstance(data, list):
-        return [sanitize_for_logging(item) for item in data]
-    elif isinstance(data, str):
-        # Basic pattern matching for common PII formats
-        if len(data) > 5 and (data.isdigit() or '@' in data):
-            return "[REDACTED]"
-        return data
-    else:
-        return data
+    try:
+        # Import here to avoid circular imports
+        from .guardrails import PIIProtectionManager
+        
+        # Use PII protection manager for comprehensive sanitization
+        pii_manager = PIIProtectionManager()
+        return pii_manager.sanitize_for_logging(data)
+        
+    except ImportError:
+        # Fallback to basic sanitization if guardrails not available
+        if isinstance(data, dict):
+            sanitized = {}
+            for key, value in data.items():
+                # Remove common PII/PHI fields
+                if key.lower() in [
+                    'patient_id', 'cedula', 'ssn', 'phone', 'email', 
+                    'address', 'full_name', 'first_name', 'last_name',
+                    'medical_history', 'lab_results', 'diagnosis'
+                ]:
+                    sanitized[key] = "[REDACTED]"
+                else:
+                    sanitized[key] = sanitize_for_logging(value)
+            return sanitized
+        elif isinstance(data, list):
+            return [sanitize_for_logging(item) for item in data]
+        elif isinstance(data, str):
+            # Basic pattern matching for common PII formats
+            if len(data) > 5 and (data.isdigit() or '@' in data):
+                return "[REDACTED]"
+            return data
+        else:
+            return data
 
 
 def create_error_response(

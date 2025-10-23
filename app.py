@@ -181,6 +181,7 @@ assistant_stack = AssistantStack(
     database_cluster=backend_stack.db_cluster,
     db_init_resource=backend_stack.db_init_resource,
     bedrock_user_secret=backend_stack.bedrock_user_secret,
+    api_gateway_endpoint=api_stack.api_endpoint_url,
     env=env,
     stack_name="AWSomeBuilder2-VirtualAssistantStack",
     description="Asistente virtual con GenAI",
@@ -189,6 +190,7 @@ assistant_stack = AssistantStack(
 # Add stack dependencies
 logger.info("Configuring stack dependencies...")
 assistant_stack.add_dependency(backend_stack)
+assistant_stack.add_dependency(api_stack)
 logger.info("Stack dependencies configured successfully")
 
 logger.info("Starting CDK synthesis...")

@@ -37,6 +37,7 @@ from ..shared.utils import (
     create_error_response
 )
 from ..shared.context import ContextManager
+from ..shared.coordination import get_agent_coordinator
 
 logger = get_logger(__name__)
 
@@ -130,10 +131,26 @@ class InformationRetrievalAgent:
         try:
             self.logger.info("Processing information retrieval query")
             
+            # Get coordinator for context coordination
+            coordinator = get_agent_coordinator(context_manager.export_state())
+            coordinator.register_agent("information_retrieval", [
+                "patient_data_retrieval",
+                "knowledge_base_search",
+                "conversation_storage",
+                "medical_information"
+            ])
+            
             # Extract patient context from query if present
             patient_context = extract_patient_context(query)
             if patient_context:
-                context_manager.set_patient_context(patient_context)
+                # Use coordinator for consistent patient context
+                coord_result = await coordinator.coordinate_patient_context(
+                    patient_context.get("patient_name") or patient_context.get("cedula", ""),
+                    "auto",
+                    "information_retrieval"
+                )
+                if coord_result["success"]:
+                    context_manager.set_patient_context(coord_result["patient_context"])
             
             # Use structured output for consistent response format
             response = self.agent.structured_output(

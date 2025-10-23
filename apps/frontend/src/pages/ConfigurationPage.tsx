@@ -249,19 +249,20 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
   const examColumns: EntityColumn<Exam>[] = [
     { id: 'exam_id', header: 'ID', cell: (item) => item.exam_id, width: 150 },
-    { id: 'patient_id', header: 'ID Paciente', cell: (item) => item.patient_id },
-    { id: 'medic_id', header: 'ID Médico', cell: (item) => item.medic_id },
+    { id: 'exam_name', header: 'Nombre del examen', cell: (item) => item.exam_name, sortingField: 'exam_name' },
     { id: 'exam_type', header: 'Tipo', cell: (item) => item.exam_type },
-    { id: 'exam_date', header: 'Fecha', cell: (item) => new Date(item.exam_date).toLocaleDateString('es-MX') },
-    { id: 'status', header: 'Estado', cell: (item) => item.status },
+    { id: 'duration_minutes', header: 'Duración (min)', cell: (item) => item.duration_minutes.toString() },
+    { id: 'description', header: 'Descripción', cell: (item) => item.description || '-' },
   ];
 
   const reservationColumns: EntityColumn<Reservation>[] = [
     { id: 'reservation_id', header: 'ID', cell: (item) => item.reservation_id, width: 150 },
     { id: 'patient_id', header: 'ID Paciente', cell: (item) => item.patient_id },
     { id: 'medic_id', header: 'ID Médico', cell: (item) => item.medic_id },
+    { id: 'exam_id', header: 'ID Examen', cell: (item) => item.exam_id },
     { id: 'appointment_date', header: 'Fecha de cita', cell: (item) => new Date(item.appointment_date).toLocaleString('es-MX') },
     { id: 'status', header: 'Estado', cell: (item) => item.status },
+    { id: 'notes', header: 'Notas', cell: (item) => item.notes || '-' },
   ];
 
   return (

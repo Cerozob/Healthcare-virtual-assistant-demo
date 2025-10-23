@@ -284,3 +284,52 @@ class SSMConfig:
         except SSMConfigError:
             logger.error("Failed to retrieve VPC configuration")
             raise
+    
+    # Agent-specific configuration methods
+    def get_orchestrator_agent_id(self) -> str:
+        """Get orchestrator agent ID."""
+        try:
+            return self.get_parameter("bedrock/orchestrator-agent-id")
+        except SSMConfigError:
+            logger.warning("Orchestrator agent ID not configured")
+            return ""
+    
+    def get_orchestrator_alias_id(self) -> str:
+        """Get orchestrator agent alias ID."""
+        try:
+            return self.get_parameter("bedrock/orchestrator-agent-alias-id")
+        except SSMConfigError:
+            logger.warning("Orchestrator agent alias ID not configured, using default")
+            return "TSTALIASID"
+    
+    def get_scheduling_agent_id(self) -> str:
+        """Get scheduling agent ID."""
+        try:
+            return self.get_parameter("bedrock/scheduling-agent-id")
+        except SSMConfigError:
+            logger.warning("Scheduling agent ID not configured")
+            return ""
+    
+    def get_scheduling_alias_id(self) -> str:
+        """Get scheduling agent alias ID."""
+        try:
+            return self.get_parameter("bedrock/scheduling-agent-alias-id")
+        except SSMConfigError:
+            logger.warning("Scheduling agent alias ID not configured, using default")
+            return "TSTALIASID"
+    
+    def get_information_agent_id(self) -> str:
+        """Get information retrieval agent ID."""
+        try:
+            return self.get_parameter("bedrock/information-agent-id")
+        except SSMConfigError:
+            logger.warning("Information agent ID not configured")
+            return ""
+    
+    def get_information_alias_id(self) -> str:
+        """Get information retrieval agent alias ID."""
+        try:
+            return self.get_parameter("bedrock/information-agent-alias-id")
+        except SSMConfigError:
+            logger.warning("Information agent alias ID not configured, using default")
+            return "TSTALIASID"

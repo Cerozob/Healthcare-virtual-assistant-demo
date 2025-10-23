@@ -32,9 +32,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler for patients API.
     Routes requests to appropriate handlers based on HTTP method and path.
     """
-    http_method = event.get('httpMethod', '')
-    path = event.get('path', '')
-    path_params = extract_path_parameters(event)
+    # Handle both API Gateway v1 and v2 event formats
+    http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+    path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
     logger.info(f"Received request: method={http_method}, path={path}")
@@ -50,7 +51,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return list_patients(event)
         elif http_method == 'POST':
             return create_patient(event)
-    elif normalized_path.startswith('/patients/') and 'id' in path_params:
+    elif normalized_path.startswith('/patients/') and path_params and 'id' in path_params:
         patient_id = path_params['id']
         if http_method == 'GET':
             return get_patient(patient_id)

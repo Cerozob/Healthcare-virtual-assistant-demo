@@ -32,9 +32,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler for medics API.
     Routes requests to appropriate handlers based on HTTP method and path.
     """
-    http_method = event.get('httpMethod', '')
-    path = event.get('path', '')
-    path_params = extract_path_parameters(event)
+    # Handle both API Gateway v1 and v2 event formats
+    http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+    path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
     logger.info(f"Received request: method={http_method}, path={path}")
@@ -50,7 +51,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return list_medics(event)
         elif http_method == 'POST':
             return create_medic(event)
-    elif normalized_path.startswith('/medics/') and 'id' in path_params:
+    elif normalized_path.startswith('/medics/') and path_params and 'id' in path_params:
         medic_id = path_params['id']
         if http_method == 'GET':
             return get_medic(medic_id)
@@ -87,11 +88,11 @@ def list_medics(event: Dict[str, Any]) -> Dict[str, Any]:
         ]
         
         if specialty_filter:
-            where_clause = "WHERE LOWER(specialty) LIKE LOWER(:specialty)"
+            where_clause = "WHERE LOWER(specialization) LIKE LOWER(:specialty)"
             parameters.append(db_manager.create_parameter('specialty', f'%{specialty_filter}%', 'string'))
         
         sql = f"""
-        SELECT medic_id, full_name, specialty, license_number, created_at, updated_at
+        SELECT medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
         FROM medics
         {where_clause}
         ORDER BY full_name
@@ -168,9 +169,9 @@ def create_medic(event: Dict[str, Any]) -> Dict[str, Any]:
         medic_id = generate_uuid()
         
         sql = """
-        INSERT INTO medics (medic_id, full_name, specialty, license_number, created_at, updated_at)
+        INSERT INTO medics (medic_id, full_name, specialization, license_number, created_at, updated_at)
         VALUES (:medic_id, :full_name, :specialty, :license_number, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING medic_id, full_name, specialty, license_number, created_at, updated_at
+        RETURNING medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
         """
         
         parameters = [
@@ -218,7 +219,7 @@ def get_medic(medic_id: str) -> Dict[str, Any]:
     """
     try:
         sql = """
-        SELECT medic_id, full_name, specialty, license_number, created_at, updated_at
+        SELECT medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
         FROM medics
         WHERE medic_id = :medic_id
         """
@@ -272,7 +273,7 @@ def update_medic(medic_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
             parameters.append(db_manager.create_parameter('full_name', body['full_name'], 'string'))
         
         if 'specialty' in body and body['specialty']:
-            update_fields.append('specialty = :specialty')
+            update_fields.append('specialization = :specialty')
             parameters.append(db_manager.create_parameter('specialty', body['specialty'], 'string'))
         
         if 'license_number' in body and body['license_number']:
@@ -303,7 +304,7 @@ def update_medic(medic_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         UPDATE medics
         SET {', '.join(update_fields)}
         WHERE medic_id = :medic_id
-        RETURNING medic_id, full_name, specialty, license_number, created_at, updated_at
+        RETURNING medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
         """
         
         response = db_manager.execute_sql(sql, parameters)

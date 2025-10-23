@@ -76,35 +76,32 @@ export interface MedicsResponse {
   pagination: PaginationInfo;
 }
 
-// Exam types
+// Exam types (these are exam templates/types, not individual exam instances)
 export interface Exam {
   exam_id: string;
-  patient_id: string;
-  medic_id: string;
+  exam_name: string;
   exam_type: string;
-  exam_date: string;
-  results?: string;
-  status: string;
+  description?: string;
+  duration_minutes: number;
+  preparation_instructions?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateExamRequest {
-  patient_id: string;
-  medic_id: string;
+  exam_name: string;
   exam_type: string;
-  exam_date: string;
-  results?: string;
-  status?: string;
+  description?: string;
+  duration_minutes: number;
+  preparation_instructions?: string;
 }
 
 export interface UpdateExamRequest {
-  patient_id?: string;
-  medic_id?: string;
+  exam_name?: string;
   exam_type?: string;
-  exam_date?: string;
-  results?: string;
-  status?: string;
+  description?: string;
+  duration_minutes?: number;
+  preparation_instructions?: string;
 }
 
 export interface ExamsResponse {
@@ -117,6 +114,7 @@ export interface Reservation {
   reservation_id: string;
   patient_id: string;
   medic_id: string;
+  exam_id: string;
   appointment_date: string;
   status: string;
   notes?: string;
@@ -127,6 +125,7 @@ export interface Reservation {
 export interface CreateReservationRequest {
   patient_id: string;
   medic_id: string;
+  exam_id: string;
   appointment_date: string;
   status?: string;
   notes?: string;
@@ -135,6 +134,7 @@ export interface CreateReservationRequest {
 export interface UpdateReservationRequest {
   patient_id?: string;
   medic_id?: string;
+  exam_id?: string;
   appointment_date?: string;
   status?: string;
   notes?: string;

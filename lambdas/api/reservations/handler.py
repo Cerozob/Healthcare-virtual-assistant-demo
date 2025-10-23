@@ -34,9 +34,10 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler for reservations API.
     Routes requests to appropriate handlers based on HTTP method and path.
     """
-    http_method = event.get('httpMethod', '')
-    path = event.get('path', '')
-    path_params = extract_path_parameters(event)
+    # Handle both API Gateway v1 and v2 event formats
+    http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+    path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
     logger.info(f"Received request: method={http_method}, path={path}")
@@ -55,7 +56,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     elif normalized_path == '/reservations/availability':
         if http_method == 'POST':
             return check_availability(event)
-    elif normalized_path.startswith('/reservations/') and 'id' in path_params:
+    elif normalized_path.startswith('/reservations/') and path_params and 'id' in path_params:
         reservation_id = path_params['id']
         if http_method == 'GET':
             return get_reservation(reservation_id)
@@ -119,7 +120,8 @@ def list_reservations(event: Dict[str, Any]) -> Dict[str, Any]:
         sql = f"""
         SELECT 
             r.reservation_id, r.patient_id, r.medic_id, r.exam_id,
-            r.reservation_date, r.status, r.created_at, r.updated_at,
+            (r.reservation_date || ' ' || COALESCE(r.reservation_time::text, '00:00:00')) as appointment_date,
+            r.status, r.notes, r.created_at, r.updated_at,
             p.full_name as patient_name,
             m.full_name as medic_name,
             e.exam_name
@@ -128,7 +130,7 @@ def list_reservations(event: Dict[str, Any]) -> Dict[str, Any]:
         LEFT JOIN medics m ON r.medic_id = m.medic_id
         LEFT JOIN exams e ON r.exam_id = e.exam_id
         {where_clause}
-        ORDER BY r.reservation_date DESC
+        ORDER BY r.reservation_date DESC, r.reservation_time DESC
         LIMIT :limit OFFSET :offset
         """
         
@@ -183,18 +185,27 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         body = parse_event_body(event)
         
-        # Validate required fields
-        validation_error = validate_required_fields(body, ['patient_id', 'medic_id', 'exam_id', 'reservation_date'])
+        # Validate required fields - frontend sends appointment_date, we need to split it
+        validation_error = validate_required_fields(body, ['patient_id', 'medic_id', 'exam_id', 'appointment_date'])
         if validation_error:
             return create_error_response(400, validation_error, "VALIDATION_ERROR")
+        
+        # Parse appointment_date into date and time components
+        try:
+            from datetime import datetime
+            appointment_datetime = datetime.fromisoformat(body['appointment_date'].replace('Z', '+00:00'))
+            reservation_date = appointment_datetime.date()
+            reservation_time = appointment_datetime.time()
+        except (ValueError, AttributeError) as e:
+            return create_error_response(400, f"Invalid appointment_date format: {str(e)}", "INVALID_DATE_FORMAT")
         
         # Validate that referenced entities exist
         validation_result = validate_reservation_entities(body['patient_id'], body['medic_id'], body['exam_id'])
         if validation_result:
             return validation_result
         
-        # Check availability
-        availability_result = check_medic_availability(body['medic_id'], body['reservation_date'])
+        # Check availability using the parsed date
+        availability_result = check_medic_availability(body['medic_id'], str(reservation_date))
         if not availability_result['available']:
             return create_error_response(400, "Medic not available at requested time", "MEDIC_NOT_AVAILABLE")
         
@@ -204,15 +215,16 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
         sql = """
         INSERT INTO reservations (
             reservation_id, patient_id, medic_id, exam_id, 
-            reservation_date, status, created_at, updated_at
+            reservation_date, reservation_time, status, notes, created_at, updated_at
         )
         VALUES (
             :reservation_id, :patient_id, :medic_id, :exam_id,
-            :reservation_date, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            :reservation_date, :reservation_time, 'scheduled', :notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
         RETURNING 
             reservation_id, patient_id, medic_id, exam_id,
-            reservation_date, status, created_at, updated_at
+            (reservation_date || ' ' || COALESCE(reservation_time::text, '00:00:00')) as appointment_date,
+            status, notes, created_at, updated_at
         """
         
         parameters = [
@@ -220,7 +232,9 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
             db_manager.create_parameter('patient_id', body['patient_id'], 'string'),
             db_manager.create_parameter('medic_id', body['medic_id'], 'string'),
             db_manager.create_parameter('exam_id', body['exam_id'], 'string'),
-            db_manager.create_parameter('reservation_date', body['reservation_date'], 'string')
+            db_manager.create_parameter('reservation_date', str(reservation_date), 'string'),
+            db_manager.create_parameter('reservation_time', str(reservation_time), 'string'),
+            db_manager.create_parameter('notes', body.get('notes', ''), 'string')
         ]
         
         response = db_manager.execute_sql(sql, parameters)
@@ -263,9 +277,10 @@ def get_reservation(reservation_id: str) -> Dict[str, Any]:
         sql = """
         SELECT 
             r.reservation_id, r.patient_id, r.medic_id, r.exam_id,
-            r.reservation_date, r.status, r.created_at, r.updated_at,
+            (r.reservation_date || ' ' || COALESCE(r.reservation_time::text, '00:00:00')) as appointment_date,
+            r.status, r.notes, r.created_at, r.updated_at,
             p.full_name as patient_name,
-            m.full_name as medic_name, m.specialty as medic_specialty,
+            m.full_name as medic_name, m.specialization as medic_specialty,
             e.exam_name, e.exam_type
         FROM reservations r
         LEFT JOIN patients p ON r.patient_id = p.patient_id
@@ -318,7 +333,16 @@ def update_reservation(reservation_id: str, event: Dict[str, Any]) -> Dict[str, 
         update_fields = []
         parameters = [db_manager.create_parameter('reservation_id', reservation_id, 'string')]
         
-        if 'reservation_date' in body and body['reservation_date']:
+        if 'appointment_date' in body and body['appointment_date']:
+            # Parse appointment_date into date and time components
+            try:
+                from datetime import datetime
+                appointment_datetime = datetime.fromisoformat(body['appointment_date'].replace('Z', '+00:00'))
+                reservation_date = appointment_datetime.date()
+                reservation_time = appointment_datetime.time()
+            except (ValueError, AttributeError) as e:
+                return create_error_response(400, f"Invalid appointment_date format: {str(e)}", "INVALID_DATE_FORMAT")
+            
             # Get current reservation to check medic
             current_sql = "SELECT medic_id FROM reservations WHERE reservation_id = :reservation_id"
             current_response = db_manager.execute_sql(current_sql, parameters)
@@ -329,12 +353,18 @@ def update_reservation(reservation_id: str, event: Dict[str, Any]) -> Dict[str, 
             current_medic_id = current_response['records'][0][0].get('stringValue')
             
             # Check availability for new date
-            availability_result = check_medic_availability(current_medic_id, body['reservation_date'], reservation_id)
+            availability_result = check_medic_availability(current_medic_id, str(reservation_date), reservation_id)
             if not availability_result['available']:
                 return create_error_response(400, "Medic not available at requested time", "MEDIC_NOT_AVAILABLE")
             
             update_fields.append('reservation_date = :reservation_date')
-            parameters.append(db_manager.create_parameter('reservation_date', body['reservation_date'], 'string'))
+            update_fields.append('reservation_time = :reservation_time')
+            parameters.append(db_manager.create_parameter('reservation_date', str(reservation_date), 'string'))
+            parameters.append(db_manager.create_parameter('reservation_time', str(reservation_time), 'string'))
+        
+        if 'notes' in body:
+            update_fields.append('notes = :notes')
+            parameters.append(db_manager.create_parameter('notes', body['notes'], 'string'))
         
         if 'status' in body and body['status']:
             # Validate status
@@ -357,7 +387,8 @@ def update_reservation(reservation_id: str, event: Dict[str, Any]) -> Dict[str, 
         WHERE reservation_id = :reservation_id
         RETURNING 
             reservation_id, patient_id, medic_id, exam_id,
-            reservation_date, status, created_at, updated_at
+            (reservation_date || ' ' || COALESCE(reservation_time::text, '00:00:00')) as appointment_date,
+            status, notes, created_at, updated_at
         """
         
         response = db_manager.execute_sql(sql, parameters)

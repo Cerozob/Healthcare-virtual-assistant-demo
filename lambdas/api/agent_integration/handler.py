@@ -39,8 +39,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main Lambda handler for agent integration endpoints.
     Routes to appropriate handler based on HTTP method and path.
     """
-    http_method = event.get('httpMethod', '')
-    path = event.get('path', '')
+    # Handle both API Gateway v1 and v2 event formats
+    http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     
     # Log the event for debugging
     logger.info(f"Received request: method={http_method}, path={path}")
@@ -60,8 +61,50 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     elif normalized_path == '/agent/metrics' or normalized_path.endswith('/agent/metrics'):
         if http_method == 'GET':
             return handle_get_metrics(event)
+    elif normalized_path == '/agent' or normalized_path.endswith('/agent'):
+        if http_method == 'GET':
+            return handle_agent_info(event)
+        elif http_method == 'POST':
+            return handle_agent_query(event)
     
     return create_error_response(404, "Endpoint not found")
+
+
+def handle_agent_info(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle GET /agent - Get agent system information.
+    
+    Returns:
+        Agent system information and status
+    """
+    try:
+        # Get basic agent configuration info
+        agent_types = ['orchestrator', 'scheduling', 'information']
+        agent_info = {}
+        
+        for agent_type in agent_types:
+            agent_config = get_agent_config(agent_type)
+            agent_info[agent_type] = {
+                'configured': bool(agent_config['agent_id'] and agent_config['alias_id']),
+                'agent_id': agent_config['agent_id'] if agent_config['agent_id'] else 'Not configured',
+                'alias_id': agent_config['alias_id'] if agent_config['alias_id'] else 'Not configured'
+            }
+        
+        return create_response(200, {
+            'system': 'Healthcare Agent Integration',
+            'version': '1.0.0',
+            'agents': agent_info,
+            'endpoints': {
+                'query': '/agent/query',
+                'health': '/agent/health',
+                'metrics': '/agent/metrics'
+            },
+            'timestamp': get_current_timestamp()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in handle_agent_info: {str(e)}")
+        return create_error_response(500, "Internal server error")
 
 
 def handle_agent_query(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -244,23 +287,8 @@ def handle_get_metrics(event: Dict[str, Any]) -> Dict[str, Any]:
         query_params = extract_query_parameters(event)
         hours = min(int(query_params.get('hours', 24)), 168)  # Max 1 week
         
-        # Get agent interaction counts from database
-        sql = """
-        SELECT 
-            COUNT(*) as total_messages,
-            COUNT(DISTINCT session_id) as unique_sessions,
-            COUNT(CASE WHEN agent_type = 'orchestrator' THEN 1 END) as orchestrator_calls,
-            COUNT(CASE WHEN agent_type = 'scheduling' THEN 1 END) as scheduling_calls,
-            COUNT(CASE WHEN agent_type = 'information' THEN 1 END) as information_calls,
-            AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as avg_response_time_seconds
-        FROM chat_messages
-        WHERE message_type = 'agent'
-        AND created_at >= NOW() - INTERVAL ':hours hours'
-        """
-        
-        parameters = [db_manager.create_parameter('hours', hours, 'long')]
-        response = db_manager.execute_sql(sql, parameters)
-        
+        # Since we don't store chat messages in database, return CloudWatch-based metrics
+        # or mock metrics for now
         metrics = {
             'total_messages': 0,
             'unique_sessions': 0,
@@ -270,30 +298,38 @@ def handle_get_metrics(event: Dict[str, Any]) -> Dict[str, Any]:
             'avg_response_time_seconds': 0
         }
         
-        if response.get('records'):
-            record = response['records'][0]
-            metrics = {
-                'total_messages': record[0].get('longValue', 0),
-                'unique_sessions': record[1].get('longValue', 0),
-                'orchestrator_calls': record[2].get('longValue', 0),
-                'scheduling_calls': record[3].get('longValue', 0),
-                'information_calls': record[4].get('longValue', 0),
-                'avg_response_time_seconds': record[5].get('doubleValue', 0)
-            }
+        # Try to get CloudWatch metrics if available
+        try:
+            from datetime import datetime, timedelta
+            end_time = datetime.utcnow()
+            start_time = end_time - timedelta(hours=hours)
+            
+            # Get invocation metrics from CloudWatch
+            invocation_stats = get_metric_statistics(
+                'Healthcare/Agents',
+                'Invocations',
+                start_time,
+                end_time,
+                'Sum'
+            )
+            
+            response_time_stats = get_metric_statistics(
+                'Healthcare/Agents',
+                'ResponseTime',
+                start_time,
+                end_time,
+                'Average'
+            )
+            
+            metrics['total_messages'] = int(invocation_stats.get('value', 0))
+            metrics['avg_response_time_seconds'] = response_time_stats.get('value', 0) / 1000  # Convert ms to seconds
+            
+        except Exception as cw_error:
+            logger.warning(f"Could not retrieve CloudWatch metrics: {str(cw_error)}")
+            # Keep default zero values
         
-        # Get recent error count
-        error_sql = """
-        SELECT COUNT(*) as error_count
-        FROM chat_messages
-        WHERE message_type = 'system'
-        AND content LIKE '%error%'
-        AND created_at >= NOW() - INTERVAL ':hours hours'
-        """
-        
-        error_response = db_manager.execute_sql(error_sql, parameters)
+        # Since we don't store chat messages, set error count to 0
         error_count = 0
-        if error_response.get('records'):
-            error_count = error_response['records'][0][0].get('longValue', 0)
         
         return create_response(200, {
             'time_range_hours': hours,

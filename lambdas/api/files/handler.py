@@ -17,7 +17,11 @@ import sys
 sys.path.append('/opt/python')
 sys.path.append('/var/task')
 
-from shared.utils import create_response, validate_request_body, get_cors_headers
+from shared.utils import (
+    create_response, create_error_response, parse_event_body,
+    extract_path_parameters, extract_query_parameters, validate_required_fields,
+    handle_exceptions, generate_uuid, get_current_timestamp
+)
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -31,8 +35,9 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Main handler for files API endpoints.
     """
     try:
-        method = event.get('httpMethod', '')
-        path = event.get('path', '')
+        # Handle both API Gateway v1 and v2 event formats
+        method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+        path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
         
         logger.info(f"Processing {method} request to {path}")
         

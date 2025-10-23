@@ -19,7 +19,7 @@ class ApiClient {
   private defaultTimeout: number = 30000;
   private defaultRetries: number = 3;
   private configPromise: Promise<void> | null = null;
-  
+
   // Circuit breaker state
   private failureCount: number = 0;
   private lastFailureTime: number = 0;
@@ -94,13 +94,17 @@ class ApiClient {
    * Make an HTTP request with automatic retries and error handling
    */
   async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+
+
     // Check circuit breaker
     if (this.isCircuitBreakerOpen()) {
+      console.error('🚫 ApiClient: Circuit breaker is open');
       throw new ApiError('Circuit breaker is open - too many recent failures', 'CIRCUIT_BREAKER_OPEN', 503);
     }
 
     // Ensure configuration is loaded before making requests
     await this.ensureConfigLoaded();
+
 
     const {
       method = 'GET',
@@ -111,6 +115,8 @@ class ApiClient {
     } = options;
 
     const url = `${this.baseUrl}${endpoint}`;
+
+
     const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
       ...headers
@@ -136,10 +142,15 @@ class ApiClient {
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+
         const response = await fetch(url, requestOptions);
-        
+
+
+
         if (!response.ok) {
+          console.error(`❌ ApiClient: HTTP error ${response.status}`);
           const errorData = await this.parseErrorResponse(response);
+          console.error(`❌ ApiClient: Error data:`, errorData);
           throw new ApiError(
             errorData.message || `HTTP ${response.status}: ${response.statusText}`,
             errorData.errorCode,
@@ -149,30 +160,39 @@ class ApiClient {
 
         // Handle empty responses
         const contentType = response.headers.get('content-type');
+
+
         if (!contentType || !contentType.includes('application/json')) {
+
           return {} as T;
         }
 
         const data = await response.json();
+
+
         this.recordSuccess();
         return data;
 
       } catch (error) {
+        console.error(`❌ ApiClient: Request failed on attempt ${attempt + 1}:`, error);
         lastError = error as Error;
         this.recordFailure();
-        
+
         // Don't retry on client errors (4xx) or AbortError
         if (error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500) {
+          console.error(`🚫 ApiClient: Client error, not retrying:`, error.statusCode);
           throw error;
         }
-        
+
         if (error instanceof Error && error.name === 'AbortError') {
+          console.error(`⏰ ApiClient: Request timeout`);
           throw new ApiError('Request timeout', 'TIMEOUT', 408);
         }
 
         // Wait before retrying (exponential backoff)
         if (attempt < retries) {
           const delay = Math.min(1000 * 2 ** attempt, 10000);
+
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
@@ -239,15 +259,15 @@ class ApiClient {
   async upload<T>(endpoint: string, file: File, additionalData?: Record<string, unknown>): Promise<T> {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     if (additionalData) {
       Object.entries(additionalData).forEach(([key, value]) => {
         formData.append(key, typeof value === 'string' ? value : JSON.stringify(value));
       });
     }
 
-    return this.request<T>(endpoint, { 
-      method: 'POST', 
+    return this.request<T>(endpoint, {
+      method: 'POST',
       body: formData,
       headers: {} // Let browser set Content-Type with boundary
     });
