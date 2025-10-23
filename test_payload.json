@@ -1,0 +1,10 @@
+{
+  "httpMethod": "GET",
+  "path": "/patients",
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": null
+}

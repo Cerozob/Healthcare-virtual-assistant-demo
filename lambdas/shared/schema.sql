@@ -65,25 +65,7 @@ CREATE TABLE IF NOT EXISTS reservations (
     UNIQUE(medic_id, reservation_date, reservation_time)
 );
 
--- Chat sessions table
-CREATE TABLE IF NOT EXISTS chat_sessions (
-    session_id VARCHAR(255) PRIMARY KEY,
-    patient_id VARCHAR(255) REFERENCES patients(patient_id) ON DELETE CASCADE,
-    title VARCHAR(200),
-    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
 
--- Chat messages table
-CREATE TABLE IF NOT EXISTS chat_messages (
-    message_id VARCHAR(255) PRIMARY KEY,
-    session_id VARCHAR(255) NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
-    sender_type VARCHAR(20) NOT NULL CHECK (sender_type IN ('user', 'assistant', 'system')),
-    content TEXT NOT NULL,
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
 
 -- Indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_patients_email ON patients(email);
@@ -95,11 +77,11 @@ CREATE INDEX IF NOT EXISTS idx_reservations_patient ON reservations(patient_id);
 CREATE INDEX IF NOT EXISTS idx_reservations_medic ON reservations(medic_id);
 CREATE INDEX IF NOT EXISTS idx_reservations_date ON reservations(reservation_date);
 CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_patient ON chat_sessions(patient_id);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
+
+
 CREATE INDEX IF NOT EXISTS idx_processed_documents_patient ON processed_documents(patient_id);
 CREATE INDEX IF NOT EXISTS idx_processed_documents_processing_date ON processed_documents(processing_date);
+
 
 -- Processed documents table for document workflow
 CREATE TABLE IF NOT EXISTS processed_documents (

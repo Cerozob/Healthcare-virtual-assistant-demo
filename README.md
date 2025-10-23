@@ -56,6 +56,21 @@ cd apps/frontend
 # See: apps/frontend/DEPLOYMENT.md
 ```
 
+### 3. Load Sample Data
+After deployment, load sample healthcare data:
+
+```bash
+# Load everything (database + documents)
+python scripts/load_sample_data.py
+```
+
+This will:
+- Load ~20 patient profiles into the database
+- Load sample medics and exams  
+- Upload medical documents (PDFs, images) to trigger document processing
+
+For detailed instructions, see [Data Loading Guide](docs/DATA_LOADING.md).
+
 ## Features
 
 ### Healthcare Management

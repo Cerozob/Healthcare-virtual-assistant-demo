@@ -36,13 +36,21 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     path = event.get('path', '')
     path_params = extract_path_parameters(event)
     
+    # Log the event for debugging
+    logger.info(f"Received request: method={http_method}, path={path}")
+    
+    # Normalize path by removing stage prefix if present
+    normalized_path = path
+    if path.startswith('/v1/'):
+        normalized_path = path[3:]  # Remove '/v1' prefix
+    
     # Route to appropriate handler
-    if path == '/medics':
+    if normalized_path == '/medics':
         if http_method == 'GET':
             return list_medics(event)
         elif http_method == 'POST':
             return create_medic(event)
-    elif path.startswith('/medics/') and 'id' in path_params:
+    elif normalized_path.startswith('/medics/') and 'id' in path_params:
         medic_id = path_params['id']
         if http_method == 'GET':
             return get_medic(medic_id)

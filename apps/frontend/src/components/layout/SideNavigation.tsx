@@ -31,7 +31,7 @@ export function SideNavigation() {
       activeHref={location.pathname}
       header={{
         href: '/',
-        text: 'Sistema Médico',
+        text: 'AnyHealthcare Demo',
       }}
       items={navItems}
       onFollow={(event) => {

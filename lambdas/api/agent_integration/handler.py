@@ -42,14 +42,22 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     http_method = event.get('httpMethod', '')
     path = event.get('path', '')
     
+    # Log the event for debugging
+    logger.info(f"Received request: method={http_method}, path={path}")
+    
+    # Normalize path by removing stage prefix if present
+    normalized_path = path
+    if path.startswith('/v1/'):
+        normalized_path = path[3:]  # Remove '/v1' prefix
+    
     # Route to appropriate handler
-    if path == '/agent/query' or path.endswith('/agent/query'):
+    if normalized_path == '/agent/query' or normalized_path.endswith('/agent/query'):
         if http_method == 'POST':
             return handle_agent_query(event)
-    elif path == '/agent/health' or path.endswith('/agent/health'):
+    elif normalized_path == '/agent/health' or normalized_path.endswith('/agent/health'):
         if http_method == 'GET':
             return handle_health_check(event)
-    elif path == '/agent/metrics' or path.endswith('/agent/metrics'):
+    elif normalized_path == '/agent/metrics' or normalized_path.endswith('/agent/metrics'):
         if http_method == 'GET':
             return handle_get_metrics(event)
     

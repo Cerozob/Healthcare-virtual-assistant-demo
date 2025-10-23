@@ -61,17 +61,26 @@ class DocumentWorkflowStack(Stack):
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
+            event_bridge_enabled=True,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
         )
 
-        # Create SSM parameters for the processed data bucket
+        # Create SSM parameters for the buckets
         self.processed_bucket_param = ssm.StringParameter(
             self,
             "ProcessedBucketParameter",
             parameter_name="/healthcare/document-workflow/processed-bucket",
             string_value=self.processed_bucket.bucket_name,
             description="Processed data bucket name for document workflow",
+        )
+
+        self.raw_bucket_param = ssm.StringParameter(
+            self,
+            "RawBucketParameter",
+            parameter_name="/healthcare/document-workflow/raw-bucket",
+            string_value=self.raw_bucket.bucket_name,
+            description="Raw data bucket name for document workflow",
         )
 
         self.bda_trigger_lambda = aws_lambda.Function(
@@ -81,7 +90,7 @@ class DocumentWorkflowStack(Stack):
             runtime=aws_lambda.Runtime.PYTHON_3_13,
             handler="index.lambda_handler",
             code=aws_lambda.Code.from_asset(
-                "lambdas/document-workflow/bda-trigger"),
+                "lambdas/document_workflow/bda_trigger"),
             timeout=Duration.minutes(2),
             memory_size=512,
             environment={
@@ -171,7 +180,8 @@ class DocumentWorkflowStack(Stack):
             memory_size=1024,
             environment={
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
-                "KNOWLEDGE_BASE_ID": "healthcare-kb"
+                "KNOWLEDGE_BASE_ID": "healthcare-kb",
+                "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80"
                 # Database configuration will come from SSM parameters
             },
             log_group=logs.LogGroup(
@@ -262,10 +272,103 @@ class DocumentWorkflowStack(Stack):
             enabled=True
         )
 
+        # * Data Cleanup Lambda Function
+        self.cleanup_lambda = aws_lambda.Function(
+            self,
+            "DataCleanupLambda",
+            function_name="healthcare-data-cleanup",
+            runtime=aws_lambda.Runtime.PYTHON_3_13,
+            handler="document_workflow.cleanup.index.lambda_handler",
+            code=aws_lambda.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            timeout=Duration.minutes(5),
+            memory_size=512,
+            environment={
+                "RAW_BUCKET_NAME": self.raw_bucket.bucket_name,
+                "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name
+            },
+            log_group=logs.LogGroup(
+                self,
+                "DataCleanupLambdaLogGroup",
+                log_group_name="/aws/lambda/healthcare-data-cleanup",
+                retention=logs.RetentionDays.ONE_WEEK,
+                removal_policy=RemovalPolicy.DESTROY,
+            ),
+        )
+
+        # Grant S3 permissions to cleanup lambda
+        self.raw_bucket.grant_read(self.cleanup_lambda)
+        self.processed_bucket.grant_read_write(self.cleanup_lambda)
+
+        # * EventBridge Rules for S3 Object Deletion Events
+        
+        # Rule for raw bucket deletions
+        self.raw_bucket_deletion_rule = events.Rule(
+            self,
+            "RawBucketDeletionRule",
+            rule_name="healthcare-raw-bucket-deletion",
+            description="Trigger cleanup when files are deleted from raw bucket",
+            event_pattern=events.EventPattern(
+                source=["aws.s3"],
+                detail_type=["Object Deleted"],
+                detail={
+                    "bucket": {
+                        "name": [self.raw_bucket.bucket_name]
+                    }
+                }
+            ),
+            targets=[
+                targets.LambdaFunction(
+                    self.cleanup_lambda,
+                    retry_attempts=2,
+                    max_event_age=Duration.hours(1)
+                )
+            ],
+            enabled=True
+        )
+
+        # Rule for processed bucket deletions
+        self.processed_bucket_deletion_rule = events.Rule(
+            self,
+            "ProcessedBucketDeletionRule",
+            rule_name="healthcare-processed-bucket-deletion",
+            description="Trigger cleanup when files are deleted from processed bucket",
+            event_pattern=events.EventPattern(
+                source=["aws.s3"],
+                detail_type=["Object Deleted"],
+                detail={
+                    "bucket": {
+                        "name": [self.processed_bucket.bucket_name]
+                    }
+                }
+            ),
+            targets=[
+                targets.LambdaFunction(
+                    self.cleanup_lambda,
+                    retry_attempts=2,
+                    max_event_age=Duration.hours(1)
+                )
+            ],
+            enabled=True
+        )
+
         CfnOutput(
             self,
             "RawBucketName",
             value=self.raw_bucket.bucket_name,
             description="Name of the S3 bucket for raw data",
-        
+        )
+
+        CfnOutput(
+            self,
+            "ProcessedBucketName",
+            value=self.processed_bucket.bucket_name,
+            description="Name of the S3 bucket for processed data",
+        )
+
+        CfnOutput(
+            self,
+            "CleanupLambdaName",
+            value=self.cleanup_lambda.function_name,
+            description="Name of the cleanup Lambda function",
         )

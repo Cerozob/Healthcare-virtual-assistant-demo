@@ -89,6 +89,16 @@
       "type": "string",
       "inferenceType": "explicit",
       "instruction": "Extract healthcare provider or physician name"
+    },
+    "document_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Classify this document as one of: medical-history, exam-results, medical-images, identification, other. Consider document structure, content, medical terminology, and purpose. Medical records with patient history, diagnoses, and treatment plans should be 'medical-history'. Laboratory results, test reports, and diagnostic findings should be 'exam-results'. Documents containing primarily images should be 'medical-images'. Identity documents should be 'identification'. All other documents should be 'other'."
+    },
+    "classification_confidence": {
+      "type": "number",
+      "inferenceType": "inferred",
+      "instruction": "Provide confidence score (0-100) for the document type classification based on how clearly the document fits the assigned category. Consider document structure clarity, medical terminology presence, and content completeness."
     }
   }
 }

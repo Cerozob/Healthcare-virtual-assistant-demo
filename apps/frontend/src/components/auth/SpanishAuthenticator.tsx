@@ -6,7 +6,7 @@ function AuthHeader() {
   return (
     <div style={{ textAlign: 'center', padding: '2rem 0' }}>
       <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: '#232f3e' }}>
-        Sistema Médico
+        AnyHealthcare Demo
       </h1>
       <p style={{ color: '#687078', marginTop: '0.5rem' }}>
         Inicie sesión para continuar

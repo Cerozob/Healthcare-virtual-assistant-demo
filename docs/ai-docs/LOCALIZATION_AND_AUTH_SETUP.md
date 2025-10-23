@@ -39,7 +39,7 @@ function MyComponent() {
 
 **Features:**
 - Complete Spanish translations for all authentication flows
-- Custom branded header ("Sistema Médico")
+- Custom branded header ("AnyHealthcare Demo")
 - Spanish form field labels and placeholders
 - Support for:
   - Sign in (Iniciar sesión)
@@ -98,7 +98,7 @@ function MyComponent() {
 **Features:**
 - Cloudscape AppLayout integration
 - Spanish top navigation with:
-  - System title: "Sistema Médico"
+  - System title: "AnyHealthcare Demo"
   - Navigation buttons in Spanish
   - User menu with profile and sign out options
 - Responsive content area

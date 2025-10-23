@@ -74,6 +74,16 @@
       "type": "string",
       "inferenceType": "inferred",
       "instruction": "What is the radiologist's impression or clinical conclusion?"
+    },
+    "document_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Classify this document as one of: medical-history, exam-results, medical-images, identification, other. For medical images, consider: diagnostic images (X-rays, MRI, CT, ultrasound) should be 'medical-images'. Image reports or radiology reports should be 'exam-results'. Patient history documents should be 'medical-history'. Identity documents should be 'identification'. All other documents should be 'other'."
+    },
+    "classification_confidence": {
+      "type": "number",
+      "inferenceType": "inferred",
+      "instruction": "Provide confidence score (0-100) for the document type classification. Consider image quality, presence of medical imaging markers, DICOM metadata, and clarity of medical imaging content."
     }
   }
 }

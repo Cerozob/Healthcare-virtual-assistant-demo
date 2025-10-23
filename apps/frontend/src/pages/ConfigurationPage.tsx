@@ -227,6 +227,11 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
     console.log('Delete file:', fileId);
   };
 
+  const handleClassificationOverride = async (fileId: string, newCategory: string) => {
+    // TODO: Implement classification override
+    console.log('Override classification:', fileId, newCategory);
+  };
+
   // Column definitions
   const patientColumns: EntityColumn<Patient>[] = [
     { id: 'patient_id', header: 'ID', cell: (item) => item.patient_id, width: 150 },
@@ -380,6 +385,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                   onUpload={handleUploadFile}
                   onDownload={handleDownloadFile}
                   onDelete={handleDeleteFile}
+                  onClassificationOverride={handleClassificationOverride}
+                  enableAutoClassification={true}
                   patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
                 />
               ),

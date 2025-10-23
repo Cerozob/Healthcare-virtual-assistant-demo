@@ -52,7 +52,7 @@ export function TopNavigationBar({ signOut, user }: TopNavigationBarProps) {
     <TopNavigation
       identity={{
         href: '/',
-        title: 'Sistema Médico',
+        title: 'AnyHealthcare Demo',
         onFollow: (e) => {
           e.preventDefault();
           navigate('/');

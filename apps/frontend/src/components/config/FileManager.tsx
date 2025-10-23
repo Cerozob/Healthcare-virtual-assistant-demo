@@ -29,6 +29,9 @@ export interface PatientFile {
   uploadDate: string;
   category?: string;
   url?: string;
+  autoClassified?: boolean;
+  classificationConfidence?: number;
+  originalClassification?: string;
 }
 
 export interface FileManagerProps {
@@ -38,7 +41,9 @@ export interface FileManagerProps {
   onUpload: (file: File, category: string) => Promise<void>;
   onDownload: (file: PatientFile) => void;
   onDelete: (fileId: string) => Promise<void>;
+  onClassificationOverride?: (fileId: string, newCategory: string) => Promise<void>;
   patients?: Array<{ patient_id: string; full_name: string }>;
+  enableAutoClassification?: boolean;
 }
 
 const fileCategoryOptions: SelectProps.Option[] = [
@@ -47,6 +52,7 @@ const fileCategoryOptions: SelectProps.Option[] = [
   { label: 'Imágenes médicas', value: 'medical-images' },
   { label: 'Documentos de identidad', value: 'identification' },
   { label: 'Otros', value: 'other' },
+  { label: 'No identificado', value: 'not-identified' },
 ];
 
 export function FileManager({
@@ -56,7 +62,9 @@ export function FileManager({
   onUpload,
   onDownload,
   onDelete,
+  onClassificationOverride,
   patients = [],
+  enableAutoClassification = true,
 }: FileManagerProps) {
   const { t } = useLanguage();
   const [selectedPatient, setSelectedPatient] = useState<string>(patientId || '');
@@ -66,6 +74,8 @@ export function FileManager({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string>('');
   const [selectedTableItems, setSelectedTableItems] = useState<PatientFile[]>([]);
+  const [classificationProcessing, setClassificationProcessing] = useState<Set<string>>(new Set());
+  const [editingClassification, setEditingClassification] = useState<string | null>(null);
 
   const patientOptions: SelectProps.Option[] = patients.map((p) => ({
     label: `${p.full_name} (${p.patient_id})`,
@@ -131,6 +141,70 @@ export function FileManager({
     return option?.label || 'Sin categoría';
   };
 
+  const handleClassificationOverride = async (fileId: string, newCategory: string) => {
+    if (!onClassificationOverride) return;
+
+    setClassificationProcessing(prev => new Set(prev).add(fileId));
+    setError('');
+
+    try {
+      await onClassificationOverride(fileId, newCategory);
+      setEditingClassification(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al actualizar clasificación');
+    } finally {
+      setClassificationProcessing(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(fileId);
+        return newSet;
+      });
+    }
+  };
+
+  const renderCategoryCell = (item: PatientFile) => {
+    const isProcessing = classificationProcessing.has(item.id);
+    const isEditing = editingClassification === item.id;
+    const isAutoClassified = item.autoClassified;
+    const isNotIdentified = item.category === 'not-identified';
+
+    if (isEditing && onClassificationOverride) {
+      return (
+        <Select
+          selectedOption={fileCategoryOptions.find(opt => opt.value === item.category) || null}
+          onChange={({ detail }) => {
+            if (detail.selectedOption.value) {
+              handleClassificationOverride(item.id, detail.selectedOption.value);
+            }
+          }}
+          options={fileCategoryOptions}
+          placeholder="Seleccionar categoría"
+          disabled={isProcessing}
+          autoFocus
+        />
+      );
+    }
+
+    return (
+      <Box>
+        <Badge 
+          color={isNotIdentified ? 'red' : isAutoClassified ? 'blue' : 'grey'}
+        >
+          {getCategoryLabel(item.category)}
+        </Badge>
+        {isAutoClassified && (
+          <Box fontSize="body-s" color="text-status-info" margin={{ top: 'xxxs' }}>
+            Auto-clasificado ({item.classificationConfidence?.toFixed(0)}% confianza)
+          </Box>
+        )}
+        {isNotIdentified && (
+          <Box fontSize="body-s" color="text-status-warning" margin={{ top: 'xxxs' }}>
+            Requiere clasificación manual
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   return (
     <SpaceBetween size="l">
       {error && (
@@ -189,6 +263,12 @@ export function FileManager({
             />
           )}
 
+          {enableAutoClassification && (
+            <Alert type="info" dismissible={false}>
+              Los archivos se clasificarán automáticamente. Puedes editar la clasificación después de la subida si es necesario.
+            </Alert>
+          )}
+
           <Box float="right">
             <Button variant="primary" onClick={handleUpload} loading={uploading} disabled={!selectedPatient}>
               Subir archivos
@@ -208,7 +288,7 @@ export function FileManager({
           {
             id: 'category',
             header: 'Categoría',
-            cell: (item) => <Badge>{getCategoryLabel(item.category)}</Badge>,
+            cell: renderCategoryCell,
           },
           {
             id: 'type',
@@ -230,9 +310,21 @@ export function FileManager({
             id: 'actions',
             header: 'Acciones',
             cell: (item) => (
-              <Button iconName="download" variant="inline-icon" onClick={() => onDownload(item)}>
-                Descargar
-              </Button>
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button iconName="download" variant="inline-icon" onClick={() => onDownload(item)}>
+                  Descargar
+                </Button>
+                {onClassificationOverride && (
+                  <Button 
+                    iconName="edit" 
+                    variant="inline-icon" 
+                    onClick={() => setEditingClassification(item.id)}
+                    disabled={classificationProcessing.has(item.id)}
+                  >
+                    Editar categoría
+                  </Button>
+                )}
+              </SpaceBetween>
             ),
           },
         ]}

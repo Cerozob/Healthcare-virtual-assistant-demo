@@ -79,6 +79,18 @@
       "inferenceType": "inferred",
       "instruction": "Summarize the key audio content, conversations, or narration in the video",
       "granularity": ["video"]
+    },
+    "document_type": {
+      "type": "string",
+      "inferenceType": "inferred",
+      "instruction": "Classify this video document as one of: medical-history, exam-results, medical-images, identification, other. Consider: patient consultation videos should be 'medical-history'. Videos showing diagnostic results or test procedures should be 'exam-results'. Videos primarily showing medical imaging should be 'medical-images'. Identity verification videos should be 'identification'. All other videos should be 'other'.",
+      "granularity": ["video"]
+    },
+    "classification_confidence": {
+      "type": "number",
+      "inferenceType": "inferred",
+      "instruction": "Provide confidence score (0-100) for the document type classification based on video content clarity, medical context, and visual/audio cues.",
+      "granularity": ["video"]
     }
   }
 }

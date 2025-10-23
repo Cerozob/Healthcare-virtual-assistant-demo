@@ -90,6 +90,12 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   // Prompt input state
   const [promptValue, setPromptValue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [fileClassifications, setFileClassifications] = useState<Map<string, {
+    category: string;
+    confidence?: number;
+    autoClassified?: boolean;
+    processing?: boolean;
+  }>>(new Map());
 
   // Get user's full name for UI customization
   const getUserDisplayName = () => {
@@ -130,16 +136,39 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     const messageContent = promptValue;
     setPromptValue('');
     setFiles([]);
+    setFileClassifications(new Map());
 
     // Start loading process
     setIsLoading(true);
     setLoadingStage('processing');
 
     try {
-      // Include patient context in the message if available
-      const contextualContent = selectedPatient
-        ? `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${messageContent}`
-        : messageContent;
+      // Build contextual content with patient and document information
+      let contextualContent = messageContent;
+      
+      // Add patient context if available
+      if (selectedPatient) {
+        contextualContent = `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${contextualContent}`;
+      }
+      
+      // Add document classification context if files are attached
+      if (files.length > 0) {
+        const documentContext = files.map(file => {
+          const fileKey = getFileKey(file);
+          const classification = fileClassifications.get(fileKey);
+          
+          if (classification && !classification.processing) {
+            return `- ${file.name}: ${getCategoryLabel(classification.category)}${
+              classification.autoClassified && classification.confidence 
+                ? ` (${classification.confidence.toFixed(0)}% confianza)` 
+                : ''
+            }`;
+          }
+          return `- ${file.name}: Procesando clasificación...`;
+        }).join('\n');
+        
+        contextualContent = `[Documentos adjuntos:\n${documentContext}]\n\n${contextualContent}`;
+      }
 
       // Use echo functionality as placeholder
       const { agentMessage } = await chatService.sendEchoMessage(contextualContent, sessionId);
@@ -163,6 +192,96 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
+  };
+
+  // Simulate auto-classification for uploaded files
+  const simulateAutoClassification = async (file: File): Promise<{
+    category: string;
+    confidence: number;
+    autoClassified: boolean;
+  }> => {
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+    
+    // Simple classification logic based on file type and name
+    const fileName = file.name.toLowerCase();
+    const fileType = file.type.toLowerCase();
+    
+    let category = 'other';
+    let confidence = 60 + Math.random() * 35; // Random confidence between 60-95%
+    
+    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical')) {
+      category = 'medical-history';
+      confidence = 80 + Math.random() * 15;
+    } else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') || fileName.includes('test')) {
+      category = 'exam-results';
+      confidence = 85 + Math.random() * 10;
+    } else if (fileType.includes('image') || fileName.includes('radiografia') || fileName.includes('ecografia')) {
+      category = 'medical-images';
+      confidence = 90 + Math.random() * 8;
+    } else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') || fileName.includes('identidad')) {
+      category = 'identification';
+      confidence = 95 + Math.random() * 5;
+    }
+    
+    // Apply confidence threshold (80%)
+    if (confidence < 80) {
+      category = 'not-identified';
+    }
+    
+    return {
+      category,
+      confidence: Math.min(confidence, 100),
+      autoClassified: true
+    };
+  };
+
+  const handleFileChange = async (newFiles: File[]) => {
+    setFiles(newFiles);
+    
+    // Process classification for new files
+    const newClassifications = new Map(fileClassifications);
+    
+    for (const file of newFiles) {
+      const fileKey = `${file.name}_${file.size}_${file.lastModified}`;
+      
+      if (!newClassifications.has(fileKey)) {
+        // Mark as processing
+        newClassifications.set(fileKey, {
+          category: 'other',
+          processing: true
+        });
+        setFileClassifications(new Map(newClassifications));
+        
+        try {
+          const classification = await simulateAutoClassification(file);
+          newClassifications.set(fileKey, classification);
+          setFileClassifications(new Map(newClassifications));
+        } catch (error) {
+          console.error('Classification failed:', error);
+          newClassifications.set(fileKey, {
+            category: 'not-identified',
+            confidence: 0,
+            autoClassified: false
+          });
+          setFileClassifications(new Map(newClassifications));
+        }
+      }
+    }
+  };
+
+  const getFileKey = (file: File) => `${file.name}_${file.size}_${file.lastModified}`;
+
+  const getCategoryLabel = (category: string): string => {
+    const labels: Record<string, string> = {
+      'medical-history': 'Historia clínica',
+      'exam-results': 'Resultados de exámenes',
+      'medical-images': 'Imágenes médicas',
+      'identification': 'Documentos de identidad',
+      'other': 'Otros',
+      'not-identified': 'No identificado'
+    };
+    return labels[category] || 'Sin categoría';
   };
 
 
@@ -360,34 +479,73 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                         multiple={true}
                         value={files}
 
-                        onChange={({ detail }) => setFiles(detail.value)}
+                        onChange={({ detail }) => handleFileChange(detail.value)}
                         accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
                       />
                     </Box>
                   }
                   secondaryContent={
                     files.length > 0 && (
-                      <FileTokenGroup
-                        items={files.map(file => ({ file }))}
-                        onDismiss={({ detail }) =>
-                          setFiles(files =>
-                            files.filter((_, index) =>
-                              index !== detail.fileIndex
-                            )
-                          )
-                        }
-                        alignment="horizontal"
-                        showFileSize={true}
-                        showFileLastModified={true}
-                        showFileThumbnail={true}
-                        i18nStrings={{
-                          removeFileAriaLabel: () => "Remover archivo",
-                          limitShowFewer: "Mostrar menos archivos",
-                          limitShowMore: "Mostrar más archivos",
-                          errorIconAriaLabel: "Error",
-                          warningIconAriaLabel: "Warning"
-                        }}
-                      />
+                      <SpaceBetween size="s">
+                        <FileTokenGroup
+                          items={files.map(file => ({ file }))}
+                          onDismiss={({ detail }) => {
+                            const removedFile = files[detail.fileIndex];
+                            const fileKey = getFileKey(removedFile);
+                            
+                            setFiles(files =>
+                              files.filter((_, index) =>
+                                index !== detail.fileIndex
+                              )
+                            );
+                            
+                            // Remove classification for dismissed file
+                            setFileClassifications(prev => {
+                              const newMap = new Map(prev);
+                              newMap.delete(fileKey);
+                              return newMap;
+                            });
+                          }}
+                          alignment="horizontal"
+                          showFileSize={true}
+                          showFileLastModified={true}
+                          showFileThumbnail={true}
+                          i18nStrings={{
+                            removeFileAriaLabel: () => "Remover archivo",
+                            limitShowFewer: "Mostrar menos archivos",
+                            limitShowMore: "Mostrar más archivos",
+                            errorIconAriaLabel: "Error",
+                            warningIconAriaLabel: "Warning"
+                          }}
+                        />
+                        
+                        {/* Classification Information */}
+                        {files.map((file) => {
+                          const fileKey = getFileKey(file);
+                          const classification = fileClassifications.get(fileKey);
+                          
+                          if (!classification) return null;
+                          
+                          return (
+                            <Box key={fileKey} fontSize="body-s" color="text-body-secondary">
+                              <strong>{file.name}:</strong>{' '}
+                              {classification.processing ? (
+                                <span>Clasificando...</span>
+                              ) : (
+                                <span>
+                                  {getCategoryLabel(classification.category)}
+                                  {classification.autoClassified && classification.confidence && (
+                                    <span> ({classification.confidence.toFixed(0)}% confianza)</span>
+                                  )}
+                                  {classification.category === 'not-identified' && (
+                                    <span style={{ color: '#d91515' }}> - Requiere clasificación manual</span>
+                                  )}
+                                </span>
+                              )}
+                            </Box>
+                          );
+                        })}
+                      </SpaceBetween>
                     )
                   }
                 />

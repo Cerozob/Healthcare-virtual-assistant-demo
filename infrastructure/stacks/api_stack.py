@@ -192,6 +192,56 @@ class ApiStack(Stack):
         self.reservations_function.add_to_role_policy(rds_policy)
         self.reservations_function.add_to_role_policy(secrets_policy)
 
+        # Files Function
+        self.files_function = lambda_.Function(
+            self,
+            "FilesFunction",
+            function_name="healthcare-files",
+            code=lambda_.Code.from_asset("lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.files.handler.lambda_handler",
+            log_group=logs.LogGroup(
+                self,
+                "FilesLogGroup",
+                log_group_name="/aws/lambda/healthcare-files",
+                retention=logs.RetentionDays.ONE_WEEK
+            ),
+            environment={
+                "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80",
+                "KNOWLEDGE_BASE_ID": "healthcare-kb"
+            },
+            **lambda_config
+        )
+        self.files_function.add_to_role_policy(ssm_policy)
+        self.files_function.add_to_role_policy(rds_policy)
+        self.files_function.add_to_role_policy(secrets_policy)
+        
+        # Add S3 permissions for file operations
+        s3_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            resources=[
+                f"arn:aws:s3:::*/*"  # Allow access to all S3 objects
+            ]
+        )
+        self.files_function.add_to_role_policy(s3_policy)
+        
+        # Add Bedrock permissions for Knowledge Base queries
+        bedrock_kb_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "bedrock:Retrieve",
+                "bedrock:RetrieveAndGenerate"
+            ],
+            resources=[
+                f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/*"
+            ]
+        )
+        self.files_function.add_to_role_policy(bedrock_kb_policy)
+
 
 
         # Chat Function (higher memory and timeout)
@@ -286,6 +336,7 @@ class ApiStack(Stack):
         medics_integration = HttpLambdaIntegration("MedicsIntegration", self.medics_function)
         exams_integration = HttpLambdaIntegration("ExamsIntegration", self.exams_function)
         reservations_integration = HttpLambdaIntegration("ReservationsIntegration", self.reservations_function)
+        files_integration = HttpLambdaIntegration("FilesIntegration", self.files_function)
 
         chat_integration = HttpLambdaIntegration("ChatIntegration", self.chat_function)
         agent_integration = HttpLambdaIntegration("AgentIntegration", self.agent_integration_function)
@@ -311,6 +362,31 @@ class ApiStack(Stack):
         create_crud_routes("/medics", medics_integration)
         create_crud_routes("/exams", exams_integration)
         create_crud_routes("/reservations", reservations_integration)
+        
+        # Files routes (custom routes for file operations)
+        self.api.add_routes(
+            path="/files",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=files_integration
+        )
+        
+        self.api.add_routes(
+            path="/files/upload",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=files_integration
+        )
+        
+        self.api.add_routes(
+            path="/files/{id}",
+            methods=[apigwv2.HttpMethod.DELETE],
+            integration=files_integration
+        )
+        
+        self.api.add_routes(
+            path="/files/{id}/classification",
+            methods=[apigwv2.HttpMethod.PUT],
+            integration=files_integration
+        )
 
 
 

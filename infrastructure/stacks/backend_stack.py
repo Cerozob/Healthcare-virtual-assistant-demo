@@ -41,8 +41,11 @@ class BackendStack(Stack):
         # Create Aurora Postgres cluster
         self.db_cluster = self._create_database()
 
-        # Initialize database with schema and sample data
+        # Initialize database with schema only (no sample data)
         self.db_init_resource = self._create_database_initialization()
+
+        # Create separate data loading function
+        self.data_loader_function = self._create_data_loader_function()
 
         # Create SSM parameters for database configuration
         self._create_ssm_parameters()
@@ -185,18 +188,31 @@ class BackendStack(Stack):
             self,
             "SampleDataAsset",
             path="apps/SampleFileGeneration/output",
-            exclude=[".DS_Store", "**/.DS_Store"]
+            # Exclude all non-JSON files at asset level to prevent bundling
+            exclude=[
+                ".DS_Store",
+                "**/.DS_Store",
+                "**/*.pdf",
+                "**/*.png",
+                "**/*.jpg",
+                "**/*.jpeg",
+                "**/*.gif",
+                "**/*.bmp",
+                "**/*.tiff",
+                "**/*.svg"
+            ]
         )
 
         # Deploy the asset to the sample data bucket
         sample_data_deployment = s3_deployment.BucketDeployment(
             self,
             "SampleDataDeployment",
-            sources=[s3_deployment.Source.asset(
-                "apps/SampleFileGeneration/output")],
+            sources=[s3_deployment.Source.bucket(
+                sample_data_asset.bucket, sample_data_asset.s3_object_key)],
             destination_bucket=sample_bucket,
             destination_key_prefix="output/",
-            exclude=[".DS_Store", "**/.DS_Store"],
+            # Only include JSON profile files - this is the most restrictive approach
+            include=["**/*_profile.json"],
             retain_on_delete=False
         )
 
@@ -291,16 +307,15 @@ class BackendStack(Stack):
             self,
             "DatabaseInitializationFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            # Increased timeout for data population
-            timeout=Duration.minutes(10),
-            memory_size=512,  # Increased memory for processing sample data
+            # Reduced timeout since no data loading
+            timeout=Duration.minutes(5),
+            memory_size=256,  # Reduced memory since no data processing
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="db_initialization.handler.lambda_handler",
 
             environment={
                 'LOG_LEVEL': 'INFO',
-                'SAMPLE_DATA_BUCKET': self.sample_data_bucket.bucket_name,
                 'BEDROCK_USER_SECRET_ARN': self.bedrock_user_secret.secret_arn
             }
         )
@@ -333,9 +348,6 @@ class BackendStack(Stack):
             )
         )
 
-        # Grant permissions to read from sample data bucket
-        self.sample_data_bucket.grant_read(db_init_lambda)
-
         # Create custom resource to trigger the Lambda
         db_init_provider = cr.Provider(
             self,
@@ -361,6 +373,62 @@ class BackendStack(Stack):
         custom_resource.node.add_dependency(self.sample_data_deployment)
 
         return custom_resource
+
+    def _create_data_loader_function(self) -> lambda_.Function:
+        """
+        Create a separate Lambda function to load sample data from S3 into the database
+        and upload PDFs/images to the raw bucket for document workflow processing.
+        """
+        # Lambda function to load sample data
+        data_loader_lambda = lambda_.Function(
+            self,
+            "DataLoaderFunction",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            timeout=Duration.minutes(15),  # Longer timeout for data loading
+            memory_size=1024,  # More memory for processing files
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="data_loader.handler.lambda_handler",
+            environment={
+                'LOG_LEVEL': 'INFO',
+                'SAMPLE_DATA_BUCKET': self.sample_data_bucket.bucket_name,
+                'DATABASE_CLUSTER_ARN': self.db_cluster.cluster_arn,
+                'DATABASE_SECRET_ARN': self.db_cluster.secret.secret_arn,
+                'DATABASE_NAME': 'healthcare'
+            }
+        )
+
+        # Grant Lambda permissions to access RDS and Secrets Manager
+        data_loader_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "rds-data:ExecuteStatement",
+                    "rds-data:BatchExecuteStatement",
+                    "rds-data:BeginTransaction",
+                    "rds-data:CommitTransaction",
+                    "rds:DescribeDBClusters"
+                ],
+                resources=[self.db_cluster.cluster_arn]
+            )
+        )
+
+        data_loader_lambda.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "secretsmanager:GetSecretValue"
+                ],
+                resources=[
+                    self.db_cluster.secret.secret_arn
+                ]
+            )
+        )
+
+        # Grant permissions to read from sample data bucket
+        self.sample_data_bucket.grant_read(data_loader_lambda)
+
+        return data_loader_lambda
 
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""
@@ -436,4 +504,12 @@ class BackendStack(Stack):
             value=self.sample_data_bucket.bucket_name,
             description="S3 bucket containing sample data for database initialization",
             export_name="HealthcareSampleDataBucketName"
+        )
+
+        CfnOutput(
+            self,
+            "DataLoaderFunctionName",
+            value=self.data_loader_function.function_name,
+            description="Lambda function for loading sample data into database and raw bucket",
+            export_name="HealthcareDataLoaderFunctionName"
         )
