@@ -27,13 +27,11 @@ export interface MedicFormProps {
 interface FormData {
   full_name: string;
   specialty: string;
-  license_number: string;
 }
 
 interface FormErrors {
   full_name?: string;
   specialty?: string;
-  license_number?: string;
 }
 
 export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicFormProps) {
@@ -41,7 +39,6 @@ export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicF
   const [formData, setFormData] = useState<FormData>({
     full_name: medic?.full_name || '',
     specialty: medic?.specialty || '',
-    license_number: medic?.license_number || '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState<string>('');
@@ -51,7 +48,6 @@ export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicF
       setFormData({
         full_name: medic.full_name,
         specialty: medic.specialty,
-        license_number: medic.license_number,
       });
     }
   }, [medic]);
@@ -69,12 +65,6 @@ export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicF
       newErrors.specialty = t.validation.required;
     }
 
-    if (!formData.license_number.trim()) {
-      newErrors.license_number = t.validation.required;
-    } else if (formData.license_number.trim().length < 3) {
-      newErrors.license_number = 'El número de licencia debe tener al menos 3 caracteres';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -88,7 +78,13 @@ export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicF
     }
 
     try {
-      await onSubmit(formData);
+      // Generate a random license number for demo purposes
+      const randomLicense = `MED-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      const submitData = {
+        ...formData,
+        license_number: randomLicense
+      };
+      await onSubmit(submitData);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t.errors.generic);
     }
@@ -153,23 +149,9 @@ export function MedicForm({ medic, onSubmit, onCancel, loading = false }: MedicF
               />
             </FormField>
 
-            <FormField
-              label="Número de licencia"
-              errorText={errors.license_number}
-              constraintText="Ingrese el número de licencia profesional"
-            >
-              <Input
-                value={formData.license_number}
-                onChange={({ detail }) => {
-                  setFormData({ ...formData, license_number: detail.value });
-                  if (errors.license_number) {
-                    setErrors({ ...errors, license_number: undefined });
-                  }
-                }}
-                placeholder="Ej: MED-12345"
-                disabled={loading}
-              />
-            </FormField>
+            <Alert type="info" dismissible={false}>
+              Nota: El número de licencia se generará automáticamente para esta demostración.
+            </Alert>
           </SpaceBetween>
         </Container>
       </Form>

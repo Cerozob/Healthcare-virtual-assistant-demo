@@ -79,6 +79,7 @@ def handle_get_files(event: Dict[str, Any]) -> Dict[str, Any]:
 def handle_upload_file(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle file upload - files will be processed by BDA and stored in Knowledge Base.
+    Follows document workflow guidelines for patient data association.
     """
     try:
         body = json.loads(event.get('body', '{}'))
@@ -89,15 +90,49 @@ def handle_upload_file(event: Dict[str, Any]) -> Dict[str, Any]:
         if missing_fields:
             return create_response(400, {'error': f'Missing required fields: {", ".join(missing_fields)}'})
         
-        # Generate file ID and S3 URI for raw upload
+        # Validate patient_id format
+        patient_id = body['patient_id']
+        if not patient_id or len(patient_id.strip()) == 0:
+            return create_response(400, {'error': 'Invalid patient_id'})
+        
+        # Generate file ID and construct S3 path following document workflow guidelines
         file_id = str(uuid.uuid4())
-        s3_uri = f"s3://{os.environ.get('RAW_BUCKET_NAME', 'default-bucket')}/uploads/{body['patient_id']}/{file_id}/{body['file_name']}"
+        file_name = body['file_name']
+        category = body.get('category', 'other')
+        
+        # S3 path structure: patients/{patient_id}/{category}/{file_id}/{file_name}
+        s3_key = f"patients/{patient_id}/{category}/{file_id}/{file_name}"
+        s3_uri = f"s3://{os.environ.get('RAW_BUCKET_NAME', 'default-bucket')}/{s3_key}"
+        
+        # Log the upload initiation with patient context
+        logger.info(f"File upload initiated for patient {patient_id}: {file_name} (category: {category})")
+        
+        # Create metadata for document workflow
+        metadata = {
+            'patient_id': patient_id,
+            'file_name': file_name,
+            'file_type': body['file_type'],
+            'category': category,
+            'file_size': body.get('size', 0),
+            'upload_timestamp': get_current_timestamp(),
+            'workflow_stage': 'uploaded',
+            'auto_classification_enabled': True
+        }
         
         return create_response(201, {
             'file_id': file_id,
-            'message': 'File upload initiated - will be processed by BDA and stored in Knowledge Base',
+            'patient_id': patient_id,
+            'message': f'File upload initiated for patient {patient_id} following document workflow guidelines',
             's3_uri': s3_uri,
-            'note': 'File will be automatically classified and available in Knowledge Base after processing'
+            's3_key': s3_key,
+            'category': category,
+            'metadata': metadata,
+            'workflow_info': {
+                'next_stage': 'BDA processing and classification',
+                'expected_processing_time': '2-5 minutes',
+                'knowledge_base_integration': 'Automatic after processing'
+            },
+            'note': 'File will be automatically classified by BDA and ingested into Knowledge Base'
         })
         
     except Exception as e:

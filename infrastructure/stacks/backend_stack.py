@@ -13,6 +13,7 @@ from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_assets as s3_assets
 from aws_cdk import aws_s3_deployment as s3_deployment
 from aws_cdk import aws_secretsmanager as secretsmanager
+from aws_cdk import aws_logs as logs
 from aws_cdk import custom_resources as cr
 from constructs import Construct
 import uuid
@@ -46,6 +47,9 @@ class BackendStack(Stack):
 
         # Create separate data loading function
         self.data_loader_function = self._create_data_loader_function()
+
+        # Create Lambda functions for API
+        self._create_lambda_functions()
 
         # Create SSM parameters for database configuration
         self._create_ssm_parameters()
@@ -162,6 +166,32 @@ class BackendStack(Stack):
                 generate_string_key="password",
                 exclude_characters=" %+~`#$&*()|[]{}:;<>?!'/\"\\",
                 password_length=32
+            )
+        )
+
+        # Add resource policy to allow RDS Data API to access the secret
+        # This is required for Bedrock Knowledge Base to work with RDS
+        # Following AWS documentation pattern for cross-service access
+        self.bedrock_user_secret.add_to_resource_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                principals=[
+                    # Allow service principals for RDS and Bedrock
+                    iam.ServicePrincipal("rds.amazonaws.com"),
+                    iam.ServicePrincipal("bedrock.amazonaws.com"),
+                    # Allow any role in this account (for Knowledge Base role)
+                    iam.AccountPrincipal(self.account)
+                ],
+                actions=[
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                ],
+                resources=["*"],
+                conditions={
+                    "StringEquals": {
+                        "secretsmanager:ResourceAccount": self.account
+                    }
+                }
             )
         )
 
@@ -429,6 +459,195 @@ class BackendStack(Stack):
         self.sample_data_bucket.grant_read(data_loader_lambda)
 
         return data_loader_lambda
+
+    def _create_lambda_functions(self) -> None:
+        """Create all Lambda functions for the healthcare API."""
+
+        # Common Lambda configuration for Python functions
+        lambda_config = {
+            "runtime": lambda_.Runtime.PYTHON_3_13,
+            "timeout": Duration.seconds(30),
+            "memory_size": 256,
+        }
+
+        # SSM policy for healthcare configuration
+        ssm_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:GetParametersByPath"
+            ],
+            resources=[
+                f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/*"
+            ]
+        )
+
+        # RDS Data API policy
+        rds_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "rds-data:ExecuteStatement",
+                "rds-data:BatchExecuteStatement"
+            ],
+            resources=[
+                f"arn:aws:rds:{self.region}:{self.account}:cluster:*"
+            ]
+        )
+
+        # Secrets Manager policy
+        secrets_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "secretsmanager:GetSecretValue"
+            ],
+            resources=[
+                f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:*"
+            ]
+        )
+
+        # Bedrock policy for agent functions
+        bedrock_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "bedrock:InvokeAgent",
+                "bedrock:InvokeModel"
+            ],
+            resources=["*"]
+        )
+
+        # Patients Function
+        self.patients_function = lambda_.Function(
+            self,
+            "PatientsFunction",
+            function_name="healthcare-patients",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.patients.handler.lambda_handler",
+            **lambda_config
+        )
+        self.patients_function.add_to_role_policy(ssm_policy)
+        self.patients_function.add_to_role_policy(rds_policy)
+        self.patients_function.add_to_role_policy(secrets_policy)
+
+        # Medics Function
+        self.medics_function = lambda_.Function(
+            self,
+            "MedicsFunction",
+            function_name="healthcare-medics",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.medics.handler.lambda_handler",
+            **lambda_config
+        )
+        self.medics_function.add_to_role_policy(ssm_policy)
+        self.medics_function.add_to_role_policy(rds_policy)
+        self.medics_function.add_to_role_policy(secrets_policy)
+
+        # Exams Function
+        self.exams_function = lambda_.Function(
+            self,
+            "ExamsFunction",
+            function_name="healthcare-exams",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.exams.handler.lambda_handler",
+            **lambda_config
+        )
+        self.exams_function.add_to_role_policy(ssm_policy)
+        self.exams_function.add_to_role_policy(rds_policy)
+        self.exams_function.add_to_role_policy(secrets_policy)
+
+        # Reservations Function
+        self.reservations_function = lambda_.Function(
+            self,
+            "ReservationsFunction",
+            function_name="healthcare-reservations",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.reservations.handler.lambda_handler",
+            **lambda_config
+        )
+        self.reservations_function.add_to_role_policy(ssm_policy)
+        self.reservations_function.add_to_role_policy(rds_policy)
+        self.reservations_function.add_to_role_policy(secrets_policy)
+
+        # Files Function
+        self.files_function = lambda_.Function(
+            self,
+            "FilesFunction",
+            function_name="healthcare-files",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.files.handler.lambda_handler",
+            environment={
+                "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80",
+                "KNOWLEDGE_BASE_ID": "healthcare-kb"
+            },
+            **lambda_config
+        )
+        self.files_function.add_to_role_policy(ssm_policy)
+        self.files_function.add_to_role_policy(rds_policy)
+        self.files_function.add_to_role_policy(secrets_policy)
+
+        # Add S3 permissions for file operations
+        s3_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject"
+            ],
+            resources=[
+                f"arn:aws:s3:::*/*"  # Allow access to all S3 objects
+            ]
+        )
+        self.files_function.add_to_role_policy(s3_policy)
+
+        # Add Bedrock permissions for Knowledge Base queries
+        bedrock_kb_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "bedrock:Retrieve",
+                "bedrock:RetrieveAndGenerate"
+            ],
+            resources=[
+                f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/*"
+            ]
+        )
+        self.files_function.add_to_role_policy(bedrock_kb_policy)
+
+        # Agent Integration Function
+        self.agent_integration_function = lambda_.Function(
+            self,
+            "AgentIntegrationFunction",
+            function_name="healthcare-agent-integration",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="api.agent_integration.handler.lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_13,
+            timeout=Duration.seconds(60),
+            memory_size=512,
+            environment={
+                # AgentCore endpoint will be set via SSM parameter
+                "AGENTCORE_ENDPOINT_PARAMETER": "/healthcare/agentcore/endpoint-url"
+            }
+        )
+        self.agent_integration_function.add_to_role_policy(ssm_policy)
+        self.agent_integration_function.add_to_role_policy(rds_policy)
+        self.agent_integration_function.add_to_role_policy(secrets_policy)
+        self.agent_integration_function.add_to_role_policy(bedrock_policy)
+
+        # Add CloudWatch permissions for metrics
+        cloudwatch_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "cloudwatch:PutMetricData",
+                "cloudwatch:GetMetricStatistics"
+            ],
+            resources=["*"]
+        )
+        self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""

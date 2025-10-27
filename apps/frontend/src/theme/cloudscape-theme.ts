@@ -1,33 +1,25 @@
 /**
  * Cloudscape Design System theme configuration
- * This file configures the visual theme for the application
+ * This file provides theme utilities and constants
+ * 
+ * Note: Theme application is now handled by ThemeContext
  */
-
-import { applyMode, Mode } from '@cloudscape-design/global-styles';
 
 export type ThemeMode = 'light' | 'dark';
-
-/**
- * Apply the Cloudscape theme mode
- * @param mode - The theme mode to apply ('light' or 'dark')
- */
-export const applyTheme = (mode: ThemeMode = 'light'): void => {
-  const cloudscapeMode: Mode = mode === 'dark' ? Mode.Dark : Mode.Light;
-  applyMode(cloudscapeMode);
-};
-
-/**
- * Initialize the default theme
- */
-export const initializeTheme = (): void => {
-  // Default to light mode
-  applyTheme('light');
-};
 
 /**
  * Theme configuration constants
  */
 export const THEME_CONFIG = {
   defaultMode: 'light' as ThemeMode,
-  storageKey: 'cloudscape-theme-mode',
+  storageKey: 'healthcare-theme-mode',
+};
+
+/**
+ * Initialize basic theme setup (called once on app start)
+ */
+export const initializeTheme = (): void => {
+  // Theme initialization is now handled by ThemeProvider
+  // This function is kept for compatibility
+  console.log('Theme initialization handled by ThemeProvider');
 };

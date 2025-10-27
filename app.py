@@ -164,37 +164,51 @@ backend_stack = BackendStack(
     description="Database infrastructure for healthcare system",
 )
 
-# Create the API stack
+# Create lambda functions dictionary directly from backend stack attributes
+lambda_functions = {
+    "patients": backend_stack.patients_function,
+    "medics": backend_stack.medics_function,
+    "exams": backend_stack.exams_function,
+    "reservations": backend_stack.reservations_function,
+    "files": backend_stack.files_function,
+    "agent_integration": backend_stack.agent_integration_function
+}
+
+# Create the API stack with Lambda functions from backend
 api_stack = ApiStack(
     app,
     "apistack",
+    lambda_functions=lambda_functions,
     env=env,
     stack_name="AWSomeBuilder2-ApiStack",
-    description="API Gateway and Lambda functions for healthcare system",
+    description="API Gateway for healthcare system",
 )
 
-# Create the assistant stack
 assistant_stack = AssistantStack(
     app,
     "genaistack",
+    bedrock_user_secret=backend_stack.bedrock_user_secret,
     processed_bucket=document_workflow_stack.processed_bucket,
     database_cluster=backend_stack.db_cluster,
     db_init_resource=backend_stack.db_init_resource,
-    bedrock_user_secret=backend_stack.bedrock_user_secret,
-    api_gateway_endpoint=api_stack.api_endpoint_url,
+    lambda_functions=lambda_functions,
+
     env=env,
     stack_name="AWSomeBuilder2-VirtualAssistantStack",
     description="Asistente virtual con GenAI",
 )
 
-# Add stack dependencies
+# Add stack dependencies - API stack now depends on backend and assistant stacks
 logger.info("Configuring stack dependencies...")
+api_stack.add_dependency(backend_stack)
+api_stack.add_dependency(assistant_stack)
 assistant_stack.add_dependency(backend_stack)
-assistant_stack.add_dependency(api_stack)
 logger.info("Stack dependencies configured successfully")
 
 logger.info("Starting CDK synthesis...")
 app.synth()
 logger.info("CDK synthesis completed successfully")
 
-logger.warning("⚠️ Heads up! the frontend need to be deployed separeately using Amplify!")
+logger.warning(
+    "⚠️ Heads up! the frontend need to be deployed separeately using Amplify!")
+

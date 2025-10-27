@@ -13,7 +13,7 @@ import {
   Alert
 } from '@cloudscape-design/components';
 import { patientService } from '../../services/patientService';
-import { Patient } from '../../types/api';
+import type { Patient } from '../../types/api';
 import { es } from '../../i18n/es';
 
 interface PatientSelectorProps {

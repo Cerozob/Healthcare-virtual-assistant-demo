@@ -13,7 +13,7 @@ import { MainLayout } from '../components/layout';
 import { PatientSelector, PatientInfo, ScheduledExams } from '../components/patient';
 import { usePatientContext } from '../contexts/PatientContext';
 import { usePatientWithExams } from '../hooks/usePatients';
-import { Patient } from '../types/api';
+import type { Patient } from '../types/api';
 import { es } from '../i18n/es';
 
 interface PatientDashboardPageProps {

@@ -1,6 +1,6 @@
 /**
  * ExamForm Component
- * Form for creating and editing exam data
+ * Form for creating and editing exam templates/types
  */
 
 import { useState, useEffect } from 'react';
@@ -8,15 +8,12 @@ import {
   Form,
   FormField,
   Input,
-  DatePicker,
-  Select,
   Textarea,
   SpaceBetween,
   Button,
   Container,
   Header,
   Alert,
-  SelectProps,
 } from '@cloudscape-design/components';
 import { useLanguage } from '../../contexts/LanguageContext';
 import type { Exam, CreateExamRequest } from '../../types/api';
@@ -26,43 +23,30 @@ export interface ExamFormProps {
   onSubmit: (data: CreateExamRequest) => Promise<void>;
   onCancel: () => void;
   loading?: boolean;
-  patients?: Array<{ patient_id: string; full_name: string }>;
-  medics?: Array<{ medic_id: string; full_name: string }>;
 }
 
 interface FormData {
-  patient_id: string;
-  medic_id: string;
+  exam_name: string;
   exam_type: string;
-  exam_date: string;
-  results: string;
-  status: string;
+  description: string;
+  duration_minutes: number;
+  preparation_instructions: string;
 }
 
 interface FormErrors {
-  patient_id?: string;
-  medic_id?: string;
+  exam_name?: string;
   exam_type?: string;
-  exam_date?: string;
-  status?: string;
+  duration_minutes?: string;
 }
 
-const examStatusOptions: SelectProps.Option[] = [
-  { label: 'Programado', value: 'scheduled' },
-  { label: 'En progreso', value: 'in-progress' },
-  { label: 'Completado', value: 'completed' },
-  { label: 'Cancelado', value: 'cancelled' },
-];
-
-export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients = [], medics = [] }: ExamFormProps) {
+export function ExamForm({ exam, onSubmit, onCancel, loading = false }: ExamFormProps) {
   const { t } = useLanguage();
   const [formData, setFormData] = useState<FormData>({
-    patient_id: exam?.patient_id || '',
-    medic_id: exam?.medic_id || '',
+    exam_name: exam?.exam_name || '',
     exam_type: exam?.exam_type || '',
-    exam_date: exam?.exam_date || '',
-    results: exam?.results || '',
-    status: exam?.status || 'scheduled',
+    description: exam?.description || '',
+    duration_minutes: exam?.duration_minutes || 30,
+    preparation_instructions: exam?.preparation_instructions || '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState<string>('');
@@ -70,12 +54,11 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
   useEffect(() => {
     if (exam) {
       setFormData({
-        patient_id: exam.patient_id,
-        medic_id: exam.medic_id,
+        exam_name: exam.exam_name,
         exam_type: exam.exam_type,
-        exam_date: exam.exam_date,
-        results: exam.results || '',
-        status: exam.status,
+        description: exam.description || '',
+        duration_minutes: exam.duration_minutes,
+        preparation_instructions: exam.preparation_instructions || '',
       });
     }
   }, [exam]);
@@ -83,24 +66,16 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!formData.patient_id) {
-      newErrors.patient_id = t.validation.required;
-    }
-
-    if (!formData.medic_id) {
-      newErrors.medic_id = t.validation.required;
+    if (!formData.exam_name.trim()) {
+      newErrors.exam_name = t.validation.required;
     }
 
     if (!formData.exam_type.trim()) {
       newErrors.exam_type = t.validation.required;
     }
 
-    if (!formData.exam_date) {
-      newErrors.exam_date = t.validation.required;
-    }
-
-    if (!formData.status) {
-      newErrors.status = t.validation.required;
+    if (!formData.duration_minutes || formData.duration_minutes <= 0) {
+      newErrors.duration_minutes = 'Duration must be greater than 0';
     }
 
     setErrors(newErrors);
@@ -117,15 +92,17 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
 
     try {
       const submitData: CreateExamRequest = {
-        patient_id: formData.patient_id,
-        medic_id: formData.medic_id,
+        exam_name: formData.exam_name,
         exam_type: formData.exam_type,
-        exam_date: formData.exam_date,
-        status: formData.status,
+        duration_minutes: formData.duration_minutes,
       };
 
-      if (formData.results.trim()) {
-        submitData.results = formData.results;
+      if (formData.description.trim()) {
+        submitData.description = formData.description;
+      }
+
+      if (formData.preparation_instructions.trim()) {
+        submitData.preparation_instructions = formData.preparation_instructions;
       }
 
       await onSubmit(submitData);
@@ -133,20 +110,6 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
       setSubmitError(error instanceof Error ? error.message : t.errors.generic);
     }
   };
-
-  const patientOptions: SelectProps.Option[] = patients.map((p) => ({
-    label: `${p.full_name} (${p.patient_id})`,
-    value: p.patient_id,
-  }));
-
-  const medicOptions: SelectProps.Option[] = medics.map((m) => ({
-    label: `${m.full_name} (${m.medic_id})`,
-    value: m.medic_id,
-  }));
-
-  const selectedPatient = patientOptions.find((opt) => opt.value === formData.patient_id) || null;
-  const selectedMedic = medicOptions.find((opt) => opt.value === formData.medic_id) || null;
-  const selectedStatus = examStatusOptions.find((opt) => opt.value === formData.status) || null;
 
   return (
     <form onSubmit={handleSubmit}>
@@ -163,7 +126,7 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
         }
         errorText={submitError}
       >
-        <Container header={<Header variant="h2">{exam ? 'Editar Examen' : 'Nuevo Examen'}</Header>}>
+        <Container header={<Header variant="h2">{exam ? 'Editar Tipo de Examen' : 'Nuevo Tipo de Examen'}</Header>}>
           <SpaceBetween size="l">
             {submitError && (
               <Alert type="error" dismissible onDismiss={() => setSubmitError('')}>
@@ -172,49 +135,27 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
             )}
 
             <FormField
-              label="Paciente"
-              errorText={errors.patient_id}
-              constraintText="Seleccione el paciente para el examen"
+              label="Nombre del examen"
+              errorText={errors.exam_name}
+              constraintText="Ingrese el nombre del examen"
             >
-              <Select
-                selectedOption={selectedPatient}
+              <Input
+                value={formData.exam_name}
                 onChange={({ detail }) => {
-                  setFormData({ ...formData, patient_id: detail.selectedOption.value || '' });
-                  if (errors.patient_id) {
-                    setErrors({ ...errors, patient_id: undefined });
+                  setFormData({ ...formData, exam_name: detail.value });
+                  if (errors.exam_name) {
+                    setErrors({ ...errors, exam_name: undefined });
                   }
                 }}
-                options={patientOptions}
-                placeholder="Seleccione un paciente"
+                placeholder="Ej: Radiografía de tórax"
                 disabled={loading}
-                filteringType="auto"
-              />
-            </FormField>
-
-            <FormField
-              label="Médico"
-              errorText={errors.medic_id}
-              constraintText="Seleccione el médico responsable"
-            >
-              <Select
-                selectedOption={selectedMedic}
-                onChange={({ detail }) => {
-                  setFormData({ ...formData, medic_id: detail.selectedOption.value || '' });
-                  if (errors.medic_id) {
-                    setErrors({ ...errors, medic_id: undefined });
-                  }
-                }}
-                options={medicOptions}
-                placeholder="Seleccione un médico"
-                disabled={loading}
-                filteringType="auto"
               />
             </FormField>
 
             <FormField
               label="Tipo de examen"
               errorText={errors.exam_type}
-              constraintText="Ingrese el tipo de examen"
+              constraintText="Ingrese la categoría del examen"
             >
               <Input
                 value={formData.exam_type}
@@ -224,61 +165,54 @@ export function ExamForm({ exam, onSubmit, onCancel, loading = false, patients =
                     setErrors({ ...errors, exam_type: undefined });
                   }
                 }}
-                placeholder="Ej: Radiografía de tórax"
+                placeholder="Ej: Radiología, Laboratorio, Cardiología"
                 disabled={loading}
               />
             </FormField>
 
             <FormField
-              label="Fecha del examen"
-              errorText={errors.exam_date}
-              constraintText="Seleccione la fecha del examen"
+              label="Duración (minutos)"
+              errorText={errors.duration_minutes}
+              constraintText="Duración estimada del examen en minutos"
             >
-              <DatePicker
-                value={formData.exam_date}
+              <Input
+                type="number"
+                value={formData.duration_minutes.toString()}
                 onChange={({ detail }) => {
-                  setFormData({ ...formData, exam_date: detail.value });
-                  if (errors.exam_date) {
-                    setErrors({ ...errors, exam_date: undefined });
+                  const value = parseInt(detail.value) || 0;
+                  setFormData({ ...formData, duration_minutes: value });
+                  if (errors.duration_minutes) {
+                    setErrors({ ...errors, duration_minutes: undefined });
                   }
                 }}
-                placeholder="YYYY-MM-DD"
-                disabled={loading}
-                openCalendarAriaLabel={(selectedDate) =>
-                  selectedDate ? `Fecha seleccionada: ${selectedDate}` : 'Seleccionar fecha'
-                }
-              />
-            </FormField>
-
-            <FormField
-              label="Estado"
-              errorText={errors.status}
-              constraintText="Seleccione el estado del examen"
-            >
-              <Select
-                selectedOption={selectedStatus}
-                onChange={({ detail }) => {
-                  setFormData({ ...formData, status: detail.selectedOption.value || 'scheduled' });
-                  if (errors.status) {
-                    setErrors({ ...errors, status: undefined });
-                  }
-                }}
-                options={examStatusOptions}
-                placeholder="Seleccione un estado"
+                placeholder="30"
                 disabled={loading}
               />
             </FormField>
 
             <FormField
-              label="Resultados"
-              description="Opcional - Ingrese los resultados del examen"
+              label="Descripción"
+              description="Opcional - Descripción detallada del examen"
             >
               <Textarea
-                value={formData.results}
-                onChange={({ detail }) => setFormData({ ...formData, results: detail.value })}
-                placeholder="Ingrese los resultados del examen..."
+                value={formData.description}
+                onChange={({ detail }) => setFormData({ ...formData, description: detail.value })}
+                placeholder="Descripción del examen..."
                 disabled={loading}
-                rows={4}
+                rows={3}
+              />
+            </FormField>
+
+            <FormField
+              label="Instrucciones de preparación"
+              description="Opcional - Instrucciones para el paciente antes del examen"
+            >
+              <Textarea
+                value={formData.preparation_instructions}
+                onChange={({ detail }) => setFormData({ ...formData, preparation_instructions: detail.value })}
+                placeholder="Instrucciones de preparación..."
+                disabled={loading}
+                rows={3}
               />
             </FormField>
           </SpaceBetween>

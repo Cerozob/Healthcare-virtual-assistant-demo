@@ -20,7 +20,7 @@ interface MainLayoutProps {
 export function MainLayout({ 
   children, 
   signOut, 
-  user,
+  user, // Keep for compatibility but not used in TopNavigationBar anymore
   breadcrumbs,
   contentHeader,
 }: MainLayoutProps) {
@@ -29,7 +29,7 @@ export function MainLayout({
 
   return (
     <>
-      <TopNavigationBar signOut={signOut} user={user} />
+      <TopNavigationBar signOut={signOut} />
       <AppLayout
         navigation={<SideNavigation />}
         navigationOpen={navigationOpen}

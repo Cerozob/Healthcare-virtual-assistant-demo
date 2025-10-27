@@ -47,6 +47,7 @@ export interface FileManagerProps {
 }
 
 const fileCategoryOptions: SelectProps.Option[] = [
+  { label: 'Clasificación automática', value: 'auto' },
   { label: 'Historia clínica', value: 'medical-history' },
   { label: 'Resultados de exámenes', value: 'exam-results' },
   { label: 'Imágenes médicas', value: 'medical-images' },
@@ -68,11 +69,13 @@ export function FileManager({
 }: FileManagerProps) {
   const { t } = useLanguage();
   const [selectedPatient, setSelectedPatient] = useState<string>(patientId || '');
-  const [selectedCategory, setSelectedCategory] = useState<SelectProps.Option | null>(fileCategoryOptions[0]);
+  const [selectedCategory, setSelectedCategory] = useState<SelectProps.Option | null>(fileCategoryOptions[0]); // Default to "auto"
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentUploadFile, setCurrentUploadFile] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const [successMessage, setSuccessMessage] = useState<string>('');
   const [selectedTableItems, setSelectedTableItems] = useState<PatientFile[]>([]);
   const [classificationProcessing, setClassificationProcessing] = useState<Set<string>>(new Set());
   const [editingClassification, setEditingClassification] = useState<string | null>(null);
@@ -100,13 +103,32 @@ export function FileManager({
     setUploadProgress(0);
 
     try {
+      const patientData = patients.find(p => p.patient_id === selectedPatient);
+      
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        await onUpload(file, selectedCategory?.value || 'other');
-        setUploadProgress(((i + 1) / selectedFiles.length) * 100);
+        setCurrentUploadFile(file.name);
+        
+        console.log(`Uploading file ${file.name} for patient ${patientData?.full_name || selectedPatient} following document workflow guidelines`);
+        
+        // Call the upload handler with patient context
+        await onUpload(file, selectedCategory?.value || 'auto');
+        
+        // Update overall progress
+        const overallProgress = ((i + 1) / selectedFiles.length) * 100;
+        setUploadProgress(overallProgress);
       }
+      
       setSelectedFiles([]);
       setUploadProgress(0);
+      setCurrentUploadFile('');
+      
+      // Show success message with workflow information
+      setSuccessMessage(`Archivos subidos exitosamente para ${patientData?.full_name || selectedPatient}. Los documentos han sido almacenados en S3 y serán procesados automáticamente según las pautas del flujo de trabajo de documentos.`);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setSuccessMessage(''), 5000);
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al subir archivo');
     } finally {
@@ -212,6 +234,12 @@ export function FileManager({
           {error}
         </Alert>
       )}
+      
+      {successMessage && (
+        <Alert type="success" dismissible onDismiss={() => setSuccessMessage('')}>
+          {successMessage}
+        </Alert>
+      )}
 
       <Container header={<Header variant="h2">Subir archivos</Header>}>
         <SpaceBetween size="m">
@@ -226,7 +254,11 @@ export function FileManager({
             />
           </FormField>
 
-          <FormField label="Categoría" constraintText="Seleccione la categoría del archivo">
+          <FormField 
+            label="Categoría" 
+            constraintText="La clasificación automática analizará el contenido del documento para determinar su tipo"
+            info="Recomendado: Use 'Clasificación automática' para mejor precisión"
+          >
             <Select
               selectedOption={selectedCategory}
               onChange={({ detail }) => setSelectedCategory(detail.selectedOption)}
@@ -258,14 +290,14 @@ export function FileManager({
           {uploading && (
             <ProgressBar
               value={uploadProgress}
-              label="Subiendo archivos"
-              description={`${Math.round(uploadProgress)}% completado`}
+              label="Subiendo archivos a S3"
+              description={currentUploadFile ? `Subiendo: ${currentUploadFile} (${Math.round(uploadProgress)}% completado)` : `${Math.round(uploadProgress)}% completado`}
             />
           )}
 
-          {enableAutoClassification && (
+          {enableAutoClassification && selectedCategory?.value === 'auto' && (
             <Alert type="info" dismissible={false}>
-              Los archivos se clasificarán automáticamente. Puedes editar la clasificación después de la subida si es necesario.
+              <strong>Clasificación automática habilitada:</strong> Los archivos serán analizados por IA para determinar automáticamente su categoría (Historia clínica, Resultados de exámenes, Imágenes médicas, etc.). Puedes editar la clasificación después si es necesario.
             </Alert>
           )}
 

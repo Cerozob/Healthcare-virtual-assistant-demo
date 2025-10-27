@@ -5,7 +5,7 @@
 
 import { useApi } from './useApi';
 import { patientService } from '../services';
-import {
+import type {
   Patient,
   CreatePatientRequest,
   UpdatePatientRequest,
@@ -26,7 +26,7 @@ export function usePatient() {
 }
 
 export function usePatientWithExams() {
-  return useApi<{ patient: Patient; exams: import('../types/api').Exam[] }>((id: string) => 
+  return useApi<{ patient: Patient; exams: import('../types/api').Reservation[] }>((id: string) => 
     patientService.getPatientWithExams(id)
   );
 }

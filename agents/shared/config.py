@@ -19,8 +19,7 @@ class ModelConfig(BaseModel):
 
 class AgentConfig(BaseSettings):
     """
-    Agent configuration loaded from environment variables.
-    No hardcoded values - all configuration comes from deployment.
+    Simplified agent configuration using managed AWS services.
     """
     
     # Model Configuration
@@ -29,31 +28,29 @@ class AgentConfig(BaseSettings):
     model_max_tokens: int = Field(default=4096, description="Maximum tokens")
     model_top_p: float = Field(default=0.9, description="Top-p sampling")
     
-    # Knowledge Base Configuration
+    # Managed Services Configuration
     knowledge_base_id: str = Field(description="Bedrock Knowledge Base ID")
-    supplemental_data_bucket: str = Field(description="S3 bucket for supplemental data")
+    guardrail_id: Optional[str] = Field(default=None, description="Bedrock Guardrail ID")
+    guardrail_version: Optional[str] = Field(default="DRAFT", description="Guardrail version")
     
-    # API Configuration
-    healthcare_api_endpoint: str = Field(description="Healthcare API base URL")
+    # Healthcare API Configuration
     database_cluster_arn: str = Field(description="Aurora cluster ARN")
     database_secret_arn: str = Field(description="Database secret ARN")
+    
+    # AgentCore Gateway Configuration
+    gateway_url: Optional[str] = Field(default=None, description="AgentCore Gateway URL")
+    gateway_id: Optional[str] = Field(default=None, description="AgentCore Gateway ID")
     
     # Agent Configuration
     default_language: str = Field(default="es-LATAM", description="Default language")
     streaming_enabled: bool = Field(default=True, description="Enable streaming responses")
-    session_timeout_minutes: int = Field(default=30, description="Session timeout")
-    
-    # Guardrails Configuration
-    guardrail_id: Optional[str] = Field(default=None, description="Bedrock Guardrail ID")
-    guardrail_version: Optional[str] = Field(default=None, description="Guardrail version")
     
     # Observability Configuration
     enable_tracing: bool = Field(default=True, description="Enable OpenTelemetry tracing")
     log_level: str = Field(default="INFO", description="Logging level")
-    metrics_namespace: str = Field(default="Healthcare/Agents", description="CloudWatch metrics namespace")
     
     class Config:
-        env_file = None  # No .env files - configuration from deployment only
+        env_file = None  # Configuration from deployment only
         case_sensitive = False
         env_prefix = ""
 

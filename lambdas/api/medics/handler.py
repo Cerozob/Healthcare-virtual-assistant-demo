@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import logging
+import json
 from typing import Dict, Any
 from shared.database import DatabaseManager, DatabaseError
 from shared.utils import (
@@ -30,15 +31,19 @@ db_manager = DatabaseManager()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for medics API.
-    Routes requests to appropriate handlers based on HTTP method and path.
+    Supports both API Gateway and MCP Gateway invocations.
     """
-    # Handle both API Gateway v1 and v2 event formats
+    # Check if this is an MCP Gateway invocation
+    if _is_mcp_gateway_event(event):
+        return handle_mcp_gateway_request(event)
+    
+    # Handle API Gateway requests (existing logic)
     http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
     path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
-    logger.info(f"Received request: method={http_method}, path={path}")
+    logger.info(f"Received API Gateway request: method={http_method}, path={path}")
     
     # Normalize path by removing stage prefix if present
     normalized_path = path
@@ -61,6 +66,98 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return delete_medic(medic_id)
     
     return create_error_response(404, "Endpoint not found")
+
+
+def _is_mcp_gateway_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from MCP Gateway.
+    MCP Gateway events have a different structure than API Gateway events.
+    """
+    # MCP Gateway events typically have 'action' parameter and no HTTP method/path
+    return (
+        'action' in event and 
+        'httpMethod' not in event and 
+        'requestContext' not in event
+    )
+
+
+def handle_mcp_gateway_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle MCP Gateway requests with action-based routing.
+    
+    Expected event structure:
+    {
+        "action": "list|get|create|update|delete",
+        "medic_id": "optional-medic-id",
+        "medic_data": {...},
+        "pagination": {...}
+    }
+    """
+    try:
+        action = event.get('action')
+        logger.info(f"Received MCP Gateway request: action={action}")
+        
+        if action == 'list':
+            # Convert MCP parameters to API Gateway format
+            query_params = {}
+            if 'pagination' in event:
+                pagination = event['pagination']
+                query_params['limit'] = str(pagination.get('limit', 50))
+                query_params['offset'] = str(pagination.get('offset', 0))
+            
+            # Add filter parameters
+            if 'specialty' in event:
+                query_params['specialty'] = str(event['specialty'])
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'queryStringParameters': query_params
+            }
+            return list_medics(mock_event)
+            
+        elif action == 'get':
+            medic_id = event.get('medic_id')
+            if not medic_id:
+                return create_error_response(400, "medic_id required for get action")
+            return get_medic(medic_id)
+            
+        elif action == 'create':
+            medic_data = event.get('medic_data')
+            if not medic_data:
+                return create_error_response(400, "medic_data required for create action")
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'body': json.dumps(medic_data)
+            }
+            return create_medic(mock_event)
+            
+        elif action == 'update':
+            medic_id = event.get('medic_id')
+            medic_data = event.get('medic_data')
+            if not medic_id:
+                return create_error_response(400, "medic_id required for update action")
+            if not medic_data:
+                return create_error_response(400, "medic_data required for update action")
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'body': json.dumps(medic_data)
+            }
+            return update_medic(medic_id, mock_event)
+            
+        elif action == 'delete':
+            medic_id = event.get('medic_id')
+            if not medic_id:
+                return create_error_response(400, "medic_id required for delete action")
+            return delete_medic(medic_id)
+            
+        else:
+            return create_error_response(400, f"Unknown action: {action}")
+            
+    except Exception as e:
+        logger.error(f"Error handling MCP Gateway request: {str(e)}")
+        return create_error_response(500, f"Internal server error: {str(e)}")
 
 
 def list_medics(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,10 +189,10 @@ def list_medics(event: Dict[str, Any]) -> Dict[str, Any]:
             parameters.append(db_manager.create_parameter('specialty', f'%{specialty_filter}%', 'string'))
         
         sql = f"""
-        SELECT medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
+        SELECT medic_id, first_name as full_name, specialization as specialty, license_number, created_at, updated_at
         FROM medics
         {where_clause}
-        ORDER BY full_name
+        ORDER BY first_name
         LIMIT :limit OFFSET :offset
         """
         
@@ -142,12 +239,15 @@ def create_medic(event: Dict[str, Any]) -> Dict[str, Any]:
     Required fields:
     - full_name: Medic's full name
     - specialty: Medical specialty
-    - license_number: Medical license number
+    - license_number: Medical license number (auto-generated)
     
     Returns:
         Created medic data
     """
     try:
+        # Ensure medics table exists
+        ensure_table_exists('medics')
+        
         body = parse_event_body(event)
         
         # Validate required fields
@@ -168,15 +268,19 @@ def create_medic(event: Dict[str, Any]) -> Dict[str, Any]:
         # Generate medic ID
         medic_id = generate_uuid()
         
+        # Generate a demo email for the medic
+        demo_email = f"medic.{medic_id.lower()}@demo.hospital.com"
+        
         sql = """
-        INSERT INTO medics (medic_id, full_name, specialization, license_number, created_at, updated_at)
-        VALUES (:medic_id, :full_name, :specialty, :license_number, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
+        INSERT INTO medics (medic_id, first_name, email, specialization, license_number, created_at, updated_at)
+        VALUES (:medic_id, :full_name, :email, :specialty, :license_number, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING medic_id, first_name as full_name, specialization as specialty, license_number, created_at, updated_at
         """
         
         parameters = [
             db_manager.create_parameter('medic_id', medic_id, 'string'),
             db_manager.create_parameter('full_name', body['full_name'], 'string'),
+            db_manager.create_parameter('email', demo_email, 'string'),
             db_manager.create_parameter('specialty', body['specialty'], 'string'),
             db_manager.create_parameter('license_number', body['license_number'], 'string')
         ]
@@ -200,7 +304,8 @@ def create_medic(event: Dict[str, Any]) -> Dict[str, Any]:
         
     except DatabaseError as e:
         logger.error(f"Database error in create_medic: {str(e)}")
-        return create_error_response(500, "Database error", e.error_code)
+        logger.error(f"Request body: {body}")
+        return create_error_response(500, f"Database error: {str(e)}", e.error_code)
     
     except Exception as e:
         logger.error(f"Error in create_medic: {str(e)}")
@@ -219,7 +324,7 @@ def get_medic(medic_id: str) -> Dict[str, Any]:
     """
     try:
         sql = """
-        SELECT medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
+        SELECT medic_id, first_name as full_name, specialization as specialty, license_number, created_at, updated_at
         FROM medics
         WHERE medic_id = :medic_id
         """
@@ -269,7 +374,7 @@ def update_medic(medic_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         parameters = [db_manager.create_parameter('medic_id', medic_id, 'string')]
         
         if 'full_name' in body and body['full_name']:
-            update_fields.append('full_name = :full_name')
+            update_fields.append('first_name = :full_name')
             parameters.append(db_manager.create_parameter('full_name', body['full_name'], 'string'))
         
         if 'specialty' in body and body['specialty']:
@@ -304,7 +409,7 @@ def update_medic(medic_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         UPDATE medics
         SET {', '.join(update_fields)}
         WHERE medic_id = :medic_id
-        RETURNING medic_id, full_name, specialization as specialty, license_number, created_at, updated_at
+        RETURNING medic_id, first_name as full_name, specialization as specialty, license_number, created_at, updated_at
         """
         
         response = db_manager.execute_sql(sql, parameters)
@@ -332,6 +437,29 @@ def update_medic(medic_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in update_medic: {str(e)}")
         return create_error_response(500, "Internal server error")
+
+
+def ensure_table_exists(table_name: str) -> None:
+    """Ensure a table exists by creating it if necessary."""
+    try:
+        if table_name == 'medics':
+            sql = """
+            CREATE TABLE IF NOT EXISTS medics (
+                medic_id VARCHAR(255) PRIMARY KEY,
+                first_name VARCHAR(200) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                specialization VARCHAR(100),
+                license_number VARCHAR(50) UNIQUE,
+                phone VARCHAR(20),
+                department VARCHAR(100),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+            db_manager.execute_sql(sql, [])
+            logger.info(f"Ensured {table_name} table exists")
+    except Exception as e:
+        logger.warning(f"Could not ensure {table_name} table exists: {e}")
 
 
 def delete_medic(medic_id: str) -> Dict[str, Any]:

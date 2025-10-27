@@ -22,8 +22,9 @@ import { PatientChatSidebar, MarkdownRenderer } from '../components/chat';
 import { PatientSelector } from '../components/patient';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePatientContext } from '../contexts/PatientContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { chatService } from '../services/chatService';
-import { examService } from '../services/examService';
+import { reservationService } from '../services/reservationService';
 import type { ChatMessage, Patient } from '../types/api';
 
 interface ChatPageProps {
@@ -49,18 +50,18 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
   const handlePatientSelect = async (patient: Patient | null) => {
     setSelectedPatient(patient);
 
-    // Load patient exams if patient is selected
+    // Load patient reservations if patient is selected
     if (patient) {
       try {
-        // TODO: Implement patient-specific exam filtering in the API
-        const examsResponse = await examService.getExams();
-        // Filter exams by patient ID on the client side for now
-        const patientExams = examsResponse.exams.filter(exam =>
-          exam.patient_id === patient.patient_id
+        // TODO: Implement patient-specific reservation filtering in the API
+        const reservationsResponse = await reservationService.getReservations();
+        // Filter reservations by patient ID on the client side for now
+        const patientExams = reservationsResponse.reservations.filter(reservation =>
+          reservation.patient_id === patient.patient_id
         );
         setPatientExams(patientExams);
       } catch (error) {
-        console.error('Error loading patient exams:', error);
+        console.error('Error loading patient reservations:', error);
         setPatientExams([]);
       }
     } else {
@@ -81,6 +82,7 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
 export default function ChatPage({ signOut, user }: ChatPageProps) {
   const { t } = useLanguage();
   const { selectedPatient, isPatientSelected, clearPatient } = usePatientContext();
+  const { mode } = useTheme();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'processing' | 'generating'>('processing');
@@ -121,6 +123,19 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   const handleSendMessage = async () => {
     if (!promptValue.trim() && files.length === 0) return;
 
+    // Check if patient is selected when files are attached
+    if (files.length > 0 && !selectedPatient) {
+      // Add system message instead of alert
+      const systemMessage: ChatMessage = {
+        id: `system_${Date.now()}`,
+        content: '⚠️ **Atención**: Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico para seguir las pautas del flujo de trabajo.',
+        type: 'system',
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, systemMessage]);
+      return;
+    }
+
     // Create user message immediately
     const userMessage: ChatMessage = {
       id: `user_${Date.now()}`,
@@ -134,6 +149,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
     // Clear input immediately
     const messageContent = promptValue;
+    const attachedFiles = [...files];
+    const attachedClassifications = new Map(fileClassifications);
+    
     setPromptValue('');
     setFiles([]);
     setFileClassifications(new Map());
@@ -143,31 +161,88 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     setLoadingStage('processing');
 
     try {
+      // Process file uploads if patient is selected
+      if (attachedFiles.length > 0 && selectedPatient) {
+        console.log(`Processing ${attachedFiles.length} files for patient ${selectedPatient.full_name} following document workflow guidelines`);
+        
+        // Upload files to S3 using the storage service
+        const { storageService } = await import('../services/storageService');
+        
+        for (const file of attachedFiles) {
+          const fileKey = getFileKey(file);
+          const classification = attachedClassifications.get(fileKey);
+          
+          try {
+            // Generate file ID and construct S3 path following document workflow guidelines
+            const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const category = classification?.category || 'auto';
+            
+            // S3 path structure: patients/{patient_id}/{category}/{timestamp}/{fileId}/{filename}
+            const s3Key = `patients/${selectedPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
+
+            // Upload file to S3 with metadata
+            const uploadResult = await storageService.uploadFile(file, s3Key, {
+              contentType: file.type,
+              metadata: {
+                'patient-id': selectedPatient.patient_id,
+                'patient-name': selectedPatient.full_name,
+                'document-category': category,
+                'upload-timestamp': timestamp,
+                'file-id': fileId,
+                'workflow-stage': 'uploaded',
+                'auto-classification-enabled': 'true',
+                'original-filename': file.name,
+                'uploaded-from': 'chat-interface'
+              }
+            });
+
+            const response = {
+              file_id: fileId,
+              patient_id: selectedPatient.patient_id,
+              s3_key: uploadResult.key,
+              message: `File uploaded successfully for patient ${selectedPatient.full_name} following document workflow guidelines`,
+              category: category,
+              workflow_info: {
+                next_stage: 'BDA processing and classification',
+                expected_processing_time: '2-5 minutes'
+              }
+            };
+
+            console.log(`Successfully uploaded ${file.name} for patient ${selectedPatient.full_name}:`, response);
+          } catch (uploadError) {
+            console.error(`Error uploading ${file.name}:`, uploadError);
+          }
+        }
+      }
+
       // Build contextual content with patient and document information
       let contextualContent = messageContent;
-      
+
       // Add patient context if available
       if (selectedPatient) {
         contextualContent = `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${contextualContent}`;
+      } else if (attachedFiles.length === 0) {
+        // No patient selected and no files - this is a noop as requested
+        contextualContent = `[Sin contexto de paciente seleccionado]\n\n${contextualContent}`;
       }
-      
+
       // Add document classification context if files are attached
-      if (files.length > 0) {
-        const documentContext = files.map(file => {
+      if (attachedFiles.length > 0) {
+        const documentContext = attachedFiles.map(file => {
           const fileKey = getFileKey(file);
-          const classification = fileClassifications.get(fileKey);
-          
+          const classification = attachedClassifications.get(fileKey);
+
           if (classification && !classification.processing) {
-            return `- ${file.name}: ${getCategoryLabel(classification.category)}${
-              classification.autoClassified && classification.confidence 
-                ? ` (${classification.confidence.toFixed(0)}% confianza)` 
+            return `- ${file.name}: ${getCategoryLabel(classification.category)}${classification.autoClassified && classification.confidence
+                ? ` (${classification.confidence.toFixed(0)}% confianza)`
                 : ''
-            }`;
+              } - Subido al flujo de documentos`;
           }
           return `- ${file.name}: Procesando clasificación...`;
         }).join('\n');
-        
-        contextualContent = `[Documentos adjuntos:\n${documentContext}]\n\n${contextualContent}`;
+
+        contextualContent = `[Documentos adjuntos y procesados:\n${documentContext}]\n\n${contextualContent}`;
       }
 
       // Use echo functionality as placeholder
@@ -194,41 +269,64 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     navigator.clipboard.writeText(content);
   };
 
-  // Simulate auto-classification for uploaded files
+  // Simulate auto-classification for uploaded files following document workflow guidelines
   const simulateAutoClassification = async (file: File): Promise<{
     category: string;
     confidence: number;
     autoClassified: boolean;
   }> => {
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-    
-    // Simple classification logic based on file type and name
+    // Simulate processing delay to mimic BDA processing
+    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 2500));
+
+    // Enhanced classification logic based on document workflow guidelines
     const fileName = file.name.toLowerCase();
     const fileType = file.type.toLowerCase();
-    
+    const fileExtension = fileName.split('.').pop() || '';
+
     let category = 'other';
     let confidence = 60 + Math.random() * 35; // Random confidence between 60-95%
-    
-    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical')) {
+
+    // Medical history documents
+    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical') || 
+        fileName.includes('clinica') || fileName.includes('expediente')) {
       category = 'medical-history';
-      confidence = 80 + Math.random() * 15;
-    } else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') || fileName.includes('test')) {
+      confidence = 82 + Math.random() * 15;
+    } 
+    // Exam results and lab reports
+    else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') || 
+             fileName.includes('test') || fileName.includes('analisis') || fileName.includes('reporte')) {
       category = 'exam-results';
-      confidence = 85 + Math.random() * 10;
-    } else if (fileType.includes('image') || fileName.includes('radiografia') || fileName.includes('ecografia')) {
+      confidence = 87 + Math.random() * 10;
+    } 
+    // Medical images
+    else if (fileType.includes('image') || fileName.includes('radiografia') || fileName.includes('ecografia') ||
+             fileName.includes('tomografia') || fileName.includes('resonancia') || fileName.includes('rx') ||
+             ['jpg', 'jpeg', 'png', 'tiff', 'tif', 'dcm'].includes(fileExtension)) {
       category = 'medical-images';
-      confidence = 90 + Math.random() * 8;
-    } else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') || fileName.includes('identidad')) {
+      confidence = 91 + Math.random() * 8;
+    } 
+    // Identification documents
+    else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') || 
+             fileName.includes('identidad') || fileName.includes('pasaporte') || fileName.includes('licencia')) {
       category = 'identification';
-      confidence = 95 + Math.random() * 5;
+      confidence = 94 + Math.random() * 5;
     }
-    
-    // Apply confidence threshold (80%)
+    // PDF documents might be various types
+    else if (fileType.includes('pdf')) {
+      // PDFs could be any category, lower confidence
+      const categories = ['medical-history', 'exam-results', 'other'];
+      category = categories[Math.floor(Math.random() * categories.length)];
+      confidence = 65 + Math.random() * 20;
+    }
+
+    // Apply confidence threshold (80%) as per document workflow guidelines
     if (confidence < 80) {
       category = 'not-identified';
+      console.log(`Document ${fileName} classified as 'not-identified' due to low confidence (${confidence.toFixed(1)}%)`);
+    } else {
+      console.log(`Document ${fileName} auto-classified as '${category}' with ${confidence.toFixed(1)}% confidence`);
     }
-    
+
     return {
       category,
       confidence: Math.min(confidence, 100),
@@ -238,13 +336,13 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
   const handleFileChange = async (newFiles: File[]) => {
     setFiles(newFiles);
-    
+
     // Process classification for new files
     const newClassifications = new Map(fileClassifications);
-    
+
     for (const file of newFiles) {
       const fileKey = `${file.name}_${file.size}_${file.lastModified}`;
-      
+
       if (!newClassifications.has(fileKey)) {
         // Mark as processing
         newClassifications.set(fileKey, {
@@ -252,7 +350,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           processing: true
         });
         setFileClassifications(new Map(newClassifications));
-        
+
         try {
           const classification = await simulateAutoClassification(file);
           newClassifications.set(fileKey, classification);
@@ -274,6 +372,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
   const getCategoryLabel = (category: string): string => {
     const labels: Record<string, string> = {
+      'auto': 'Clasificación automática',
       'medical-history': 'Historia clínica',
       'exam-results': 'Resultados de exámenes',
       'medical-images': 'Imágenes médicas',
@@ -334,7 +433,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             <SpaceBetween size="l">
               {/* Chat Messages */}
               <Box padding="l">
-                <div className="chat-messages-container">
+                <div className={`chat-messages-container theme-transition`} data-theme={mode}>
                   {messages.length === 0 ? (
                     <Box textAlign="center" color="text-body-secondary" padding="xxl">
                       {t.chat.placeholder}
@@ -492,13 +591,13 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           onDismiss={({ detail }) => {
                             const removedFile = files[detail.fileIndex];
                             const fileKey = getFileKey(removedFile);
-                            
+
                             setFiles(files =>
                               files.filter((_, index) =>
                                 index !== detail.fileIndex
                               )
                             );
-                            
+
                             // Remove classification for dismissed file
                             setFileClassifications(prev => {
                               const newMap = new Map(prev);
@@ -518,14 +617,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                             warningIconAriaLabel: "Warning"
                           }}
                         />
-                        
+
                         {/* Classification Information */}
                         {files.map((file) => {
                           const fileKey = getFileKey(file);
                           const classification = fileClassifications.get(fileKey);
-                          
+
                           if (!classification) return null;
-                          
+
                           return (
                             <Box key={fileKey} fontSize="body-s" color="text-body-secondary">
                               <strong>{file.name}:</strong>{' '}

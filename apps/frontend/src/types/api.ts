@@ -109,34 +109,34 @@ export interface ExamsResponse {
   pagination: PaginationInfo;
 }
 
-// Reservation types
+// Reservation types (appointments)
 export interface Reservation {
   reservation_id: string;
   patient_id: string;
   medic_id: string;
   exam_id: string;
-  appointment_date: string;
-  status: string;
+  appointment_date: string; // Combined date+time from backend
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   notes?: string;
   created_at: string;
   updated_at: string;
+  // Joined fields from backend
+  patient_name?: string;
+  medic_name?: string;
+  exam_name?: string;
 }
 
 export interface CreateReservationRequest {
   patient_id: string;
   medic_id: string;
   exam_id: string;
-  appointment_date: string;
-  status?: string;
+  appointment_date: string; // ISO string format
   notes?: string;
 }
 
 export interface UpdateReservationRequest {
-  patient_id?: string;
-  medic_id?: string;
-  exam_id?: string;
   appointment_date?: string;
-  status?: string;
+  status?: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   notes?: string;
 }
 

@@ -1,12 +1,14 @@
 """
 Agent Integration API Lambda Function.
-Handles direct agent queries, health checks, and monitoring.
+Handles direct agent queries, health checks, monitoring, and AgentCore proxy.
 Consolidates functionality from both Node.js and Python agent integration implementations.
 
 Endpoints:
 - POST /agent/query - Direct agent query for testing
 - GET /agent/health - Health check for all agents and services
 - GET /agent/metrics - Agent interaction metrics
+- POST /agentcore/chat - Proxy requests to AgentCore runtime endpoint
+- GET /agentcore/health - Health check for AgentCore endpoint
 """
 
 import json
@@ -15,6 +17,8 @@ from typing import Dict, Any, List
 from datetime import datetime, timedelta
 import boto3
 from botocore.exceptions import ClientError
+import requests
+import os
 from shared.database import DatabaseManager, DatabaseError
 from shared.ssm_config import SSMConfig
 from shared.utils import (
@@ -66,6 +70,12 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_agent_info(event)
         elif http_method == 'POST':
             return handle_agent_query(event)
+    elif normalized_path == '/agentcore/chat' or normalized_path.endswith('/agentcore/chat'):
+        if http_method == 'POST':
+            return handle_agentcore_chat(event)
+    elif normalized_path == '/agentcore/health' or normalized_path.endswith('/agentcore/health'):
+        if http_method == 'GET':
+            return handle_agentcore_health(event)
     
     return create_error_response(404, "Endpoint not found")
 
@@ -344,6 +354,103 @@ def handle_get_metrics(event: Dict[str, Any]) -> Dict[str, Any]:
     
     except Exception as e:
         logger.error(f"Error in handle_get_metrics: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def handle_agentcore_chat(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle POST /agentcore/chat - Proxy requests to AgentCore endpoint.
+    
+    Forwards the request to the AgentCore runtime endpoint and returns the response.
+    """
+    try:
+        agentcore_endpoint_url = os.environ.get('AGENTCORE_ENDPOINT_URL')
+        if not agentcore_endpoint_url:
+            return create_error_response(503, "AgentCore endpoint not configured", "AGENTCORE_NOT_CONFIGURED")
+        
+        # Get request body
+        body = parse_event_body(event)
+        
+        # Forward request to AgentCore endpoint
+        try:
+            response = requests.post(
+                f"{agentcore_endpoint_url}/chat",
+                json=body,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                timeout=60  # 60 second timeout
+            )
+            
+            # Return the response from AgentCore
+            if response.headers.get('content-type', '').startswith('application/json'):
+                return create_response(response.status_code, response.json())
+            else:
+                return create_response(response.status_code, {'response': response.text})
+                
+        except requests.exceptions.Timeout:
+            return create_error_response(504, "AgentCore request timeout", "AGENTCORE_TIMEOUT")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"AgentCore request failed: {str(e)}")
+            return create_error_response(502, "AgentCore request failed", "AGENTCORE_REQUEST_FAILED")
+        
+    except Exception as e:
+        logger.error(f"Error in handle_agentcore_chat: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def handle_agentcore_health(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle GET /agentcore/health - Check AgentCore endpoint health.
+    
+    Performs a health check against the AgentCore endpoint.
+    """
+    try:
+        agentcore_endpoint_url = os.environ.get('AGENTCORE_ENDPOINT_URL')
+        if not agentcore_endpoint_url:
+            return create_error_response(503, "AgentCore endpoint not configured", "AGENTCORE_NOT_CONFIGURED")
+        
+        # Perform health check
+        try:
+            response = requests.get(
+                f"{agentcore_endpoint_url}/health",
+                timeout=10  # 10 second timeout for health check
+            )
+            
+            health_data = {
+                'status': 'healthy' if response.status_code == 200 else 'unhealthy',
+                'agentcore_status_code': response.status_code,
+                'timestamp': get_current_timestamp()
+            }
+            
+            if response.headers.get('content-type', '').startswith('application/json'):
+                try:
+                    agentcore_response = response.json()
+                    health_data['agentcore_response'] = agentcore_response
+                except:
+                    health_data['agentcore_response'] = response.text
+            else:
+                health_data['agentcore_response'] = response.text
+            
+            return create_response(200, health_data)
+                
+        except requests.exceptions.Timeout:
+            return create_response(503, {
+                'status': 'unhealthy',
+                'error': 'AgentCore health check timeout',
+                'timestamp': get_current_timestamp()
+            })
+        except requests.exceptions.RequestException as e:
+            logger.error(f"AgentCore health check failed: {str(e)}")
+            return create_response(503, {
+                'status': 'unhealthy',
+                'error': 'AgentCore health check failed',
+                'timestamp': get_current_timestamp()
+            })
+        
+    except Exception as e:
+        logger.error(f"Error in handle_agentcore_health: {str(e)}")
         return create_error_response(500, "Internal server error")
 
 

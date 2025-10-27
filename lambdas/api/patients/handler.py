@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import logging
+import json
 from typing import Dict, Any
 from shared.database import DatabaseManager, DatabaseError
 from shared.utils import (
@@ -30,15 +31,19 @@ db_manager = DatabaseManager()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for patients API.
-    Routes requests to appropriate handlers based on HTTP method and path.
+    Supports both API Gateway and MCP Gateway invocations.
     """
-    # Handle both API Gateway v1 and v2 event formats
+    # Check if this is an MCP Gateway invocation
+    if _is_mcp_gateway_event(event):
+        return handle_mcp_gateway_request(event)
+    
+    # Handle API Gateway requests (existing logic)
     http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
     path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
-    logger.info(f"Received request: method={http_method}, path={path}")
+    logger.info(f"Received API Gateway request: method={http_method}, path={path}")
     
     # Normalize path by removing stage prefix if present
     normalized_path = path
@@ -61,6 +66,94 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return delete_patient(patient_id)
     
     return create_error_response(404, "Endpoint not found")
+
+
+def _is_mcp_gateway_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from MCP Gateway.
+    MCP Gateway events have a different structure than API Gateway events.
+    """
+    # MCP Gateway events typically have 'action' parameter and no HTTP method/path
+    return (
+        'action' in event and 
+        'httpMethod' not in event and 
+        'requestContext' not in event
+    )
+
+
+def handle_mcp_gateway_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle MCP Gateway requests with action-based routing.
+    
+    Expected event structure:
+    {
+        "action": "list|get|create|update|delete",
+        "patient_id": "optional-patient-id",
+        "patient_data": {...},
+        "pagination": {...}
+    }
+    """
+    try:
+        action = event.get('action')
+        logger.info(f"Received MCP Gateway request: action={action}")
+        
+        if action == 'list':
+            # Convert MCP parameters to API Gateway format
+            query_params = {}
+            if 'pagination' in event:
+                pagination = event['pagination']
+                query_params['limit'] = str(pagination.get('limit', 50))
+                query_params['offset'] = str(pagination.get('offset', 0))
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'queryStringParameters': query_params
+            }
+            return list_patients(mock_event)
+            
+        elif action == 'get':
+            patient_id = event.get('patient_id')
+            if not patient_id:
+                return create_error_response(400, "patient_id required for get action")
+            return get_patient(patient_id)
+            
+        elif action == 'create':
+            patient_data = event.get('patient_data')
+            if not patient_data:
+                return create_error_response(400, "patient_data required for create action")
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'body': json.dumps(patient_data)
+            }
+            return create_patient(mock_event)
+            
+        elif action == 'update':
+            patient_id = event.get('patient_id')
+            patient_data = event.get('patient_data')
+            if not patient_id:
+                return create_error_response(400, "patient_id required for update action")
+            if not patient_data:
+                return create_error_response(400, "patient_data required for update action")
+            
+            # Create mock API Gateway event
+            mock_event = {
+                'body': json.dumps(patient_data)
+            }
+            return update_patient(patient_id, mock_event)
+            
+        elif action == 'delete':
+            patient_id = event.get('patient_id')
+            if not patient_id:
+                return create_error_response(400, "patient_id required for delete action")
+            return delete_patient(patient_id)
+            
+        else:
+            return create_error_response(400, f"Unknown action: {action}")
+            
+    except Exception as e:
+        logger.error(f"Error handling MCP Gateway request: {str(e)}")
+        return create_error_response(500, f"Internal server error: {str(e)}")
 
 
 def list_patients(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -134,6 +227,9 @@ def create_patient(event: Dict[str, Any]) -> Dict[str, Any]:
         Created patient data
     """
     try:
+        # Ensure patients table exists
+        ensure_patients_table_exists()
+        
         body = parse_event_body(event)
         
         # Validate required fields
@@ -144,15 +240,19 @@ def create_patient(event: Dict[str, Any]) -> Dict[str, Any]:
         # Generate patient ID
         patient_id = generate_uuid()
         
+        # Generate a demo email for the patient
+        demo_email = f"patient.{patient_id.lower()}@demo.hospital.com"
+        
         sql = """
-        INSERT INTO patients (patient_id, full_name, date_of_birth, created_at, updated_at)
-        VALUES (:patient_id, :full_name, :date_of_birth, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO patients (patient_id, full_name, email, date_of_birth, created_at, updated_at)
+        VALUES (:patient_id, :full_name, :email, :date_of_birth, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         RETURNING patient_id, full_name, date_of_birth, created_at, updated_at
         """
         
         parameters = [
             db_manager.create_parameter('patient_id', patient_id, 'string'),
             db_manager.create_parameter('full_name', body['full_name'], 'string'),
+            db_manager.create_parameter('email', demo_email, 'string'),
             db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string')
         ]
         
@@ -289,6 +389,26 @@ def update_patient(patient_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error in update_patient: {str(e)}")
         return create_error_response(500, "Internal server error")
+
+
+def ensure_patients_table_exists() -> None:
+    """Ensure patients table exists by creating it if necessary."""
+    try:
+        sql = """
+        CREATE TABLE IF NOT EXISTS patients (
+            patient_id VARCHAR(255) PRIMARY KEY,
+            full_name VARCHAR(200) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            date_of_birth DATE,
+            phone VARCHAR(20),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        db_manager.execute_sql(sql, [])
+        logger.info("Ensured patients table exists")
+    except Exception as e:
+        logger.warning(f"Could not ensure patients table exists: {e}")
 
 
 def delete_patient(patient_id: str) -> Dict[str, Any]:

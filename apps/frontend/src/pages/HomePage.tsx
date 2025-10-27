@@ -1,7 +1,8 @@
-import React from 'react';
+import type React from 'react';
 import { Container, Header, SpaceBetween, Box } from '@cloudscape-design/components';
-import ApiExample from '../components/ApiExample';
+// ApiExample removed - was only for testing
 import { MainLayout } from '../components/layout/MainLayout';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface HomePageProps {
   signOut?: () => void;
@@ -13,6 +14,8 @@ interface HomePageProps {
 }
 
 const HomePage: React.FC<HomePageProps> = ({ signOut, user }) => {
+  const { mode } = useTheme();
+  
   return (
     <MainLayout signOut={signOut} user={user}>
       <SpaceBetween size="l">
@@ -21,11 +24,13 @@ const HomePage: React.FC<HomePageProps> = ({ signOut, user }) => {
         </Header>
         <Container>
           <Box padding="l">
-            <p>¡Su aplicación Cloudscape está lista para ser construida!</p>
-            <p>Los servicios de API están configurados y listos para usar. Vea el ejemplo a continuación:</p>
+            <p>¡Su aplicación de salud está lista para usar!</p>
+            <p>Utilice el chat para interactuar con el asistente de IA o configure pacientes, médicos y exámenes.</p>
+            <Box margin={{ top: 'm' }} color="text-body-secondary">
+              <small>Tema actual: {mode === 'light' ? '☀️ Claro' : '🌙 Oscuro'} - Use el botón en la barra superior para cambiar</small>
+            </Box>
           </Box>
         </Container>
-        <ApiExample />
       </SpaceBetween>
     </MainLayout>
   );

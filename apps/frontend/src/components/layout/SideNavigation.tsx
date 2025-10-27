@@ -14,11 +14,7 @@ export function SideNavigation() {
       text: t.nav.chat,
       href: '/chat',
     },
-    {
-      type: 'link',
-      text: t.nav.dashboard,
-      href: '/dashboard',
-    },
+    // Dashboard navigation removed - functionality integrated into chat page
     {
       type: 'link',
       text: t.nav.configuration,

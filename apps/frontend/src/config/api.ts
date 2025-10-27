@@ -52,12 +52,16 @@ export const API_ENDPOINTS = {
   reservations: '/reservations',
   reservation: (id: string) => `/reservations/${id}`,
 
-  // Chat endpoints
-  chatMessage: '/chat/message',
-  chatSessions: '/chat/sessions',
-  chatSessionMessages: (sessionId: string) => `/chat/sessions/${sessionId}/messages`,
+  // Chat endpoints - DEPRECATED: Use AgentCore instead
+  chatMessage: '/chat/message', // DEPRECATED
+  chatSessions: '/chat/sessions', // DEPRECATED
+  chatSessionMessages: (sessionId: string) => `/chat/sessions/${sessionId}/messages`, // DEPRECATED
 
-  // Agent endpoints
+  // AgentCore endpoints
+  agentCoreChat: '/agentcore/chat',
+  agentCoreHealth: '/agentcore/health',
+
+  // Agent endpoints (legacy)
   agent: '/agent',
 
   // Document endpoints - removed, using direct S3 upload via Amplify Storage

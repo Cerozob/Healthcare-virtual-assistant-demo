@@ -51,6 +51,31 @@ class DocumentWorkflowStack(Stack):
             event_bridge_enabled=True,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
+            cors=[
+                s3.CorsRule(
+                    allowed_headers=["*"],
+                    allowed_methods=[
+                        s3.HttpMethods.GET,
+                        s3.HttpMethods.PUT,
+                        s3.HttpMethods.POST,
+                        s3.HttpMethods.DELETE,
+                        s3.HttpMethods.HEAD
+                    ],
+                    allowed_origins=[
+                        "http://localhost:3000",
+                        "http://localhost:5173",
+                        "https://*.amplifyapp.com",
+                        "https://*.cloudfront.net"
+                    ],
+                    exposed_headers=[
+                        "ETag",
+                        "x-amz-server-side-encryption",
+                        "x-amz-request-id",
+                        "x-amz-id-2"
+                    ],
+                    max_age=3000
+                )
+            ]
         )
 
         self.processed_bucket = s3.Bucket(
@@ -64,6 +89,31 @@ class DocumentWorkflowStack(Stack):
             event_bridge_enabled=True,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
+            cors=[
+                s3.CorsRule(
+                    allowed_headers=["*"],
+                    allowed_methods=[
+                        s3.HttpMethods.GET,
+                        s3.HttpMethods.PUT,
+                        s3.HttpMethods.POST,
+                        s3.HttpMethods.DELETE,
+                        s3.HttpMethods.HEAD
+                    ],
+                    allowed_origins=[
+                        "http://localhost:3000",
+                        "http://localhost:5173",
+                        "https://*.amplifyapp.com",
+                        "https://*.cloudfront.net"
+                    ],
+                    exposed_headers=[
+                        "ETag",
+                        "x-amz-server-side-encryption",
+                        "x-amz-request-id",
+                        "x-amz-id-2"
+                    ],
+                    max_age=3000
+                )
+            ]
         )
 
         # Create SSM parameters for the buckets
@@ -297,7 +347,7 @@ class DocumentWorkflowStack(Stack):
         )
 
         # Grant S3 permissions to cleanup lambda
-        self.raw_bucket.grant_read(self.cleanup_lambda)
+        self.raw_bucket.grant_read_write(self.cleanup_lambda)
         self.processed_bucket.grant_read_write(self.cleanup_lambda)
 
         # * EventBridge Rules for S3 Object Deletion Events

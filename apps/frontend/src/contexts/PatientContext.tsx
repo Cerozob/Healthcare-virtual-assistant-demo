@@ -4,13 +4,13 @@
  */
 
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { Patient, Exam } from '../types/api';
+import type { Patient, Reservation } from '../types/api';
 
 interface PatientContextValue {
   selectedPatient: Patient | null;
-  patientExams: Exam[];
+  patientExams: Reservation[];
   setSelectedPatient: (patient: Patient | null) => void;
-  setPatientExams: (exams: Exam[]) => void;
+  setPatientExams: (exams: Reservation[]) => void;
   clearPatient: () => void;
   isPatientSelected: boolean;
 }
@@ -23,13 +23,13 @@ interface PatientProviderProps {
 
 export const PatientProvider: React.FC<PatientProviderProps> = ({ children }) => {
   const [selectedPatient, setSelectedPatientState] = useState<Patient | null>(null);
-  const [patientExams, setPatientExamsState] = useState<Exam[]>([]);
+  const [patientExams, setPatientExamsState] = useState<Reservation[]>([]);
 
   const setSelectedPatient = useCallback((patient: Patient | null) => {
     setSelectedPatientState(patient);
   }, []);
 
-  const setPatientExams = useCallback((exams: Exam[]) => {
+  const setPatientExams = useCallback((exams: Reservation[]) => {
     setPatientExamsState(exams);
   }, []);
 

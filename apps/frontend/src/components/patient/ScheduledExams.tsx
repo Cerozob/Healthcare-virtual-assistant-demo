@@ -14,11 +14,11 @@ import {
   Pagination,
   CollectionPreferences
 } from '@cloudscape-design/components';
-import { Exam } from '../../types/api';
+import type { Reservation } from '../../types/api';
 import { es } from '../../i18n/es';
 
 interface ScheduledExamsProps {
-  exams: Exam[];
+  exams: Reservation[];
   loading?: boolean;
 }
 
@@ -65,10 +65,10 @@ export const ScheduledExams: React.FC<ScheduledExamsProps> = ({
 
     const searchLower = filteringText.toLowerCase();
     return exams.filter(exam =>
-      exam.exam_type.toLowerCase().includes(searchLower) ||
-      exam.exam_id.toLowerCase().includes(searchLower) ||
+      exam.exam_name?.toLowerCase().includes(searchLower) ||
+      exam.reservation_id.toLowerCase().includes(searchLower) ||
       exam.status.toLowerCase().includes(searchLower) ||
-      (exam.medic_id && exam.medic_id.toLowerCase().includes(searchLower))
+      exam.medic_name?.toLowerCase().includes(searchLower)
     );
   }, [exams, filteringText]);
 
@@ -81,7 +81,7 @@ export const ScheduledExams: React.FC<ScheduledExamsProps> = ({
   // Sort exams by date (upcoming first)
   const sortedExams = useMemo(() => {
     return [...paginatedExams].sort((a, b) => {
-      return new Date(a.exam_date).getTime() - new Date(b.exam_date).getTime();
+      return new Date(a.appointment_date).getTime() - new Date(b.appointment_date).getTime();
     });
   }, [paginatedExams]);
 
@@ -99,16 +99,16 @@ export const ScheduledExams: React.FC<ScheduledExamsProps> = ({
       <Table
         columnDefinitions={[
           {
-            id: 'exam_type',
+            id: 'exam_name',
             header: es.exam.type,
-            cell: (exam: Exam) => exam.exam_type,
-            sortingField: 'exam_type'
+            cell: (exam: Reservation) => exam.exam_name || '-',
+            sortingField: 'exam_name'
           },
           {
-            id: 'exam_date',
+            id: 'appointment_date',
             header: es.exam.date,
-            cell: (exam: Exam) => {
-              const { date, time } = formatDateTime(exam.exam_date);
+            cell: (exam: Reservation) => {
+              const { date, time } = formatDateTime(exam.appointment_date);
               return (
                 <Box>
                   <div>{date}</div>
@@ -118,22 +118,22 @@ export const ScheduledExams: React.FC<ScheduledExamsProps> = ({
                 </Box>
               );
             },
-            sortingField: 'exam_date'
+            sortingField: 'appointment_date'
           },
           {
             id: 'medic',
             header: es.exam.medic,
-            cell: (exam: Exam) => exam.medic_id || '-'
+            cell: (exam: Reservation) => exam.medic_name || '-'
           },
           {
             id: 'status',
             header: es.exam.status,
-            cell: (exam: Exam) => getStatusBadge(exam.status)
+            cell: (exam: Reservation) => getStatusBadge(exam.status)
           },
           {
-            id: 'results',
+            id: 'notes',
             header: es.exam.results,
-            cell: (exam: Exam) => exam.results ? (
+            cell: (exam: Reservation) => exam.notes ? (
               <Badge color="green">Disponible</Badge>
             ) : (
               <Box color="text-body-secondary">Pendiente</Box>

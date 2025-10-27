@@ -5,46 +5,24 @@ import { useLanguage } from '../../contexts/LanguageContext';
 
 interface TopNavigationBarProps {
   signOut?: () => void;
-  user?: {
-    signInDetails?: {
-      loginId?: string;
-    };
-  };
 }
 
-export function TopNavigationBar({ signOut, user }: TopNavigationBarProps) {
+export function TopNavigationBar({ signOut }: TopNavigationBarProps) {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
   const utilities: TopNavigationProps.Utility[] = [
     {
-      type: 'menu-dropdown',
-      text: user?.signInDetails?.loginId || 'Usuario',
-      description: user?.signInDetails?.loginId,
-      iconName: 'user-profile',
-      items: [
-        {
-          id: 'profile',
-          text: t.nav.profile,
-        },
-        {
-          id: 'settings',
-          text: t.nav.settings,
-        },
-        {
-          id: 'signout',
-          text: t.auth.signOut,
-        },
-      ],
-      onItemClick: ({ detail }) => {
-        if (detail.id === 'signout') {
-          signOut?.();
-        } else if (detail.id === 'profile') {
-          navigate('/profile');
-        } else if (detail.id === 'settings') {
-          navigate('/settings');
-        }
-      },
+      type: 'button',
+      iconName: 'settings',
+      ariaLabel: 'Configuración',
+      onClick: () => navigate('/configuration'),
+    },
+    {
+      type: 'button',
+      iconName: 'unlocked',
+      ariaLabel: t.auth.signOut,
+      onClick: () => signOut?.(),
     },
   ];
 

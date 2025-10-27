@@ -29,18 +29,18 @@ export class PatientService {
   }
 
   /**
-   * Get patient with their scheduled exams
+   * Get patient with their scheduled reservations
    */
-  async getPatientWithExams(id: string): Promise<{ patient: Patient; exams: import('../types/api').Exam[] }> {
-    // Fetch patient and exams in parallel
-    const [patientResponse, examsResponse] = await Promise.all([
+  async getPatientWithExams(id: string): Promise<{ patient: Patient; exams: import('../types/api').Reservation[] }> {
+    // Fetch patient and reservations in parallel
+    const [patientResponse, reservationsResponse] = await Promise.all([
       this.getPatient(id),
-      apiClient.get<import('../types/api').ExamsResponse>(API_ENDPOINTS.exams, { patient_id: id })
+      apiClient.get<import('../types/api').ReservationsResponse>(API_ENDPOINTS.reservations, { patient_id: id })
     ]);
 
     return {
       patient: patientResponse.patient,
-      exams: examsResponse.exams || []
+      exams: reservationsResponse.reservations || []
     };
   }
 

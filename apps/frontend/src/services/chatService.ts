@@ -5,7 +5,7 @@
 
 import { apiClient } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
-import {
+import type {
   SendMessageRequest,
   SendMessageResponse,
   CreateSessionRequest,
@@ -17,10 +17,10 @@ import {
 
 export class ChatService {
   /**
-   * Send message to chat agent
+   * Send message to AgentCore chat endpoint
    */
   async sendMessage(data: SendMessageRequest): Promise<SendMessageResponse> {
-    return apiClient.post<SendMessageResponse>(API_ENDPOINTS.chatMessage, data);
+    return apiClient.post<SendMessageResponse>(API_ENDPOINTS.agentCoreChat, data);
   }
 
   /**
@@ -33,8 +33,8 @@ export class ChatService {
   /**
    * Create new chat session
    */
-  async createSession(data?: CreateSessionRequest): Promise<{ message: string; session: any }> {
-    return apiClient.post<{ message: string; session: any }>(API_ENDPOINTS.chatSessions, data || {});
+  async createSession(data?: CreateSessionRequest): Promise<{ message: string; session: Record<string, unknown> }> {
+    return apiClient.post<{ message: string; session: Record<string, unknown> }>(API_ENDPOINTS.chatSessions, data || {});
   }
 
   /**
@@ -46,7 +46,7 @@ export class ChatService {
 
   /**
    * Echo message functionality (placeholder for AI integration)
-   * Simulates AI response by echoing the user's message
+   * Simulates AI response by echoing the user's message with patient context awareness
    */
   async sendEchoMessage(content: string, _sessionId?: string): Promise<{ userMessage: ChatMessage; agentMessage: ChatMessage }> {
     // Simulate network delay
@@ -62,46 +62,116 @@ export class ChatService {
       timestamp
     };
 
-    // Generate markdown response to demonstrate markdown rendering
-    const markdownResponse = `# Respuesta del Asistente IA
+    // Parse patient context and document information from the content
+    const hasPatientContext = content.includes('[Contexto del paciente:');
+    const hasDocuments = content.includes('[Documentos adjuntos');
+    const noPatientContext = content.includes('[Sin contexto de paciente seleccionado]');
+    
+    let patientInfo = '';
+    let documentInfo = '';
+    let actualMessage = content;
 
-Recibí tu mensaje: "${content}"
+    // Extract patient information
+    if (hasPatientContext) {
+      const patientMatch = content.match(/\[Contexto del paciente: ([^\]]+)\]/);
+      if (patientMatch) {
+        patientInfo = patientMatch[1];
+        actualMessage = content.replace(patientMatch[0], '').trim();
+      }
+    }
 
-## Análisis del mensaje
+    // Extract document information
+    if (hasDocuments) {
+      const docMatch = content.match(/\[Documentos adjuntos[^\]]*:\n([^\]]+)\]/);
+      if (docMatch) {
+        documentInfo = docMatch[1];
+        actualMessage = actualMessage.replace(/\[Documentos adjuntos[^\]]*:\n[^\]]+\]/, '').trim();
+      }
+    }
 
-- **Longitud**: ${content.length} caracteres
-- **Palabras**: ${content.split(' ').length} palabras
-- **Tipo**: ${content.includes('?') ? 'Pregunta' : 'Declaración'}
+    // Generate contextual response
+    let markdownResponse = `# Asistente Virtual de Salud (Modo Echo)
 
-### Capacidades de Markdown
+`;
 
-Este asistente puede mostrar contenido con formato **markdown** que incluye:
+    if (noPatientContext) {
+      markdownResponse += `⚠️ **Sin contexto de paciente**: Para obtener respuestas más precisas y personalizadas, por favor seleccione un paciente en el panel lateral.
 
-1. **Texto en negrita** y *texto en cursiva*
-2. \`Código inline\` y bloques de código:
+`;
+    } else if (hasPatientContext) {
+      markdownResponse += `👤 **Paciente**: ${patientInfo}
 
-\`\`\`javascript
-function ejemplo() {
-  console.log("¡Hola mundo!");
-  return "Markdown funciona correctamente";
-}
-\`\`\`
+`;
+    }
 
-3. Listas ordenadas y no ordenadas
-4. Enlaces como [este enlace a AWS](https://aws.amazon.com)
-5. Tablas:
+    if (hasDocuments) {
+      markdownResponse += `📄 **Documentos procesados**:
+${documentInfo.split('\n').map(line => `- ${line.trim()}`).join('\n')}
 
-| Característica | Estado |
-|----------------|--------|
-| Markdown | ✅ Implementado |
-| Código | ✅ Soportado |
-| Tablas | ✅ Funcionando |
+> Los documentos han sido subidos al flujo de trabajo de documentos y serán procesados automáticamente según las pautas establecidas.
 
-> **Nota**: Este es un ejemplo de blockquote para mostrar citas o información importante.
+`;
+    }
+
+    markdownResponse += `## Tu consulta
+"${actualMessage}"
+
+## Respuesta del Asistente
+
+`;
+
+    // Generate contextual response based on content
+    if (actualMessage.toLowerCase().includes('historia') || actualMessage.toLowerCase().includes('historial')) {
+      markdownResponse += `Entiendo que necesitas información sobre el historial médico${hasPatientContext ? ' del paciente' : ''}. `;
+      if (hasPatientContext) {
+        markdownResponse += `Con el contexto del paciente ${patientInfo}, puedo ayudarte a revisar su historial médico y identificar patrones relevantes.`;
+      } else {
+        markdownResponse += `Para proporcionarte información específica del historial, necesitaría que selecciones un paciente.`;
+      }
+    } else if (actualMessage.toLowerCase().includes('cita') || actualMessage.toLowerCase().includes('agendar')) {
+      markdownResponse += `Para agendar una cita${hasPatientContext ? ` para ${patientInfo}` : ''}, necesitaré la siguiente información:
+
+- Tipo de examen o consulta
+- Fecha y hora preferida
+- Médico especialista (si aplica)
+- Motivo de la consulta
+
+${hasPatientContext ? `Con el paciente ya seleccionado, podemos proceder con el agendamiento.` : `Por favor selecciona un paciente para continuar con el agendamiento.`}`;
+    } else if (actualMessage.toLowerCase().includes('síntomas') || actualMessage.toLowerCase().includes('sintomas')) {
+      markdownResponse += `Para analizar síntomas${hasPatientContext ? ` del paciente ${patientInfo}` : ''}, puedo ayudarte a:
+
+1. **Revisar síntomas actuales** y su duración
+2. **Comparar con historial previo** de síntomas similares
+3. **Identificar patrones** o síntomas recurrentes
+4. **Sugerir seguimiento** médico apropiado
+
+${hasPatientContext ? `Con el contexto del paciente, puedo proporcionar un análisis más detallado.` : `Selecciona un paciente para un análisis personalizado.`}`;
+    } else {
+      markdownResponse += `He recibido tu mensaje y estoy listo para ayudarte. ${hasPatientContext ? `Con el contexto del paciente ${patientInfo}, ` : ''}Puedo asistirte con:
+
+- 📋 **Revisión de historiales médicos**
+- 📅 **Agendamiento de citas**
+- 🔍 **Análisis de síntomas**
+- 📊 **Consulta de resultados de exámenes**
+- 💊 **Información sobre medicamentos**`;
+    }
+
+    markdownResponse += `
 
 ---
 
-¿Hay algo específico en lo que pueda ayudarte?`;
+### Capacidades del Sistema
+
+| Función | Estado | Descripción |
+|---------|--------|-------------|
+| Contexto de Paciente | ${hasPatientContext ? '✅ Activo' : '⚠️ No seleccionado'} | Información específica del paciente |
+| Procesamiento de Documentos | ${hasDocuments ? '✅ Procesando' : '⏸️ Sin documentos'} | Clasificación automática de documentos |
+| Flujo de Trabajo | ✅ Implementado | Seguimiento de pautas de documentos |
+| Modo Echo | ✅ Activo | Simulación de respuestas (desarrollo) |
+
+> **Nota**: Este es el modo de desarrollo (echo). En producción, las consultas serán procesadas por agentes de IA especializados en salud.
+
+¿En qué más puedo ayudarte?`;
 
     const agentMessage: ChatMessage = {
       id: `${messageId}_response`,

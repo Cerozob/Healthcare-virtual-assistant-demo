@@ -29,10 +29,18 @@ export const es = {
   nav: {
     home: 'Inicio',
     chat: 'Chat',
-    dashboard: 'Panel de pacientes',
+    // dashboard removed - functionality integrated into chat
     configuration: 'Configuración',
     profile: 'Perfil',
     settings: 'Ajustes',
+  },
+
+  // Theme
+  theme: {
+    light: 'Modo claro',
+    dark: 'Modo oscuro',
+    system: 'Seguir sistema',
+    toggle: 'Cambiar tema',
   },
   
   // Common
@@ -59,6 +67,7 @@ export const es = {
     finish: 'Finalizar',
     required: 'Requerido',
     optional: 'Opcional',
+    change: 'Cambiar a',
   },
   
   // Errors
@@ -134,6 +143,7 @@ export const es = {
     exams: 'Exámenes',
     reservations: 'Reservas',
     files: 'Archivos',
+    settings: 'Configuración',
     manageEntities: 'Gestionar entidades',
     addNew: 'Agregar nuevo',
     editEntity: 'Editar entidad',

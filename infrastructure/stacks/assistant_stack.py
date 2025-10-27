@@ -5,17 +5,23 @@ Assistant Stack for Healthcare Workflow System.
 from aws_cdk import Stack, CfnOutput, RemovalPolicy, CustomResource, Duration
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_bedrockagentcore as agentcore
+from aws_cdk import aws_bedrock_agentcore_alpha as agentcore_alpha
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
-from aws_cdk import aws_ecr_assets as ecr_assets
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_ecr_assets as ecr_assets
+
 from constructs import Construct
+from typing import Dict
 import json
 import os
 from pathlib import Path
+from ..schemas.lambda_tool_schemas import get_all_tool_schemas
+from ..constructs.bedrock_guardrail_construct import BedrockGuardrailConstruct
+from ..constructs.bedrock_knowledge_base_construct import BedrockKnowledgeBaseConstruct
 
 
 class AssistantStack(Stack):
@@ -27,11 +33,12 @@ class AssistantStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
+        bedrock_user_secret,
         processed_bucket: s3.Bucket = None,
         database_cluster: rds.DatabaseCluster = None,
         db_init_resource: CustomResource = None,
-        bedrock_user_secret=None,
-        api_gateway_endpoint: str = None,
+        lambda_functions: Dict = None,
+
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -41,129 +48,23 @@ class AssistantStack(Stack):
         self.database_cluster = database_cluster
         self.db_init_resource = db_init_resource
         self.bedrock_user_secret = bedrock_user_secret
-        self.api_gateway_endpoint = api_gateway_endpoint
+        self.lambda_functions = lambda_functions or {}
 
-        self.supplemental_data_storage = s3.Bucket(
+
+        # Create Bedrock Knowledge Base construct
+        self.knowledge_base_construct = BedrockKnowledgeBaseConstruct(
             self,
-            "SupplementalDataStorage",
-            bucket_name=f"ab2-cerozob-supplemental-data-{self.region}",
-            versioned=True,
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            enforce_ssl=True,
-            removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,
+            "KnowledgeBase",
+            processed_bucket=processed_bucket,
+            database_cluster=database_cluster,
+            bedrock_user_secret=bedrock_user_secret,
+            db_init_resource=db_init_resource
         )
 
-        embeddings_model = bedrock.FoundationModel.from_foundation_model_id(
-            self, "Model", bedrock.FoundationModelIdentifier.AMAZON_TITAN_EMBED_TEXT_V2_0)
-
-        knowledge_base_config = bedrock.CfnKnowledgeBase.KnowledgeBaseConfigurationProperty(
-            type="VECTOR",
-            vector_knowledge_base_configuration=bedrock.CfnKnowledgeBase.VectorKnowledgeBaseConfigurationProperty(
-                embedding_model_arn=embeddings_model.model_arn,
-                embedding_model_configuration=bedrock.CfnKnowledgeBase.EmbeddingModelConfigurationProperty(
-
-                    bedrock_embedding_model_configuration=bedrock.CfnKnowledgeBase.BedrockEmbeddingModelConfigurationProperty(
-                        dimensions=1024,
-                        embedding_data_type="FLOAT32"
-                    )),
-                supplemental_data_storage_configuration=bedrock.CfnKnowledgeBase.SupplementalDataStorageConfigurationProperty(
-                    supplemental_data_storage_locations=[
-                        bedrock.CfnKnowledgeBase.SupplementalDataStorageLocationProperty(
-                            supplemental_data_storage_location_type="S3",
-                            s3_location=bedrock.CfnKnowledgeBase.S3LocationProperty(
-                                uri=f"s3://{self.supplemental_data_storage.bucket_name}"
-
-                            )
-                        )
-
-                    ],
-
-                ),
-
-
-            )
-
-        )
-        knowledge_base_storage_config = bedrock.CfnKnowledgeBase.StorageConfigurationProperty(
-            type="RDS",
-            rds_configuration=bedrock.CfnKnowledgeBase.RdsConfigurationProperty(
-                credentials_secret_arn=self.bedrock_user_secret.secret_arn if self.bedrock_user_secret else self.database_cluster.secret.secret_arn,
-                database_name="healthcare",
-                resource_arn=self.database_cluster.cluster_arn,
-                table_name="ab2_knowledge_base",
-                field_mapping=bedrock.CfnKnowledgeBase.RdsFieldMappingProperty(
-                    metadata_field="metadata",
-                    primary_key_field="pk",
-                    text_field="text",
-                    vector_field="vector",
-                    custom_metadata_field="custom_metadata"
-                )
-            )
-        )
-
-        self.knowledge_base = bedrock.CfnKnowledgeBase(
+        # Create Bedrock Guardrail construct
+        self.guardrail_construct = BedrockGuardrailConstruct(
             self,
-            "HealthcareWorkflowKnowledgeBase",
-            knowledge_base_configuration=knowledge_base_config,
-            storage_configuration=knowledge_base_storage_config,
-            name="HealthcareWorkflowKnowledgeBase",
-            role_arn=self.create_knowledge_base_role()
-        )
-
-        # Ensure database is initialized before creating Knowledge Base
-        if self.db_init_resource:
-            self.knowledge_base.node.add_dependency(self.db_init_resource)
-
-        # Also ensure the database cluster is fully created
-        self.knowledge_base.node.add_dependency(self.database_cluster)
-
-        data_source = bedrock.CfnDataSource(
-            self,
-            "HealthcareWorkflowDataSource",
-            name="HealthcareWorkflowDataSource",
-            knowledge_base_id=self.knowledge_base.attr_knowledge_base_id,
-            data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
-                type="S3",
-                s3_configuration=bedrock.CfnDataSource.S3DataSourceConfigurationProperty(
-                    bucket_arn=processed_bucket.bucket_arn,
-                    bucket_owner_account_id=self.account,
-                ),
-
-            ),
-            vector_ingestion_configuration=bedrock.CfnDataSource.VectorIngestionConfigurationProperty(
-                custom_transformation_configuration=None,
-                context_enrichment_configuration=None,
-                parsing_configuration=bedrock.CfnDataSource.ParsingConfigurationProperty(
-                    parsing_strategy="BEDROCK_DATA_AUTOMATION",
-                    bedrock_data_automation_configuration=bedrock.CfnDataSource.BedrockDataAutomationConfigurationProperty(
-                        parsing_modality="MULTIMODAL",
-                    )
-                ),
-                chunking_configuration=bedrock.CfnDataSource.ChunkingConfigurationProperty(
-                    chunking_strategy="SEMANTIC",
-                    semantic_chunking_configuration=bedrock.CfnDataSource.SemanticChunkingConfigurationProperty(
-                        breakpoint_percentile_threshold=90,
-                        buffer_size=1,
-                        max_tokens=512,
-                    )
-                )
-            ),
-            data_deletion_policy="DELETE"
-        )
-
-        # Create ECR asset for agent container
-        self.agent_container_asset = ecr_assets.DockerImageAsset(
-            self,
-            "HealthcareAssistantContainer",
-            directory=str(Path(__file__).parent.parent.parent / "agents"),
-            file="Dockerfile",
-            platform=ecr_assets.Platform.LINUX_ARM64,
-            build_args={
-                "BUILDPLATFORM": "linux/arm64",
-                "TARGETPLATFORM": "linux/arm64"
-            }
+            "Guardrail"
         )
 
         # Create CloudWatch log group for agent runtime
@@ -175,171 +76,113 @@ class AssistantStack(Stack):
             removal_policy=RemovalPolicy.DESTROY
         )
 
-        # # Create AgentCore Runtime
-        # self.agent_runtime = self.create_agent_runtime()
+        print(
+            f"building from {str(Path(__file__).parent.parent.parent / "agents")}")
+        # Create ECR asset for agent container
+        self.agent_runtime_artifact = agentcore_alpha.AgentRuntimeArtifact.from_asset(
+            directory=str(Path(__file__).parent.parent.parent / "agents"),
+            platform=ecr_assets.Platform.LINUX_ARM64,
+        )
 
-        # # Create CloudFormation outputs
-        # self.create_outputs()
 
-    def create_knowledge_base_role(self):
-        """
-        Create the role for the knowledge base with complete permissions for Aurora and S3.
-        Based on: https://docs.aws.amazon.com/bedrock/latest/userguide/kb-permissions.html
-        """
-        knowledge_base_role = iam.Role(
+
+        self.inference_profile = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+        agentcore_gateway_role = iam.Role(
             self,
-            "HealthcareWorkflowKnowledgeBaseRole",
-            assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
+            "AgentcoreGatewayRuntimeRole",
+            assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            description="Role for Healthcare Assistant AgentCore Gateway",
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "BedrockAgentCoreFullAccess")
+            ]
         )
 
-        # Allow Bedrock to invoke embedding models
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=["bedrock:InvokeModel"],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/*"
-                ],
-            )
+        self.agentcore_gateway = agentcore.CfnGateway(
+            self, "Agentcoregateway", authorizer_type="AWS_IAM", name="agentcoregateway", protocol_type="MCP", role_arn=agentcore_gateway_role.role_arn
         )
-
-        # Complete RDS permissions for Aurora Serverless v2 with Knowledge Base
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "rds-data:ExecuteStatement",
-                    "rds-data:BatchExecuteStatement",
-                    "rds-data:BeginTransaction",
-                    "rds-data:CommitTransaction",
-                    "rds-data:RollbackTransaction"
-                ],
-                resources=[
-                    self.database_cluster.cluster_arn,
-                    f"{self.database_cluster.cluster_arn}:*"
-                ],
-            )
-        )
-
-        # RDS describe permissions (these require broader resource access)
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "rds:DescribeDBClusters",
-                    "rds:DescribeDBInstances",
-                    "rds:DescribeDBClusterParameters",
-                    "rds:DescribeDBParameters",
-                    "rds:DescribeDBSubnetGroups",
-                    "rds:ListTagsForResource",
-                    "rds:DescribeDBClusterEndpoints",
-                    "rds:DescribeDBClusterParameterGroups",
-                    "rds:DescribeDBParameterGroups"
-                ],
-                # RDS describe actions require * resource for validation
-                resources=["*"],
-            )
-        )
-
-        # Allow access to Secrets Manager for RDS credentials
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "secretsmanager:GetSecretValue",
-                    "secretsmanager:DescribeSecret"
-                ],
-                resources=[
-                    self.bedrock_user_secret.secret_arn if self.bedrock_user_secret else self.database_cluster.secret.secret_arn
-                ],
-            )
-        )
-
-        # Complete S3 permissions for data sources and supplemental data
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "s3:GetObject",
-                    "s3:GetObjectVersion",
-                    "s3:ListBucket",
-                    "s3:GetBucketLocation",
-                    "s3:GetBucketNotification",
-                    "s3:ListBucketVersions"
-                ],
-                resources=[
-                    self.processed_bucket.bucket_arn,
-                    f"{self.processed_bucket.bucket_arn}/*",
-                    self.supplemental_data_storage.bucket_arn,
-                    f"{self.supplemental_data_storage.bucket_arn}/*"
-                ],
-            )
-        )
-
-        # Allow EC2 permissions for VPC and security group validation
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "ec2:DescribeVpcs",
-                    "ec2:DescribeSubnets",
-                    "ec2:DescribeSecurityGroups",
-                    "ec2:DescribeNetworkInterfaces"
-                ],
-                resources=["*"],  # EC2 describe actions require * resource
-            )
-        )
-
-        # Allow CloudWatch Logs for Knowledge Base operations
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents"
-                ],
-                resources=[
-                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock/*"
-                ],
-            )
-        )
-
-        return knowledge_base_role.role_arn
-
-    def create_agent_runtime(self):
-        """
-        Create Bedrock AgentCore Runtime for healthcare assistant.
-        """
-        # Create IAM role for agent runtime
-        agent_runtime_role = self.create_agent_runtime_role()
 
         # Create AgentCore Runtime
-        agent_runtime = agentcore.CfnRuntime(
+        agent_runtime_role = self.create_agent_runtime_role()
+
+        # Create single lambda target gateway with all tool schemas
+        self.lambda_gateway_target = self._create_unified_lambda_gateway_target()
+
+        # Create AgentCore Runtime using alpha library
+        self.agent_runtime = agentcore_alpha.Runtime(
             self,
             "HealthcareAssistantRuntime",
-            agent_runtime_name="healthcare-assistant",
-            agent_runtime_artifact=agentcore.CfnRuntime.AgentRuntimeArtifactProperty(
-                container_configuration=agentcore.CfnRuntime.ContainerConfigurationProperty(
-                    container_uri=self.agent_container_asset.image_uri
-                )
-            ),
-            network_configuration=agentcore.CfnRuntime.NetworkConfigurationProperty(
-                network_mode="PUBLIC"
-            ),
-            role_arn=agent_runtime_role.role_arn,
+            runtime_name="healthcare_assistant",
+            agent_runtime_artifact=self.agent_runtime_artifact,
+            authorizer_configuration=agentcore_alpha.RuntimeAuthorizerConfiguration.using_iam(),
+            execution_role=agent_runtime_role,
             environment_variables=self.get_agent_environment_variables(),
-            # Guardrails configuration for PII/PHI protection
-            guardrail_configuration=agentcore.CfnRuntime.GuardrailConfigurationProperty(
-                guardrail_identifier="",  # TODO: To be configured during deployment
-                guardrail_version=""  # TODO: To be configured during deployment
-            )
+            # Network configuration defaults to PUBLIC
+            # Guardrails will be configured via environment variables
+            protocol_configuration=agentcore_alpha.ProtocolType.HTTP
         )
 
-        # Add dependency on knowledge base
-        agent_runtime.node.add_dependency(self.knowledge_base)
+        self.endpoint = agentcore_alpha.RuntimeEndpoint(self,
+            "AgentcoreEndpoint",
+            agent_runtime_id=self.agent_runtime.agent_runtime_id,
+            endpoint_name="AgentEndpoint",
+        )
 
-        return agent_runtime
+
+
+        # Add dependency on knowledge base and guardrails
+        self.agent_runtime.node.add_dependency(self.knowledge_base_construct.knowledge_base)
+        self.agent_runtime.node.add_dependency(self.agentcore_gateway)
+        self.agent_runtime.node.add_dependency(self.guardrail_construct.guardrails)
+
+        # Store AgentCore endpoint in SSM Parameter Store
+        self._create_ssm_parameters()
+
+        # Create CloudFormation outputs
+        self.create_outputs()
+
+
+
+    def _create_unified_lambda_gateway_target(self) -> agentcore.CfnGatewayTarget:
+        """
+        Create a single AgentCore gateway target with all Lambda function tools.
+        This simplified approach uses one gateway target with multiple tool definitions.
+        """
+        if not self.lambda_functions:
+            return None
+
+        # Get all tool schemas from the separate schemas file
+        all_tool_schemas = get_all_tool_schemas()
+
+        # Create a mapping of tool names to Lambda ARNs for the MCP configuration
+        # Since we have multiple tools but they all route to different Lambdas,
+        # we'll use the first Lambda as the primary target and handle routing in the Lambda
+        primary_lambda = list(self.lambda_functions.values())[0]
+
+        return agentcore.CfnGatewayTarget(
+            self,
+            "UnifiedLambdaGatewayTarget",
+            name="healthcare-lambda-tools",
+            credential_provider_configurations=[
+                agentcore.CfnGatewayTarget.CredentialProviderConfigurationProperty(
+                    credential_provider_type="GATEWAY_IAM_ROLE"
+                )
+            ],
+            target_configuration=agentcore.CfnGatewayTarget.TargetConfigurationProperty(
+                mcp=agentcore.CfnGatewayTarget.McpTargetConfigurationProperty(
+                    lambda_=agentcore.CfnGatewayTarget.McpLambdaTargetConfigurationProperty(
+                        lambda_arn=primary_lambda.function_arn,
+                        tool_schema=agentcore.CfnGatewayTarget.ToolSchemaProperty(
+                            inline_payload=all_tool_schemas
+                        )
+                    )
+                )
+            ),
+            gateway_identifier=self.agentcore_gateway.attr_gateway_identifier
+        )
+
+
 
     def create_agent_runtime_role(self):
         """
@@ -348,8 +191,12 @@ class AssistantStack(Stack):
         agent_runtime_role = iam.Role(
             self,
             "HealthcareAssistantRuntimeRole",
-            assumed_by=iam.ServicePrincipal("bedrock.amazonaws.com"),
-            description="Role for Healthcare Assistant AgentCore Runtime"
+            assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            description="Role for Healthcare Assistant AgentCore Runtime",
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonBedrockFullAccess")
+            ]
         )
 
         # Bedrock model invocation permissions
@@ -375,12 +222,12 @@ class AssistantStack(Stack):
                     "bedrock:RetrieveAndGenerate"
                 ],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/{self.knowledge_base.attr_knowledge_base_id}"
+                    f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/{self.knowledge_base_construct.knowledge_base_id}"
                 ]
             )
         )
 
-        # Bedrock Guardrails permissions
+        # Bedrock Guardrails permissions - including cross-region guardrail profiles
         agent_runtime_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -388,7 +235,12 @@ class AssistantStack(Stack):
                     "bedrock:ApplyGuardrail"
                 ],
                 resources=[
-                    f"arn:aws:bedrock:{self.region}:{self.account}:guardrail/*"
+                    # Local guardrails
+                    f"arn:aws:bedrock:{self.region}:{self.account}:guardrail/*",
+                    # Cross-region guardrail profiles for global inference
+                    f"arn:aws:bedrock:us-east-1:{self.account}:guardrail-profile/us.guardrail.v1:0",
+                    f"arn:aws:bedrock:us-east-2:{self.account}:guardrail-profile/us.guardrail.v1:0",
+                    f"arn:aws:bedrock:us-west-2:{self.account}:guardrail-profile/us.guardrail.v1:0"
                 ]
             )
         )
@@ -435,8 +287,8 @@ class AssistantStack(Stack):
                     "s3:ListBucket"
                 ],
                 resources=[
-                    self.supplemental_data_storage.bucket_arn,
-                    f"{self.supplemental_data_storage.bucket_arn}/*"
+                    self.knowledge_base_construct.supplemental_data_storage.bucket_arn,
+                    f"{self.knowledge_base_construct.supplemental_data_storage.bucket_arn}/*"
                 ]
             )
         )
@@ -485,54 +337,85 @@ class AssistantStack(Stack):
             )
         )
 
+        # AgentCore Gateway permissions
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:InvokeGateway",
+                    "bedrock-agentcore:ListGatewayTargets"
+                ],
+                resources=[
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:gateway/{self.agentcore_gateway.attr_gateway_identifier}",
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:gateway/{self.agentcore_gateway.attr_gateway_identifier}/*"
+                ]
+            )
+        )
+
+        # Lambda invoke permissions for gateway targets
+        if self.lambda_functions:
+            lambda_arns = [
+                func.function_arn for func in self.lambda_functions.values()]
+            agent_runtime_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["lambda:InvokeFunction"],
+                    resources=lambda_arns
+                )
+            )
+
         return agent_runtime_role
+
+    def _create_ssm_parameters(self) -> None:
+        """Store AgentCore configuration in SSM Parameter Store."""
+        
+        # Store the AgentCore endpoint URL
+        self.agentcore_endpoint_parameter = ssm.StringParameter(
+            self,
+            "AgentCoreEndpointParameter",
+            parameter_name="/healthcare/agentcore/endpoint-url",
+            string_value=self.endpoint.endpoint_id,
+            description="AgentCore Runtime endpoint URL",
+            tier=ssm.ParameterTier.STANDARD
+        )
 
     def get_agent_environment_variables(self) -> dict:
         """
         Return environment variables for agent runtime configuration.
-        Values are left empty for manual configuration during deployment.
         """
         return {
-            # Model Configuration - Values to be set during deployment
-            "MODEL_ID": "",  # TODO: e.g., "anthropic.claude-3-5-sonnet-20241022-v2:0"
-            "MODEL_TEMPERATURE": "",  # TODO: e.g., "0.1"
-            "MODEL_MAX_TOKENS": "",  # TODO: e.g., "4096"
-            "MODEL_TOP_P": "",  # TODO: e.g., "0.9"
+            # Model Configuration - Using global inference profile
+            "MODEL_ID": self.inference_profile,
+            "MODEL_TEMPERATURE": "0.1",
+            "MODEL_MAX_TOKENS": "4096",
+            "MODEL_TOP_P": "0.9",
 
             # Knowledge Base Configuration - Populated by CDK
-            "KNOWLEDGE_BASE_ID": self.knowledge_base.attr_knowledge_base_id,
-            "SUPPLEMENTAL_DATA_BUCKET": self.supplemental_data_storage.bucket_name,
+            "KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
+            "SUPPLEMENTAL_DATA_BUCKET": self.knowledge_base_construct.supplemental_data_bucket_name,
 
-            # API Configuration - Populated by CDK
-            "HEALTHCARE_API_ENDPOINT": self.api_gateway_endpoint or "",  # API Gateway endpoint URL
 
             # Database Configuration - Populated by CDK
             "DATABASE_CLUSTER_ARN": self.database_cluster.cluster_arn,
             "DATABASE_SECRET_ARN": self.database_cluster.secret.secret_arn,
 
-            # Agent Configuration - Values to be set during deployment
-            "DEFAULT_LANGUAGE": "",  # TODO: e.g., "es-LATAM"
-            "STREAMING_ENABLED": "",  # TODO: e.g., "true"
-            "SESSION_TIMEOUT_MINUTES": "",  # TODO: e.g., "30"
+            # Agent Configuration - LATAM healthcare settings
+            "DEFAULT_LANGUAGE": "es-LATAM",
+            "STREAMING_ENABLED": "true",
+            "SESSION_TIMEOUT_MINUTES": "30",
 
-            # Guardrails Configuration - Values to be set during deployment
-            "GUARDRAIL_ID": "",  # TODO: Bedrock Guardrail ID for PII/PHI protection
-            "GUARDRAIL_VERSION": "",  # TODO: Guardrail version
+            # Guardrails Configuration - Using created guardrail
+            "GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
+            "GUARDRAIL_VERSION": self.guardrail_construct.guardrail_version_id,
 
-            # Observability Configuration - Values to be set during deployment
-            "ENABLE_TRACING": "",  # TODO: e.g., "true"
-            "LOG_LEVEL": "",  # TODO: e.g., "INFO"
-            "METRICS_NAMESPACE": "",  # TODO: e.g., "Healthcare/Agents"
-        }
+            # Agentcore gateway
+            "GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
+            "GATEWAY_ID": self.agentcore_gateway.attr_gateway_identifier,
 
-    def get_guardrail_configuration(self) -> dict:
-        """
-        Return guardrail configuration for PII/PHI protection.
-        Values to be configured during deployment.
-        """
-        return {
-            "guardrail_identifier": "",  # TODO: To be set during deployment
-            "guardrail_version": ""  # TODO: To be set during deployment
+            # Observability Configuration
+            "ENABLE_TRACING": "true",
+            "LOG_LEVEL": "INFO",
+            "METRICS_NAMESPACE": "Healthcare/Agents",
         }
 
     def create_outputs(self):
@@ -542,29 +425,22 @@ class AssistantStack(Stack):
         CfnOutput(
             self,
             "KnowledgeBaseId",
-            value=self.knowledge_base.attr_knowledge_base_id,
+            value=self.knowledge_base_construct.knowledge_base_id,
             description="Bedrock Knowledge Base ID"
         )
 
         CfnOutput(
             self,
             "SupplementalDataBucket",
-            value=self.supplemental_data_storage.bucket_name,
+            value=self.knowledge_base_construct.supplemental_data_bucket_name,
             description="S3 bucket for supplemental data storage"
         )
 
         CfnOutput(
             self,
             "AgentRuntimeArn",
-            value=self.agent_runtime.attr_agent_runtime_arn,
+            value=self.agent_runtime.agent_runtime_arn,
             description="Healthcare Assistant AgentCore Runtime ARN"
-        )
-
-        CfnOutput(
-            self,
-            "AgentContainerImageUri",
-            value=self.agent_container_asset.image_uri,
-            description="ECR image URI for agent container"
         )
 
         CfnOutput(
@@ -573,3 +449,19 @@ class AssistantStack(Stack):
             value=self.agent_log_group.log_group_name,
             description="CloudWatch log group for agent runtime"
         )
+
+        CfnOutput(
+            self,
+            "AgentCoreEndpointUrl",
+            value=self.endpoint.endpoint_id,
+            description="AgentCore Runtime endpoint URL"
+        )
+
+        CfnOutput(
+            self,
+            "AgentCoreApiGatewayPath",
+            value="/v1/agentcore/chat",
+            description="AgentCore chat endpoint path in API Gateway"
+        )
+
+

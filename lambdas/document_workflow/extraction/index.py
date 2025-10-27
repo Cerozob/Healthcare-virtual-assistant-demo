@@ -48,22 +48,37 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Extract event details
         detail = event.get('detail', {})
 
-        # Get BDA job information
-        invocation_arn = detail.get('invocationArn')
-        status = detail.get('status')
-        output_s3_uri = detail.get('outputS3Uri')
+        # Get BDA job information from the correct event structure
+        job_id = detail.get('job_id')
+        status = detail.get('job_status')
+        output_s3_location = detail.get('output_s3_location', {})
+        
+        # Construct S3 URI from output location
+        output_bucket = output_s3_location.get('s3_bucket', '')
+        output_key = output_s3_location.get('name', '')
+        output_s3_uri = f"s3://{output_bucket}/{output_key}" if output_bucket and output_key else None
 
-        if status != 'SUCCEEDED':
-            logger.error(f"BDA job failed: {invocation_arn}")
+        if status != 'SUCCESS':
+            logger.error(f"BDA job failed: {job_id} with status: {status}")
             return {
                 'statusCode': 500,
                 'body': json.dumps({
-                    'error': f'BDA job failed: {invocation_arn}',
+                    'error': f'BDA job failed: {job_id}',
                     'status': status
                 })
             }
 
-        logger.info(f"Processing BDA results from: {output_s3_uri}")
+        if not output_s3_uri:
+            logger.error(f"No valid output S3 URI found for job {job_id}")
+            return {
+                'statusCode': 500,
+                'body': json.dumps({
+                    'error': f'No valid output S3 URI found for job {job_id}',
+                    'status': 'error'
+                })
+            }
+
+        logger.info(f"Processing BDA results for job {job_id} from: {output_s3_uri}")
 
         # Download and parse BDA output
         extracted_data = download_bda_output(output_s3_uri)
@@ -72,7 +87,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         validated_data = validate_extracted_data(extracted_data)
 
         # Extract document metadata from S3 URI or event
-        document_id = extract_document_id_from_event(detail, output_s3_uri)
+        document_id = extract_document_id_from_event(detail, output_s3_uri, job_id)
         patient_id = extract_patient_id_from_data(validated_data)
 
         # Extract classification information
@@ -232,13 +247,14 @@ def download_text_file(bucket: str, key: str) -> str:
         return ""
 
 
-def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str) -> str:
+def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str, job_id: str) -> str:
     """
     Extract document ID from event detail or S3 URI.
 
     Args:
         detail: Event detail
         s3_uri: S3 URI of the BDA output
+        job_id: BDA job ID
 
     Returns:
         Document ID
@@ -248,36 +264,60 @@ def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str) -> str:
     if document_id:
         return document_id
 
-    # Extract from S3 URI - BDA output structure is:
-    # processed/{patient_id}/{original_filename}/{job_id}/...
-    try:
-        parts = s3_uri.replace('s3://', '').split('/', 1)
-        if len(parts) > 1:
-            key = parts[1]
-            key_parts = key.split('/')
-
-            # Expected structure: processed/{patient_id}/{filename}/{job_id}/...
-            if len(key_parts) >= 3:
-                patient_id = key_parts[1]
-                filename = key_parts[2]
-
+    # Extract from input S3 object information in the event
+    input_s3_object = detail.get('input_s3_object', {})
+    if input_s3_object:
+        input_key = input_s3_object.get('name', '')
+        if input_key:
+            # Extract patient ID and filename from input key
+            # Structure: {patient_id}/{filename} or patients/{patient_id}/{filename}
+            key_parts = input_key.split('/')
+            
+            if len(key_parts) >= 2:
+                if key_parts[0] == 'patients' and len(key_parts) >= 3:
+                    # Structure: patients/{patient_id}/{filename}
+                    patient_id = key_parts[1]
+                    filename = key_parts[2]
+                else:
+                    # Structure: {patient_id}/{filename}
+                    patient_id = key_parts[0]
+                    filename = key_parts[-1]
+                
                 # Create document ID from patient_id and filename
-                # Remove file extension and any timestamp suffixes
                 clean_filename = filename.split('.')[0]
                 document_id = f"{patient_id}_{clean_filename}"
-
-                logger.info(
-                    f"Extracted document ID: {document_id} from BDA output path")
+                
+                logger.info(f"Extracted document ID: {document_id} from input S3 object")
                 return document_id
+
+    # Fallback: Extract from S3 URI - BDA output structure is:
+    # processed/{patient_id}/{original_filename}/{job_id}/...
+    try:
+        if s3_uri:
+            parts = s3_uri.replace('s3://', '').split('/', 1)
+            if len(parts) > 1:
+                key = parts[1]
+                key_parts = key.split('/')
+
+                # Expected structure: processed/{patient_id}/{filename}/{job_id}/...
+                if len(key_parts) >= 3:
+                    patient_id = key_parts[1]
+                    filename = key_parts[2]
+
+                    # Create document ID from patient_id and filename
+                    # Remove file extension and any timestamp suffixes
+                    clean_filename = filename.split('.')[0]
+                    document_id = f"{patient_id}_{clean_filename}"
+
+                    logger.info(f"Extracted document ID: {document_id} from BDA output path")
+                    return document_id
 
     except Exception as e:
         logger.warning(f"Could not extract document ID from S3 URI: {e}")
 
-    # Generate a unique document ID as fallback
-    import uuid
-    fallback_id = str(uuid.uuid4())
-    logger.warning(f"Using fallback document ID: {fallback_id}")
-    return fallback_id
+    # Use job ID as fallback document ID
+    logger.warning(f"Using job ID as document ID: {job_id}")
+    return job_id
 
 
 def extract_patient_id_from_data(extracted_data: Dict[str, Any]) -> Optional[str]:
@@ -492,7 +532,10 @@ def organize_processed_data(
     extracted_data: Dict[str, Any]
 ) -> str:
     """
-    Organize and store processed data in the processed bucket with clean structure.
+    Organize and store processed data in the processed bucket with clean, flattened structure.
+    
+    Creates a clean structure: processed/{patient_id}/{clean_filename}/
+    Instead of the horrible nested BDA structure.
 
     Args:
         document_id: Document identifier
@@ -508,9 +551,16 @@ def organize_processed_data(
         return ""
 
     try:
-        # Create clean organized structure: processed/{patient_id}/{document_id}/
+        # Extract clean filename from document_id (remove patient_id prefix if present)
+        clean_filename = document_id
+        if patient_id and document_id.startswith(f"{patient_id}_"):
+            clean_filename = document_id[len(f"{patient_id}_"):]
+        
+        # Create clean flattened structure: processed/{patient_id}/{clean_filename}/
         clean_patient_id = patient_id or 'unknown'
-        processed_key_prefix = f"processed/{clean_patient_id}/{document_id}"
+        processed_key_prefix = f"processed/{clean_patient_id}/{clean_filename}"
+
+        logger.info(f"Organizing processed data with flattened structure: {processed_key_prefix}")
 
         # Store the main extracted data as JSON
         main_data_key = f"{processed_key_prefix}/extracted_data.json"
@@ -524,7 +574,8 @@ def organize_processed_data(
             'document_id': document_id,
             'patient_id': patient_id,
             'processing_timestamp': get_current_iso8601(),
-            'source_bda_uri': extracted_data.get('source_s3_uri')
+            'source_bda_uri': extracted_data.get('source_s3_uri'),
+            'flattened_structure': True
         }
 
         # Upload main extracted data
@@ -534,41 +585,62 @@ def organize_processed_data(
             Body=json.dumps(clean_data, indent=2, ensure_ascii=False),
             ContentType='application/json'
         )
+        logger.info(f"Stored main extracted data: {main_data_key}")
 
-        # Store individual result files if they exist
+        # Store individual result files with clean naming
         result_files = extracted_data.get('result_files', {})
         for file_type, content in result_files.items():
-            if content:
-                file_key = f"{processed_key_prefix}/{file_type}"
+            if not content:
+                continue
+                
+            # Map BDA result types to clean filenames
+            if file_type == 'custom_result':
+                clean_filename_for_type = 'custom_output_result.json'
+            elif file_type == 'standard_result':
+                clean_filename_for_type = 'standard_output_result.json'
+            elif file_type == 'html_result':
+                clean_filename_for_type = 'result.html'
+            elif file_type == 'markdown_result':
+                clean_filename_for_type = 'result.md'
+            elif file_type == 'text_result':
+                clean_filename_for_type = 'result.txt'
+            else:
+                # Fallback for any other types
+                clean_filename_for_type = f"{file_type}.json" if isinstance(content, dict) else f"{file_type}.txt"
 
-                if isinstance(content, dict):
-                    # JSON content
-                    s3_client.put_object(
-                        Bucket=PROCESSED_BUCKET,
-                        Key=f"{file_key}.json",
-                        Body=json.dumps(content, indent=2, ensure_ascii=False),
-                        ContentType='application/json'
-                    )
-                else:
-                    # Text content (HTML, MD, TXT)
-                    extension = 'txt'
-                    content_type = 'text/plain'
+            file_key = f"{processed_key_prefix}/{clean_filename_for_type}"
 
-                    if 'html' in file_type:
-                        extension = 'html'
-                        content_type = 'text/html'
-                    elif 'markdown' in file_type:
-                        extension = 'md'
-                        content_type = 'text/markdown'
+            if isinstance(content, dict):
+                # JSON content
+                s3_client.put_object(
+                    Bucket=PROCESSED_BUCKET,
+                    Key=file_key,
+                    Body=json.dumps(content, indent=2, ensure_ascii=False),
+                    ContentType='application/json'
+                )
+            else:
+                # Text content
+                content_type = 'text/plain'
+                if clean_filename_for_type.endswith('.html'):
+                    content_type = 'text/html'
+                elif clean_filename_for_type.endswith('.md'):
+                    content_type = 'text/markdown'
 
-                    s3_client.put_object(
-                        Bucket=PROCESSED_BUCKET,
-                        Key=f"{file_key}.{extension}",
-                        Body=content,
-                        ContentType=content_type
-                    )
+                s3_client.put_object(
+                    Bucket=PROCESSED_BUCKET,
+                    Key=file_key,
+                    Body=content,
+                    ContentType=content_type
+                )
+            
+            logger.info(f"Stored result file: {file_key}")
 
-        # Store BDA metadata separately
+        # Copy any assets from the BDA output (like images)
+        assets_copied = copy_bda_assets(extracted_data.get('source_s3_uri', ''), processed_key_prefix)
+        if assets_copied > 0:
+            logger.info(f"Copied {assets_copied} asset files to flattened structure")
+
+        # Store BDA metadata separately for debugging/audit purposes
         if extracted_data.get('bda_job_metadata'):
             metadata_key = f"{processed_key_prefix}/bda_metadata.json"
             s3_client.put_object(
@@ -577,14 +649,81 @@ def organize_processed_data(
                 Body=json.dumps(extracted_data['bda_job_metadata'], indent=2),
                 ContentType='application/json'
             )
+            logger.info(f"Stored BDA metadata: {metadata_key}")
 
         processed_uri = f"s3://{PROCESSED_BUCKET}/{main_data_key}"
-        logger.info(f"Organized processed data at: {processed_uri}")
+        logger.info(f"Successfully organized processed data with flattened structure at: {processed_uri}")
         return processed_uri
 
     except Exception as e:
         logger.error(f"Error organizing processed data: {str(e)}")
         return ""
+
+
+def copy_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
+    """
+    Copy asset files (like images) from the BDA output to the flattened structure.
+    
+    Args:
+        source_s3_uri: Source S3 URI from BDA output
+        target_prefix: Target prefix for flattened structure
+        
+    Returns:
+        Number of assets copied
+    """
+    if not source_s3_uri or not PROCESSED_BUCKET:
+        return 0
+        
+    try:
+        # Parse source S3 URI
+        parts = source_s3_uri.replace('s3://', '').split('/', 1)
+        source_bucket = parts[0]
+        source_prefix = parts[1] if len(parts) > 1 else ''
+        
+        # List all objects in the BDA output directory
+        response = s3_client.list_objects_v2(
+            Bucket=source_bucket,
+            Prefix=source_prefix
+        )
+        
+        assets_copied = 0
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                key = obj['Key']
+                
+                # Skip empty files, access check files, and result files we already processed
+                if (obj['Size'] == 0 or 
+                    '.s3_access_check' in key or 
+                    key.endswith('/result.json') or 
+                    key.endswith('/result.html') or 
+                    key.endswith('/result.md') or 
+                    key.endswith('/result.txt') or
+                    key.endswith('job_metadata.json')):
+                    continue
+                
+                # Look for asset files (images, etc.)
+                if '/assets/' in key or key.endswith(('.png', '.jpg', '.jpeg', '.gif', '.pdf')):
+                    # Extract filename from the asset path
+                    filename = key.split('/')[-1]
+                    
+                    # Create target key in flattened structure
+                    target_key = f"{target_prefix}/assets/{filename}"
+                    
+                    # Copy the asset file
+                    s3_client.copy_object(
+                        CopySource={'Bucket': source_bucket, 'Key': key},
+                        Bucket=PROCESSED_BUCKET,
+                        Key=target_key
+                    )
+                    
+                    assets_copied += 1
+                    logger.info(f"Copied asset: {key} -> {target_key}")
+        
+        return assets_copied
+        
+    except Exception as e:
+        logger.error(f"Error copying BDA assets: {str(e)}")
+        return 0
 
 
 def store_in_database(

@@ -27,18 +27,16 @@ class ApiStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
+        lambda_functions: dict = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Create Lambda functions
-        self._create_lambda_functions()
+        # Store Lambda functions reference
+        self.lambda_functions = lambda_functions or {}
 
-        # Create API Gateway
+        # Create API Gateway (Lambda functions will be passed from backend stack)
         self._create_api_gateway()
-
-        # Create monitoring and alerting
-        self._create_monitoring()
 
         # Store API endpoint in SSM Parameter Store
         self._create_ssm_parameters()
@@ -51,258 +49,7 @@ class ApiStack(Stack):
         """Get the API Gateway endpoint URL with /v1 path."""
         return f"{self.api.api_endpoint}/v1"
 
-    def _create_lambda_functions(self) -> None:
-        """Create all Lambda functions for the healthcare API."""
 
-        # Common Lambda configuration for Python functions
-        lambda_config = {
-            "runtime": lambda_.Runtime.PYTHON_3_13,
-            "timeout": Duration.seconds(30),
-            "memory_size": 256,
-        }
-
-        # SSM policy for healthcare configuration
-        ssm_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "ssm:GetParameter",
-                "ssm:GetParameters",
-                "ssm:GetParametersByPath"
-            ],
-            resources=[
-                f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/*"
-            ]
-        )
-
-        # RDS Data API policy
-        rds_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "rds-data:ExecuteStatement",
-                "rds-data:BatchExecuteStatement"
-            ],
-            resources=[
-                f"arn:aws:rds:{self.region}:{self.account}:cluster:*"
-            ]
-        )
-
-        # Secrets Manager policy
-        secrets_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "secretsmanager:GetSecretValue"
-            ],
-            resources=[
-                f"arn:aws:secretsmanager:{self.region}:{self.account}:secret:*"
-            ]
-        )
-
-        # Bedrock policy for agent functions
-        bedrock_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "bedrock:InvokeAgent",
-                "bedrock:InvokeModel"
-            ],
-            resources=["*"]
-        )
-
-        # EventBridge policy for document functions
-        eventbridge_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=["events:PutEvents"],
-            resources=[
-                f"arn:aws:events:{self.region}:{self.account}:event-bus/default"
-            ]
-        )
-
-        # Patients Function
-        self.patients_function = lambda_.Function(
-            self,
-            "PatientsFunction",
-            function_name="healthcare-patients",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.patients.handler.lambda_handler",
-            log_group=logs.LogGroup(
-                self,
-                "PatientsLogGroup",
-                log_group_name="/aws/lambda/healthcare-patients",
-                retention=logs.RetentionDays.ONE_WEEK
-            ),
-            **lambda_config
-        )
-        self.patients_function.add_to_role_policy(ssm_policy)
-        self.patients_function.add_to_role_policy(rds_policy)
-        self.patients_function.add_to_role_policy(secrets_policy)
-
-        # Medics Function
-        self.medics_function = lambda_.Function(
-            self,
-            "MedicsFunction",
-            function_name="healthcare-medics",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.medics.handler.lambda_handler",
-            log_group=logs.LogGroup(
-                self,
-                "MedicsLogGroup",
-                log_group_name="/aws/lambda/healthcare-medics",
-                retention=logs.RetentionDays.ONE_WEEK
-            ),
-            **lambda_config
-        )
-        self.medics_function.add_to_role_policy(ssm_policy)
-        self.medics_function.add_to_role_policy(rds_policy)
-        self.medics_function.add_to_role_policy(secrets_policy)
-
-        # Exams Function
-        self.exams_function = lambda_.Function(
-            self,
-            "ExamsFunction",
-            function_name="healthcare-exams",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.exams.handler.lambda_handler",
-            log_group=logs.LogGroup(
-                self,
-                "ExamsLogGroup",
-                log_group_name="/aws/lambda/healthcare-exams",
-                retention=logs.RetentionDays.ONE_WEEK
-            ),
-            **lambda_config
-        )
-        self.exams_function.add_to_role_policy(ssm_policy)
-        self.exams_function.add_to_role_policy(rds_policy)
-        self.exams_function.add_to_role_policy(secrets_policy)
-
-        # Reservations Function
-        self.reservations_function = lambda_.Function(
-            self,
-            "ReservationsFunction",
-            function_name="healthcare-reservations",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.reservations.handler.lambda_handler",
-            log_group=logs.LogGroup(
-                self,
-                "ReservationsLogGroup",
-                log_group_name="/aws/lambda/healthcare-reservations",
-                retention=logs.RetentionDays.ONE_WEEK
-            ),
-            **lambda_config
-        )
-        self.reservations_function.add_to_role_policy(ssm_policy)
-        self.reservations_function.add_to_role_policy(rds_policy)
-        self.reservations_function.add_to_role_policy(secrets_policy)
-
-        # Files Function
-        self.files_function = lambda_.Function(
-            self,
-            "FilesFunction",
-            function_name="healthcare-files",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.files.handler.lambda_handler",
-            log_group=logs.LogGroup(
-                self,
-                "FilesLogGroup",
-                log_group_name="/aws/lambda/healthcare-files",
-                retention=logs.RetentionDays.ONE_WEEK
-            ),
-            environment={
-                "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80",
-                "KNOWLEDGE_BASE_ID": "healthcare-kb"
-            },
-            **lambda_config
-        )
-        self.files_function.add_to_role_policy(ssm_policy)
-        self.files_function.add_to_role_policy(rds_policy)
-        self.files_function.add_to_role_policy(secrets_policy)
-
-        # Add S3 permissions for file operations
-        s3_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "s3:GetObject",
-                "s3:PutObject",
-                "s3:DeleteObject"
-            ],
-            resources=[
-                f"arn:aws:s3:::*/*"  # Allow access to all S3 objects
-            ]
-        )
-        self.files_function.add_to_role_policy(s3_policy)
-
-        # Add Bedrock permissions for Knowledge Base queries
-        bedrock_kb_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "bedrock:Retrieve",
-                "bedrock:RetrieveAndGenerate"
-            ],
-            resources=[
-                f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/*"
-            ]
-        )
-        self.files_function.add_to_role_policy(bedrock_kb_policy)
-
-        # Chat Function (higher memory and timeout)
-        self.chat_function = lambda_.Function(
-            self,
-            "ChatFunction",
-            function_name="healthcare-chat",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.chat.handler.lambda_handler",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            timeout=Duration.seconds(60),
-            memory_size=512,
-            log_group=logs.LogGroup(
-                self,
-                "ChatLogGroup",
-                log_group_name="/aws/lambda/healthcare-chat",
-                retention=logs.RetentionDays.ONE_WEEK
-            )
-        )
-        self.chat_function.add_to_role_policy(ssm_policy)
-        self.chat_function.add_to_role_policy(rds_policy)
-        self.chat_function.add_to_role_policy(secrets_policy)
-        self.chat_function.add_to_role_policy(bedrock_policy)
-
-        # Agent Integration Function
-        self.agent_integration_function = lambda_.Function(
-            self,
-            "AgentIntegrationFunction",
-            function_name="healthcare-agent-integration",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.agent_integration.handler.lambda_handler",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            timeout=Duration.seconds(60),
-            memory_size=512,
-            log_group=logs.LogGroup(
-                self,
-                "AgentIntegrationLogGroup",
-                log_group_name="/aws/lambda/healthcare-agent-integration",
-                retention=logs.RetentionDays.ONE_WEEK
-            )
-        )
-        self.agent_integration_function.add_to_role_policy(ssm_policy)
-        self.agent_integration_function.add_to_role_policy(rds_policy)
-        self.agent_integration_function.add_to_role_policy(secrets_policy)
-        self.agent_integration_function.add_to_role_policy(bedrock_policy)
-
-        # Add CloudWatch permissions for metrics
-        cloudwatch_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "cloudwatch:PutMetricData",
-                "cloudwatch:GetMetricStatistics"
-            ],
-            resources=["*"]
-        )
-        self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
     def _create_api_gateway(self) -> None:
         """Create HTTP API Gateway v2 with all endpoints."""
@@ -339,22 +86,36 @@ class ApiStack(Stack):
             )
         )
 
-        # Create Lambda integrations
-        patients_integration = HttpLambdaIntegration(
-            "PatientsIntegration", self.patients_function)
-        medics_integration = HttpLambdaIntegration(
-            "MedicsIntegration", self.medics_function)
-        exams_integration = HttpLambdaIntegration(
-            "ExamsIntegration", self.exams_function)
-        reservations_integration = HttpLambdaIntegration(
-            "ReservationsIntegration", self.reservations_function)
-        files_integration = HttpLambdaIntegration(
-            "FilesIntegration", self.files_function)
+        # Debug information
+        print(f"API Stack received functions: {list(self.lambda_functions.keys())}")
+        for func_name, func_obj in self.lambda_functions.items():
+            print(f"Function {func_name}: {func_obj}")
+        
+        # Validate that all required Lambda functions are provided
+        required_functions = ["patients", "medics", "exams", "reservations", "files", "agent_integration"]
+        missing_functions = []
+        for func_name in required_functions:
+            if not self.lambda_functions.get(func_name):
+                missing_functions.append(func_name)
+        
+        if missing_functions:
+            raise ValueError(f"Required Lambda functions not provided to API stack: {missing_functions}")
 
-        chat_integration = HttpLambdaIntegration(
-            "ChatIntegration", self.chat_function)
+        # Create Lambda integrations from passed functions
+        patients_integration = HttpLambdaIntegration(
+            "PatientsIntegration", self.lambda_functions["patients"])
+        medics_integration = HttpLambdaIntegration(
+            "MedicsIntegration", self.lambda_functions["medics"])
+        exams_integration = HttpLambdaIntegration(
+            "ExamsIntegration", self.lambda_functions["exams"])
+        reservations_integration = HttpLambdaIntegration(
+            "ReservationsIntegration", self.lambda_functions["reservations"])
+        files_integration = HttpLambdaIntegration(
+            "FilesIntegration", self.lambda_functions["files"])
+
+        # chat_integration removed - using AgentCore instead
         agent_integration = HttpLambdaIntegration(
-            "AgentIntegration", self.agent_integration_function)
+            "AgentIntegration", self.lambda_functions["agent_integration"])
 
         # Helper function to create CRUD routes with throttling
         def create_crud_routes(path: str, integration: HttpLambdaIntegration, throttle_settings=None):
@@ -378,7 +139,7 @@ class ApiStack(Stack):
         create_crud_routes("/medics", medics_integration)
         create_crud_routes("/exams", exams_integration)
         create_crud_routes("/reservations", reservations_integration)
-        
+
         # Additional reservations routes
         self.api.add_routes(
             path="/reservations/availability",
@@ -411,24 +172,7 @@ class ApiStack(Stack):
             integration=files_integration
         )
 
-        # Chat routes
-        self.api.add_routes(
-            path="/chat/message",
-            methods=[apigwv2.HttpMethod.POST],
-            integration=chat_integration
-        )
-
-        self.api.add_routes(
-            path="/chat/sessions",
-            methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
-            integration=chat_integration
-        )
-
-        self.api.add_routes(
-            path="/chat/sessions/{id}/messages",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=chat_integration
-        )
+        # Chat routes - REMOVED: Using AgentCore instead of old chat system
 
         # Agent routes
         self.api.add_routes(
@@ -455,6 +199,19 @@ class ApiStack(Stack):
             integration=agent_integration
         )
 
+        # AgentCore chat routes (will be integrated with AgentCore endpoint via Lambda proxy)
+        self.api.add_routes(
+            path="/agentcore/chat",
+            methods=[apigwv2.HttpMethod.POST],
+            integration=agent_integration
+        )
+
+        self.api.add_routes(
+            path="/agentcore/health",
+            methods=[apigwv2.HttpMethod.GET],
+            integration=agent_integration
+        )
+
         # Create a production stage with throttling
         self.stage = apigwv2.HttpStage(
             self,
@@ -469,91 +226,7 @@ class ApiStack(Stack):
             )
         )
 
-    def _create_monitoring(self) -> None:
-        """Create CloudWatch monitoring and alerting for API Gateway."""
 
-        # Create SNS topic for alerts
-        self.alert_topic = sns.Topic(
-            self,
-            "ApiAlertsTopics",
-            display_name="Healthcare API Alerts"
-        )
-
-        # Create CloudWatch alarms for API throttling
-        throttle_alarm = cloudwatch.Alarm(
-            self,
-            "ApiThrottleAlarm",
-            alarm_name="Healthcare-API-Throttling",
-            alarm_description="Alert when API requests are being throttled",
-            metric=cloudwatch.Metric(
-                namespace="AWS/ApiGateway",
-                metric_name="ThrottledCount",
-                dimensions_map={
-                    "ApiId": self.api.api_id,
-                    "Stage": "v1"
-                },
-                statistic="Sum",
-                period=Duration.minutes(5)
-            ),
-            threshold=10,  # Alert if more than 10 throttled requests in 5 minutes
-            evaluation_periods=1,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
-        )
-
-        # Add SNS action to the alarm
-        throttle_alarm.add_alarm_action(
-            cw_actions.SnsAction(self.alert_topic)
-        )
-
-        # Create alarm for high error rate
-        error_rate_alarm = cloudwatch.Alarm(
-            self,
-            "ApiErrorRateAlarm",
-            alarm_name="Healthcare-API-ErrorRate",
-            alarm_description="Alert when API error rate is high",
-            metric=cloudwatch.Metric(
-                namespace="AWS/ApiGateway",
-                metric_name="4XXError",
-                dimensions_map={
-                    "ApiId": self.api.api_id,
-                    "Stage": "v1"
-                },
-                statistic="Sum",
-                period=Duration.minutes(5)
-            ),
-            threshold=50,  # Alert if more than 50 4XX errors in 5 minutes
-            evaluation_periods=2,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
-        )
-
-        error_rate_alarm.add_alarm_action(
-            cw_actions.SnsAction(self.alert_topic)
-        )
-
-        # Create alarm for high request count (potential DDoS or infinite loops)
-        high_request_alarm = cloudwatch.Alarm(
-            self,
-            "ApiHighRequestAlarm",
-            alarm_name="Healthcare-API-HighRequestCount",
-            alarm_description="Alert when API receives unusually high request volume",
-            metric=cloudwatch.Metric(
-                namespace="AWS/ApiGateway",
-                metric_name="Count",
-                dimensions_map={
-                    "ApiId": self.api.api_id,
-                    "Stage": "v1"
-                },
-                statistic="Sum",
-                period=Duration.minutes(1)
-            ),
-            threshold=1000,  # Alert if more than 1000 requests per minute
-            evaluation_periods=3,
-            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD
-        )
-
-        high_request_alarm.add_alarm_action(
-            cw_actions.SnsAction(self.alert_topic)
-        )
 
     def _create_ssm_parameters(self) -> None:
         """Store API configuration in SSM Parameter Store."""
@@ -599,9 +272,11 @@ class ApiStack(Stack):
             description="Healthcare HTTP API Gateway domain name"
         )
 
-        CfnOutput(
-            self,
-            "AlertTopicArn",
-            value=self.alert_topic.topic_arn,
-            description="SNS Topic ARN for API alerts"
-        )
+
+
+    @property
+    def api_gateway_construct(self) -> apigwv2.HttpApi:
+        """Get the API Gateway construct for use in other stacks."""
+        return self.api
+
+

@@ -1,43 +1,40 @@
-# Healthcare Assistant Agent
+# Healthcare Assistant
 
-This directory contains the multi-agent virtual assistant system for healthcare using Strands Agents and Bedrock AgentCore.
+Multi-agent virtual assistant system for healthcare using Strands Agents framework.
 
-## Structure
+## Overview
 
-- `main.py` - Main entry point for the agent runtime
-- `orchestrator/` - Orchestrator agent for coordinating conversations
-- `info_retrieval/` - Information retrieval agent for knowledge base queries
-- `appointment_scheduling/` - Appointment scheduling agent
-- `shared/` - Shared utilities and configurations
-- `Dockerfile` - Container configuration for AgentCore Runtime
-- `docker-compose.yml` - Local development environment
-- `pyproject.toml` - Python dependencies and project configuration
+This healthcare assistant provides intelligent support for medical professionals through a multi-agent architecture built on AWS Bedrock and the Strands Agents framework.
+
+## Features
+
+- Multi-agent conversation management
+- AWS Bedrock integration for AI capabilities
+- Healthcare-specific knowledge base
+- Secure and compliant architecture
+- Real-time observability and monitoring
+
+## Architecture
+
+The system consists of multiple specialized agents:
+- **Triage Agent**: Initial patient assessment and routing
+- **Medical Knowledge Agent**: Access to medical databases and guidelines
+- **Appointment Agent**: Scheduling and calendar management
+- **Documentation Agent**: Medical record management and documentation
+
+## Deployment
+
+This application is designed to run on AWS using:
+- AWS Lambda for serverless execution
+- Amazon Bedrock for AI model access
+- Amazon DynamoDB for data storage
+- AWS CloudWatch for monitoring
 
 ## Development
 
-### Local Development
-
-```bash
-# Navigate to agents directory
-cd agents
-
-# Run with Docker Compose
-docker-compose up
-
-# Or build and run manually
-docker build -t healthcare-assistant .
-docker run -p 8080:8080 healthcare-assistant
-```
-
-### Environment Variables
-
-See `docker-compose.yml` for the complete list of environment variables needed for configuration.
-
-### Deployment
-
-The agent is deployed using AWS CDK with Bedrock AgentCore Runtime. The CDK stack automatically builds and deploys the container to ECR.
-
-```bash
-# Deploy from project root
-cdk deploy AssistantStack
-```
+Built with:
+- Python 3.11+
+- Strands Agents framework
+- FastAPI for API endpoints
+- Pydantic for data validation
+- OpenTelemetry for observability

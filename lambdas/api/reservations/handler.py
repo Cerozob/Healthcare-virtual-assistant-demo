@@ -12,6 +12,7 @@ Endpoints:
 """
 
 import logging
+import json
 from typing import Dict, Any
 from datetime import datetime, timedelta
 from shared.database import DatabaseManager, DatabaseError
@@ -32,15 +33,19 @@ db_manager = DatabaseManager()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for reservations API.
-    Routes requests to appropriate handlers based on HTTP method and path.
+    Supports both API Gateway and MCP Gateway invocations.
     """
-    # Handle both API Gateway v1 and v2 event formats
+    # Check if this is an MCP Gateway invocation
+    if _is_mcp_gateway_event(event):
+        return handle_mcp_gateway_request(event)
+    
+    # Handle API Gateway requests (existing logic)
     http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
     path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
-    logger.info(f"Received request: method={http_method}, path={path}")
+    logger.info(f"Received API Gateway request: method={http_method}, path={path}")
     
     # Normalize path by removing stage prefix if present
     normalized_path = path
@@ -66,6 +71,130 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return cancel_reservation(reservation_id)
     
     return create_error_response(404, "Endpoint not found")
+
+
+def _is_mcp_gateway_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from MCP Gateway.
+    """
+    return (
+        'action' in event and 
+        'httpMethod' not in event and 
+        'requestContext' not in event
+    )
+
+
+def handle_mcp_gateway_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle MCP Gateway requests with action-based routing.
+    
+    Expected event structure:
+    {
+        "action": "list|get|create|update|delete|check_availability",
+        "reservation_id": "optional-reservation-id",
+        "patient_id": "optional-patient-id",
+        "medic_id": "optional-medic-id",
+        "exam_id": "optional-exam-id",
+        "reservation_date": "optional-date",
+        "date_from": "optional-start-date",
+        "date_to": "optional-end-date",
+        "status": "optional-status",
+        "pagination": {...}
+    }
+    """
+    try:
+        action = event.get('action')
+        logger.info(f"Received MCP Gateway request: action={action}")
+        
+        if action == 'list':
+            # Convert MCP parameters to API Gateway format
+            query_params = {}
+            if 'pagination' in event:
+                pagination = event['pagination']
+                query_params['limit'] = str(pagination.get('limit', 50))
+                query_params['offset'] = str(pagination.get('offset', 0))
+            
+            # Add filter parameters
+            for param in ['patient_id', 'medic_id', 'status', 'date_from', 'date_to']:
+                if param in event:
+                    query_params[param] = str(event[param])
+            
+            mock_event = {'queryStringParameters': query_params}
+            return list_reservations(mock_event)
+            
+        elif action == 'get':
+            reservation_id = event.get('reservation_id')
+            if not reservation_id:
+                return create_error_response(400, "reservation_id required for get action")
+            return get_reservation(reservation_id)
+            
+        elif action == 'create':
+            # Build reservation data from MCP parameters
+            reservation_data = {}
+            required_fields = ['patient_id', 'medic_id', 'exam_id', 'reservation_date']
+            
+            for field in required_fields:
+                if field not in event:
+                    return create_error_response(400, f"{field} required for create action")
+                if field == 'reservation_date':
+                    # Convert reservation_date to appointment_date format expected by create_reservation
+                    reservation_data['appointment_date'] = event[field]
+                else:
+                    reservation_data[field] = event[field]
+            
+            mock_event = {'body': json.dumps(reservation_data)}
+            return create_reservation(mock_event)
+            
+        elif action == 'update':
+            reservation_id = event.get('reservation_id')
+            if not reservation_id:
+                return create_error_response(400, "reservation_id required for update action")
+            
+            # Build update data from available parameters
+            update_data = {}
+            for field in ['status', 'reservation_date', 'notes']:
+                if field in event:
+                    if field == 'reservation_date':
+                        # Convert reservation_date to appointment_date format expected by update_reservation
+                        update_data['appointment_date'] = event[field]
+                    else:
+                        update_data[field] = event[field]
+            
+            if not update_data:
+                return create_error_response(400, "No update data provided")
+            
+            mock_event = {'body': json.dumps(update_data)}
+            return update_reservation(reservation_id, mock_event)
+            
+        elif action == 'delete':
+            reservation_id = event.get('reservation_id')
+            if not reservation_id:
+                return create_error_response(400, "reservation_id required for delete action")
+            return cancel_reservation(reservation_id)
+            
+        elif action == 'check_availability':
+            # Build availability check data
+            availability_data = {}
+            required_fields = ['medic_id', 'reservation_date']
+            
+            for field in required_fields:
+                if field not in event:
+                    return create_error_response(400, f"{field} required for check_availability action")
+                if field == 'reservation_date':
+                    # Convert reservation_date to date format expected by check_availability
+                    availability_data['date'] = event[field]
+                else:
+                    availability_data[field] = event[field]
+            
+            mock_event = {'body': json.dumps(availability_data)}
+            return check_availability(mock_event)
+            
+        else:
+            return create_error_response(400, f"Unknown action: {action}")
+            
+    except Exception as e:
+        logger.error(f"Error handling MCP Gateway request: {str(e)}")
+        return create_error_response(500, f"Internal server error: {str(e)}")
 
 
 def list_reservations(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -123,7 +252,7 @@ def list_reservations(event: Dict[str, Any]) -> Dict[str, Any]:
             (r.reservation_date || ' ' || COALESCE(r.reservation_time::text, '00:00:00')) as appointment_date,
             r.status, r.notes, r.created_at, r.updated_at,
             p.full_name as patient_name,
-            m.full_name as medic_name,
+            m.first_name as medic_name,
             e.exam_name
         FROM reservations r
         LEFT JOIN patients p ON r.patient_id = p.patient_id
@@ -177,12 +306,15 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
     - patient_id: Patient ID
     - medic_id: Medic ID
     - exam_id: Exam ID
-    - reservation_date: Reservation date and time (ISO format)
+    - appointment_date: Appointment date and time (ISO format)
     
     Returns:
         Created reservation data
     """
     try:
+        # Ensure required tables exist
+        ensure_tables_exist()
+        
         body = parse_event_body(event)
         
         # Validate required fields - frontend sends appointment_date, we need to split it
@@ -219,7 +351,7 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
         )
         VALUES (
             :reservation_id, :patient_id, :medic_id, :exam_id,
-            :reservation_date, :reservation_time, 'scheduled', :notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            :reservation_date::date, :reservation_time::time, 'scheduled', :notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
         )
         RETURNING 
             reservation_id, patient_id, medic_id, exam_id,
@@ -256,7 +388,9 @@ def create_reservation(event: Dict[str, Any]) -> Dict[str, Any]:
         
     except DatabaseError as e:
         logger.error(f"Database error in create_reservation: {str(e)}")
-        return create_error_response(500, "Database error", e.error_code)
+        logger.error(f"Request body: {body}")
+        logger.error(f"Parsed date: {reservation_date}, time: {reservation_time}")
+        return create_error_response(500, f"Database error: {str(e)}", e.error_code)
     
     except Exception as e:
         logger.error(f"Error in create_reservation: {str(e)}")
@@ -280,7 +414,7 @@ def get_reservation(reservation_id: str) -> Dict[str, Any]:
             (r.reservation_date || ' ' || COALESCE(r.reservation_time::text, '00:00:00')) as appointment_date,
             r.status, r.notes, r.created_at, r.updated_at,
             p.full_name as patient_name,
-            m.full_name as medic_name, m.specialization as medic_specialty,
+            m.first_name as medic_name, m.specialization as medic_specialty,
             e.exam_name, e.exam_type
         FROM reservations r
         LEFT JOIN patients p ON r.patient_id = p.patient_id
@@ -357,8 +491,8 @@ def update_reservation(reservation_id: str, event: Dict[str, Any]) -> Dict[str, 
             if not availability_result['available']:
                 return create_error_response(400, "Medic not available at requested time", "MEDIC_NOT_AVAILABLE")
             
-            update_fields.append('reservation_date = :reservation_date')
-            update_fields.append('reservation_time = :reservation_time')
+            update_fields.append('reservation_date = :reservation_date::date')
+            update_fields.append('reservation_time = :reservation_time::time')
             parameters.append(db_manager.create_parameter('reservation_date', str(reservation_date), 'string'))
             parameters.append(db_manager.create_parameter('reservation_time', str(reservation_time), 'string'))
         
@@ -545,6 +679,76 @@ def validate_reservation_entities(patient_id: str, medic_id: str, exam_id: str) 
     except DatabaseError as e:
         logger.error(f"Database error in validate_reservation_entities: {str(e)}")
         return create_error_response(500, "Database error", e.error_code)
+
+
+def ensure_tables_exist() -> None:
+    """Ensure required tables exist by creating them if necessary."""
+    try:
+        # Create patients table
+        patients_sql = """
+        CREATE TABLE IF NOT EXISTS patients (
+            patient_id VARCHAR(255) PRIMARY KEY,
+            full_name VARCHAR(200) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            date_of_birth DATE,
+            phone VARCHAR(20),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        
+        # Create medics table
+        medics_sql = """
+        CREATE TABLE IF NOT EXISTS medics (
+            medic_id VARCHAR(255) PRIMARY KEY,
+            first_name VARCHAR(200) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            specialization VARCHAR(100),
+            license_number VARCHAR(50) UNIQUE,
+            phone VARCHAR(20),
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        
+        # Create exams table
+        exams_sql = """
+        CREATE TABLE IF NOT EXISTS exams (
+            exam_id VARCHAR(255) PRIMARY KEY,
+            exam_name VARCHAR(200) NOT NULL UNIQUE,
+            exam_type VARCHAR(100) NOT NULL,
+            description TEXT,
+            duration_minutes INTEGER DEFAULT 30,
+            preparation_instructions TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        
+        # Create reservations table
+        reservations_sql = """
+        CREATE TABLE IF NOT EXISTS reservations (
+            reservation_id VARCHAR(255) PRIMARY KEY,
+            patient_id VARCHAR(255) NOT NULL,
+            medic_id VARCHAR(255) NOT NULL,
+            exam_id VARCHAR(255) NOT NULL,
+            reservation_date DATE NOT NULL,
+            reservation_time TIME NOT NULL,
+            status VARCHAR(20) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'confirmed', 'completed', 'cancelled', 'no_show')),
+            notes TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+        
+        # Execute table creation
+        for sql in [patients_sql, medics_sql, exams_sql, reservations_sql]:
+            db_manager.execute_sql(sql, [])
+            
+        logger.info("Ensured all required tables exist")
+        
+    except Exception as e:
+        logger.warning(f"Could not ensure tables exist: {e}")
 
 
 def check_medic_availability(medic_id: str, date: str, exclude_reservation_id: str = None) -> Dict[str, Any]:

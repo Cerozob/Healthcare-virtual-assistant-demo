@@ -207,28 +207,37 @@ def lambda_handler(event, context):
 
                 logger.info("Vector extension confirmed available")
 
-                # Check if table exists with wrong column names and drop it
+                # Check if table exists with wrong schema and drop it
                 try:
-                    check_columns = rds_data.execute_statement(
+                    # Check for old column names (id, embedding, chunks)
+                    check_old_columns = rds_data.execute_statement(
                         resourceArn=cluster_arn,
                         secretArn=secret_arn,
                         database=database_name,
                         sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name IN ('id', 'embedding', 'chunks');"
                     )
 
-                    if check_columns.get('records'):
+                    # Check for wrong data type on pk column (should be uuid, not varchar)
+                    check_pk_type = rds_data.execute_statement(
+                        resourceArn=cluster_arn,
+                        secretArn=secret_arn,
+                        database=database_name,
+                        sql=f"SELECT data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name = 'pk' AND data_type != 'uuid';"
+                    )
+
+                    if check_old_columns.get('records') or check_pk_type.get('records'):
                         logger.info(
-                            f"Table {table_name} exists with old column names, dropping and recreating")
+                            f"Table {table_name} exists with incorrect schema (old columns or wrong pk type), dropping and recreating")
                         rds_data.execute_statement(
                             resourceArn=cluster_arn,
                             secretArn=secret_arn,
                             database=database_name,
                             sql=f"DROP TABLE IF EXISTS {table_name};"
                         )
-                        logger.info(f"Dropped existing table {table_name}")
+                        logger.info(f"Dropped existing table {table_name} with incorrect schema")
                 except Exception as e:
                     logger.info(
-                        f"Table check failed (table may not exist): {e}")
+                        f"Table schema check failed (table may not exist): {e}")
 
                 create_table_sql = f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (

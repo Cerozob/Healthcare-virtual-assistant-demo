@@ -3,7 +3,7 @@
  * Form for creating and editing reservation data
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Form,
   FormField,
@@ -16,7 +16,7 @@ import {
   Container,
   Header,
   Alert,
-  SelectProps,
+  type SelectProps,
 } from '@cloudscape-design/components';
 import { useLanguage } from '../../contexts/LanguageContext';
 import type { Reservation, CreateReservationRequest } from '../../types/api';
@@ -28,11 +28,13 @@ export interface ReservationFormProps {
   loading?: boolean;
   patients?: Array<{ patient_id: string; full_name: string }>;
   medics?: Array<{ medic_id: string; full_name: string }>;
+  exams?: Array<{ exam_id: string; exam_name: string; exam_type: string }>;
 }
 
 interface FormData {
   patient_id: string;
   medic_id: string;
+  exam_id: string;
   appointment_date: string;
   appointment_time: string;
   status: string;
@@ -42,15 +44,18 @@ interface FormData {
 interface FormErrors {
   patient_id?: string;
   medic_id?: string;
+  exam_id?: string;
   appointment_date?: string;
   appointment_time?: string;
   status?: string;
 }
 
 const reservationStatusOptions: SelectProps.Option[] = [
+  { label: 'Programada', value: 'scheduled' },
   { label: 'Confirmada', value: 'confirmed' },
-  { label: 'Pendiente', value: 'pending' },
+  { label: 'Completada', value: 'completed' },
   { label: 'Cancelada', value: 'cancelled' },
+  { label: 'No se presentó', value: 'no_show' },
 ];
 
 export function ReservationForm({
@@ -60,26 +65,28 @@ export function ReservationForm({
   loading = false,
   patients = [],
   medics = [],
+  exams = [],
 }: ReservationFormProps) {
   const { t } = useLanguage();
   
   // Parse existing appointment_date if available
-  const parseDateTime = (dateTimeStr?: string) => {
+  const parseDateTime = useCallback((dateTimeStr?: string) => {
     if (!dateTimeStr) return { date: '', time: '' };
     const dt = new Date(dateTimeStr);
     const date = dt.toISOString().split('T')[0];
     const time = dt.toTimeString().slice(0, 5);
     return { date, time };
-  };
+  }, []);
 
   const { date: initialDate, time: initialTime } = parseDateTime(reservation?.appointment_date);
 
   const [formData, setFormData] = useState<FormData>({
     patient_id: reservation?.patient_id || '',
     medic_id: reservation?.medic_id || '',
+    exam_id: reservation?.exam_id || '',
     appointment_date: initialDate,
     appointment_time: initialTime,
-    status: reservation?.status || 'pending',
+    status: reservation?.status || 'scheduled',
     notes: reservation?.notes || '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
@@ -91,13 +98,14 @@ export function ReservationForm({
       setFormData({
         patient_id: reservation.patient_id,
         medic_id: reservation.medic_id,
+        exam_id: reservation.exam_id,
         appointment_date: date,
         appointment_time: time,
         status: reservation.status,
         notes: reservation.notes || '',
       });
     }
-  }, [reservation]);
+  }, [reservation, parseDateTime]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -108,6 +116,10 @@ export function ReservationForm({
 
     if (!formData.medic_id) {
       newErrors.medic_id = t.validation.required;
+    }
+
+    if (!formData.exam_id) {
+      newErrors.exam_id = t.validation.required;
     }
 
     if (!formData.appointment_date) {
@@ -141,8 +153,8 @@ export function ReservationForm({
       const submitData: CreateReservationRequest = {
         patient_id: formData.patient_id,
         medic_id: formData.medic_id,
+        exam_id: formData.exam_id,
         appointment_date: appointmentDateTime,
-        status: formData.status,
       };
 
       if (formData.notes.trim()) {
@@ -165,8 +177,14 @@ export function ReservationForm({
     value: m.medic_id,
   }));
 
+  const examOptions: SelectProps.Option[] = exams.map((e) => ({
+    label: `${e.exam_name} (${e.exam_type})`,
+    value: e.exam_id,
+  }));
+
   const selectedPatient = patientOptions.find((opt) => opt.value === formData.patient_id) || null;
   const selectedMedic = medicOptions.find((opt) => opt.value === formData.medic_id) || null;
+  const selectedExam = examOptions.find((opt) => opt.value === formData.exam_id) || null;
   const selectedStatus = reservationStatusOptions.find((opt) => opt.value === formData.status) || null;
 
   return (
@@ -227,6 +245,26 @@ export function ReservationForm({
                 }}
                 options={medicOptions}
                 placeholder="Seleccione un médico"
+                disabled={loading}
+                filteringType="auto"
+              />
+            </FormField>
+
+            <FormField
+              label="Tipo de examen"
+              errorText={errors.exam_id}
+              constraintText="Seleccione el tipo de examen"
+            >
+              <Select
+                selectedOption={selectedExam}
+                onChange={({ detail }) => {
+                  setFormData({ ...formData, exam_id: detail.selectedOption.value || '' });
+                  if (errors.exam_id) {
+                    setErrors({ ...errors, exam_id: undefined });
+                  }
+                }}
+                options={examOptions}
+                placeholder="Seleccione un tipo de examen"
                 disabled={loading}
                 filteringType="auto"
               />

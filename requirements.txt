@@ -1,6 +1,6 @@
-aws-cdk-lib==2.219.0
-aws-cdk.aws-amplify-alpha==2.219.0-alpha.0
-jsii==1.115.0
+aws-cdk-lib==2.221.0
+aws-cdk.aws-bedrock-agentcore-alpha==2.221.0a0
+jsii==1.117.0
 boto3>=1.40.52
 constructs>=10.4.2
 cdk-monitoring-constructs==9.15.2

@@ -1,0 +1,115 @@
+/**
+ * Theme-specific styles for dark/light mode
+ * Enhances Cloudscape's built-in theme support
+ */
+
+/* Theme transition animations - reduced for faster switching */
+* {
+  transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+}
+
+/* Custom theme variables for additional styling */
+:root {
+  --theme-transition-duration: 0.1s;
+}
+
+/* Light mode custom styles */
+[data-theme="light"] {
+  --custom-bg-primary: #ffffff;
+  --custom-bg-secondary: #f9f9f9;
+  --custom-text-primary: #16191f;
+  --custom-text-secondary: #5f6b7a;
+  --custom-border-color: #e9ebed;
+  --custom-shadow: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode custom styles */
+[data-theme="dark"] {
+  --custom-bg-primary: #16191f;
+  --custom-bg-secondary: #1d2025;
+  --custom-text-primary: #ffffff;
+  --custom-text-secondary: #d1d5db;
+  --custom-border-color: #414d5c;
+  --custom-shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* Chat message styling enhancements for dark mode */
+[data-theme="dark"] .chat-messages-container {
+  background-color: var(--custom-bg-secondary);
+}
+
+[data-theme="dark"] .chat-bubble-wrapper {
+  filter: brightness(1.1);
+}
+
+/* File upload area enhancements */
+[data-theme="dark"] .file-upload-area {
+  background-color: var(--custom-bg-secondary);
+  border-color: var(--custom-border-color);
+}
+
+/* Custom scrollbar for dark mode */
+[data-theme="dark"] ::-webkit-scrollbar {
+  background-color: var(--custom-bg-secondary);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background-color: var(--custom-border-color);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background-color: #5f6b7a;
+}
+
+/* Theme toggle button styling */
+.theme-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Smooth transitions for theme changes - faster transition */
+.theme-transition {
+  transition: all var(--theme-transition-duration) ease;
+}
+
+/* Focus styles that work in both themes */
+[data-theme="light"] .focus-visible {
+  outline: 2px solid #0972d3;
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .focus-visible {
+  outline: 2px solid #539fe5;
+  outline-offset: 2px;
+}
+
+/* Loading states for both themes */
+[data-theme="light"] .loading-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+[data-theme="dark"] .loading-shimmer {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Print styles (always light) */
+@media print {
+  * {
+    background-color: white !important;
+    color: black !important;
+  }
+}

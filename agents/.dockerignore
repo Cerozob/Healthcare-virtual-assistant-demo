@@ -6,9 +6,8 @@
 .gitattributes
 
 # Documentation
-README.md
 docs/
-*.md
+# Note: README.md is needed for pyproject.toml
 
 # Development files
 .vscode/
