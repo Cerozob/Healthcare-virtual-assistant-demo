@@ -57,8 +57,6 @@ export class ChatService {
         content: response.response || response.message || 'No response received',
         metadata: { 
           apiGateway: true,
-          responseTimeMs: response.responseTimeMs,
-          totalProcessingTimeMs: response.totalProcessingTimeMs,
           patientContext: response.patient_context
         }
       };

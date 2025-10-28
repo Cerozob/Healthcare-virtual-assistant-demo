@@ -377,7 +377,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           setDebugInfo({
             lastResponse: finalResponse,
             lastRequest: requestData,
-            patientContext: finalResponse.metadata?.patient_context
+            patientContext: finalResponse.metadata?.patientContext
           });
 
           setIsLoading(false);
