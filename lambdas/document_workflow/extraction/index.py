@@ -97,9 +97,16 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         organized_s3_uri = organize_processed_data(
             document_id=document_id,
             patient_id=patient_id,
-            extracted_data=validated_data
+            extracted_data=validated_data,
+            classification=classification
         )
 
+        # Update original document metadata with classification
+        update_original_document_metadata(
+            document_id=document_id,
+            patient_id=patient_id,
+            classification=classification
+        )
 
         # Update Knowledge Base with classification metadata
         kb_document_id = update_knowledge_base(
@@ -116,7 +123,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'body': json.dumps({
                 'documentId': document_id,
                 'patientId': patient_id,
-                'storedDocumentId': stored_document_id,
                 'kbDocumentId': kb_document_id,
                 'organizedS3Uri': organized_s3_uri,
                 'classification': classification,
@@ -517,7 +523,8 @@ def execute_sql(sql: str, parameters: Optional[list] = None) -> Any:
 def organize_processed_data(
     document_id: str,
     patient_id: Optional[str],
-    extracted_data: Dict[str, Any]
+    extracted_data: Dict[str, Any],
+    classification: Optional[Dict[str, Any]] = None
 ) -> str:
     """
     Organize and store processed data in the processed bucket with clean, flattened structure.
@@ -529,6 +536,7 @@ def organize_processed_data(
         document_id: Document identifier
         patient_id: Patient identifier
         extracted_data: Validated extracted data
+        classification: Classification information to include in metadata
 
     Returns:
         S3 URI of organized processed data
@@ -557,7 +565,7 @@ def organize_processed_data(
         clean_data = {k: v for k, v in extracted_data.items()
                       if k not in ['bda_job_metadata', 'source_s3_uri', 'result_files']}
 
-        # Add metadata
+        # Add metadata including classification
         clean_data['processing_metadata'] = {
             'document_id': document_id,
             'patient_id': patient_id,
@@ -565,6 +573,10 @@ def organize_processed_data(
             'source_bda_uri': extracted_data.get('source_s3_uri'),
             'flattened_structure': True
         }
+        
+        # Add classification metadata if available
+        if classification:
+            clean_data['classification'] = classification
 
         # Upload main extracted data
         s3_client.put_object(
@@ -979,6 +991,92 @@ def extract_medical_field(extracted_data: Dict[str, Any], field_names: list) -> 
                     return result_data[field]
     
     return None
+
+
+def update_original_document_metadata(
+    document_id: str,
+    patient_id: Optional[str],
+    classification: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Update the original document's S3 metadata with classification information.
+    
+    Args:
+        document_id: Document identifier
+        patient_id: Patient identifier
+        classification: Classification information
+    """
+    if not patient_id or not classification:
+        logger.warning("Cannot update document metadata without patient_id and classification")
+        return
+    
+    try:
+        # Get the source bucket from environment
+        source_bucket = os.environ.get('SOURCE_BUCKET_NAME', '')
+        if not source_bucket:
+            logger.warning("SOURCE_BUCKET_NAME not configured, skipping metadata update")
+            return
+        
+        # Extract clean filename from document_id
+        clean_filename = document_id
+        if document_id.startswith(f"{patient_id}_"):
+            clean_filename = document_id[len(f"{patient_id}_"):]
+        
+        # Try to find the original document in S3
+        # Structure: {patient_id}/{filename}
+        possible_keys = [
+            f"{patient_id}/{clean_filename}",
+            f"{patient_id}/{clean_filename}.pdf",
+            f"{patient_id}/{clean_filename}.jpg",
+            f"{patient_id}/{clean_filename}.png",
+            f"{patient_id}/{clean_filename}.tiff",
+        ]
+        
+        original_key = None
+        for key in possible_keys:
+            try:
+                s3_client.head_object(Bucket=source_bucket, Key=key)
+                original_key = key
+                break
+            except ClientError:
+                continue
+        
+        if not original_key:
+            logger.warning(f"Could not find original document for {document_id}")
+            return
+        
+        # Get current object metadata
+        response = s3_client.head_object(Bucket=source_bucket, Key=original_key)
+        current_metadata = response.get('Metadata', {})
+        
+        # Update metadata with classification
+        updated_metadata = {
+            **current_metadata,
+            'document-category': classification.get('category', 'other'),
+            'classification-confidence': str(classification.get('confidence', 0.0)),
+            'original-classification': classification.get('original_classification', 'unknown'),
+            'auto-classified': str(classification.get('auto_classified', False)),
+            'confidence-threshold-met': str(classification.get('confidence_threshold_met', False)),
+            'workflow-stage': 'classified',
+            'classification-timestamp': get_current_iso8601()
+        }
+        
+        # Copy object with updated metadata (S3 doesn't allow in-place metadata updates)
+        s3_client.copy_object(
+            CopySource={'Bucket': source_bucket, 'Key': original_key},
+            Bucket=source_bucket,
+            Key=original_key,
+            Metadata=updated_metadata,
+            MetadataDirective='REPLACE',
+            ContentType=response.get('ContentType', 'application/octet-stream')
+        )
+        
+        logger.info(f"Updated metadata for original document: {original_key}")
+        logger.info(f"Classification: {classification.get('category')} ({classification.get('confidence')}% confidence)")
+        
+    except Exception as e:
+        logger.error(f"Error updating original document metadata: {str(e)}")
+        # Don't fail the entire process if metadata update fails
 
 
 def update_knowledge_base(

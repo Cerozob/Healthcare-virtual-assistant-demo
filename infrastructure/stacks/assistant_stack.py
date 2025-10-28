@@ -189,7 +189,9 @@ class AssistantStack(Stack):
             description="Role for Healthcare Assistant AgentCore Runtime",
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "AmazonBedrockFullAccess")
+                    "AmazonBedrockFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "CloudWatchFullAccess")
             ]
         )
 
@@ -307,8 +309,24 @@ class AssistantStack(Stack):
                 )
             )
 
-        # Note: AgentCore handles logging automatically
-        # No CloudWatch logs permissions needed
+        # CloudWatch Logs permissions - AgentCore needs to create log groups and streams
+        # Pattern matches: /aws/bedrock-agentcore/runtimes/{runtime_name}-{random_suffix}-{variant}
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents",
+                    "logs:DescribeLogGroups",
+                    "logs:DescribeLogStreams"
+                ],
+                resources=[
+                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock-agentcore/runtimes/*",
+                    f"arn:aws:logs:{self.region}:{self.account}:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
+                ]
+            )
+        )
 
         # CloudWatch Metrics permissions
         agent_runtime_role.add_to_policy(
@@ -419,7 +437,7 @@ class AssistantStack(Stack):
             "SESSION_PREFIX": "processed/",  # Base prefix, actual structure: processed/{patient_id}_{data_type}/
             "ENABLE_SESSION_MANAGEMENT": "true",
 
-            # Observability Configuration - AgentCore handles logging automatically
+            # Observability Configuration - CloudWatch logging enabled
             "ENABLE_TRACING": "true",
             "METRICS_NAMESPACE": "Healthcare/Agents",
         }
@@ -449,8 +467,7 @@ class AssistantStack(Stack):
             description="Healthcare Assistant AgentCore Runtime ARN"
         )
 
-        # Note: AgentCore manages logging automatically
-        # No log group output needed
+
 
         CfnOutput(
             self,

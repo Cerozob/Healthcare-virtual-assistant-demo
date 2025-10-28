@@ -88,8 +88,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
   const loadFiles = useCallback(async () => {
     try {
-      console.log('Loading files from S3...');
-      const s3Files = await storageService.listFiles();
+      console.log('Loading files from S3 with metadata...');
+      const s3Files = await storageService.listFiles(undefined, { includeMetadata: true });
 
       // Convert S3 file items to PatientFile format
       const patientFiles: PatientFile[] = s3Files.map((s3File) => {
@@ -98,19 +98,37 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
         const keyParts = s3File.key.split('/');
         const fileName = keyParts[keyParts.length - 1] || s3File.key;
 
+        // Extract classification from S3 metadata
+        const metadata = s3File.metadata || {};
+        const category = metadata['document-category'] || metadata.documentcategory || 'other';
+        const confidence = parseFloat(metadata['classification-confidence'] || metadata.classificationconfidence || '0');
+        const autoClassified = metadata['auto-classified'] === 'true' || metadata.autoclassified === 'true';
+        const originalClassification = metadata['original-classification'] || metadata.originalclassification;
+
+        console.log(`File ${fileName} metadata:`, {
+          category,
+          confidence,
+          autoClassified,
+          originalClassification,
+          rawMetadata: metadata
+        });
+
         return {
           id: s3File.key,
           name: fileName,
           type: fileName.split('.').pop()?.toUpperCase() || 'UNKNOWN',
           size: s3File.size || 0,
           uploadDate: s3File.lastModified?.toISOString() || new Date().toISOString(),
-          category: 'other', // Default category, could be enhanced with metadata
+          category: category,
           url: s3File.key,
+          autoClassified: autoClassified,
+          classificationConfidence: confidence > 0 ? confidence : undefined,
+          originalClassification: originalClassification,
         };
       });
 
       setFiles(patientFiles);
-      console.log(`Loaded ${patientFiles.length} files from S3`);
+      console.log(`Loaded ${patientFiles.length} files from S3 with classification metadata`);
     } catch (err) {
       console.error('Failed to load files from S3:', err);
       setError(err instanceof Error ? err.message : 'Failed to load files');
@@ -301,26 +319,19 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       // Import storage service
       const { storageService } = await import('../services/storageService');
 
-      // Generate file ID and construct S3 path following document workflow guidelines
-      const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-
-      // S3 path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
-      const s3Key = `${targetPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
+      // S3 path structure: {patient_id}/{filename} (simple structure for BDA processing)
+      const s3Key = `${targetPatient.patient_id}/${file.name}`;
 
       // Prepare metadata following document workflow guidelines
       const fileMetadata = {
         'patient-id': targetPatient.patient_id,
         'document-category': category,
-        'upload-timestamp': timestamp,
-        'file-id': fileId,
         'workflow-stage': 'uploaded',
-        'auto-classification-enabled': 'true',
-        'original-filename': file.name
+        'auto-classification-enabled': 'true'
       };
 
       console.log(`📋 Document Workflow Metadata:`, fileMetadata);
-      console.log(`📍 S3 Path (simplified): ${s3Key}`);
+      console.log(`📍 S3 Path: ${s3Key}`);
 
       // Get bucket name from config
       const { configService } = await import('../services/configService');
@@ -340,7 +351,6 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       });
 
       const response = {
-        file_id: fileId,
         patient_id: targetPatient.patient_id,
         s3_key: uploadResult.key,
         message: `File uploaded successfully for patient ${targetPatient.full_name} following document workflow guidelines`,
@@ -349,8 +359,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
           next_stage: 'BDA processing and classification',
           expected_processing_time: '2-5 minutes',
           knowledge_base_integration: 'Automatic after processing'
-        },
-        note: 'File uploaded to S3 with simplified path structure and will be automatically processed by the document workflow'
+        }
       };
 
       console.log('File upload completed:', response);

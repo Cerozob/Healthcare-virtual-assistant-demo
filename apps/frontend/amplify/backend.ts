@@ -50,6 +50,7 @@ cfnUserPool.policies = {
 const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Policy', {
   statements: [
     // Allow file operations on patient files in your existing bucket
+    // Updated to support document workflow path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: [
@@ -58,20 +59,14 @@ const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Poli
         's3:DeleteObject'
       ],
       resources: [
-        `${existingBucket.bucketArn}/patients/*`,
-        `${existingBucket.bucketArn}/public/*`,
+        `${existingBucket.bucketArn}/*`, // Allow all paths for authenticated users
       ],
     }),
-    // Allow listing bucket contents with prefix
+    // Allow listing bucket contents
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['s3:ListBucket'],
       resources: [existingBucket.bucketArn],
-      conditions: {
-        StringLike: {
-          's3:prefix': ['patients/*', 'public/*'],
-        },
-      },
     }),
   ],
 });

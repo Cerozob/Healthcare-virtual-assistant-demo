@@ -1,0 +1,985 @@
+{
+    "Description": "{\"createdOn\":\"Linux\",\"createdBy\":\"AmplifyPipelineDeploy\",\"createdWith\":\"1.17.0\",\"stackType\":\"root\",\"metadata\":{}}",
+    "Metadata": {
+        "AWS::Amplify::Platform": {
+            "version": "1",
+            "stackOutputs": [
+                "deploymentType",
+                "region"
+            ]
+        },
+        "AWS::Amplify::Auth": {
+            "version": "1",
+            "stackOutputs": [
+                "userPoolId",
+                "webClientId",
+                "identityPoolId",
+                "authRegion",
+                "allowUnauthenticatedIdentities",
+                "signupAttributes",
+                "usernameAttributes",
+                "verificationMechanisms",
+                "passwordPolicyMinLength",
+                "passwordPolicyRequirements",
+                "mfaConfiguration",
+                "mfaTypes",
+                "socialProviders",
+                "oauthCognitoDomain",
+                "oauthScope",
+                "oauthRedirectSignIn",
+                "oauthRedirectSignOut",
+                "oauthResponseType",
+                "oauthClientId",
+                "groups"
+            ]
+        },
+        "AWS::Amplify::Custom": {
+            "version": "1",
+            "stackOutputs": [
+                "customOutputs"
+            ]
+        },
+        "AWS::Amplify::Storage": {
+            "version": "1",
+            "stackOutputs": [
+                "buckets",
+                "storageRegion",
+                "bucketName"
+            ]
+        }
+    },
+    "Outputs": {
+        "deploymentType": {
+            "Value": "branch"
+        },
+        "region": {
+            "Value": {
+                "Ref": "AWS::Region"
+            }
+        },
+        "userPoolId": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "auth179371D7",
+                    "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthUserPool4C92941CRef"
+                ]
+            }
+        },
+        "webClientId": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "auth179371D7",
+                    "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthUserPoolAppClient58E7F0F4Ref"
+                ]
+            }
+        },
+        "identityPoolId": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "auth179371D7",
+                    "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthIdentityPool6EEA925CRef"
+                ]
+            }
+        },
+        "authRegion": {
+            "Value": {
+                "Ref": "AWS::Region"
+            }
+        },
+        "allowUnauthenticatedIdentities": {
+            "Value": "true"
+        },
+        "signupAttributes": {
+            "Value": "[\"email\",\"name\"]"
+        },
+        "usernameAttributes": {
+            "Value": "[\"email\"]"
+        },
+        "verificationMechanisms": {
+            "Value": "[\"email\"]"
+        },
+        "passwordPolicyMinLength": {
+            "Value": "8"
+        },
+        "passwordPolicyRequirements": {
+            "Value": "[\"REQUIRES_NUMBERS\",\"REQUIRES_LOWERCASE\",\"REQUIRES_UPPERCASE\"]"
+        },
+        "mfaConfiguration": {
+            "Value": "OFF"
+        },
+        "mfaTypes": {
+            "Value": "[]"
+        },
+        "socialProviders": {
+            "Value": ""
+        },
+        "oauthCognitoDomain": {
+            "Value": ""
+        },
+        "oauthScope": {
+            "Value": "[\"profile\",\"phone\",\"email\",\"openid\",\"aws.cognito.signin.user.admin\"]"
+        },
+        "oauthRedirectSignIn": {
+            "Value": "https://example.com"
+        },
+        "oauthRedirectSignOut": {
+            "Value": ""
+        },
+        "oauthResponseType": {
+            "Value": "code"
+        },
+        "oauthClientId": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "auth179371D7",
+                    "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthUserPoolAppClient58E7F0F4Ref"
+                ]
+            }
+        },
+        "groups": {
+            "Value": "[]"
+        },
+        "customOutputs": {
+            "Value": "{\"custom\":{\"api_endpoint\":{\"secretName\":\"CDK_API_GATEWAY_ENDPOINT\",\"secretResourceFactory\":{\"secretProviderFactory\":{}}},\"s3_bucket_name\":{\"secretName\":\"CDK_S3_BUCKET_NAME\",\"secretResourceFactory\":{\"secretProviderFactory\":{}}},\"aws_region\":{\"secretName\":\"AWS_REGION\",\"secretResourceFactory\":{\"secretProviderFactory\":{}}},\"existing_bucket_name\":\"ab2-cerozob-rawdata-us-east-1\",\"existing_bucket_region\":\"us-east-1\"},\"version\":\"1.4\"}"
+        },
+        "storageRegion": {
+            "Value": {
+                "Ref": "AWS::Region"
+            }
+        },
+        "bucketName": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "storage0EC3F24A",
+                    "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933storagehealthcareRawDataBucketA88E371BRef"
+                ]
+            }
+        },
+        "buckets": {
+            "Value": {
+                "Fn::Join": [
+                    "",
+                    [
+                        "[\"{\\\"name\\\":\\\"healthcareRawData\\\",\\\"bucketName\\\":\\\"",
+                        {
+                            "Fn::GetAtt": [
+                                "storage0EC3F24A",
+                                "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933storagehealthcareRawDataBucketA88E371BRef"
+                            ]
+                        },
+                        "\\\",\\\"storageRegion\\\":\\\"",
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "\\\",\\\"paths\\\":{\\\"patients/*\\\":{\\\"authenticated\\\":[\\\"get\\\",\\\"list\\\",\\\"write\\\",\\\"delete\\\"],\\\"guest\\\":[\\\"get\\\",\\\"list\\\"]},\\\"public/*\\\":{\\\"authenticated\\\":[\\\"get\\\",\\\"list\\\",\\\"write\\\",\\\"delete\\\"],\\\"guest\\\":[\\\"get\\\",\\\"list\\\"]}}}\"]"
+                    ]
+                ]
+            }
+        }
+    },
+    "Resources": {
+        "AmplifyBranchLinkerCustomResourceLambdaServiceRole3DDCBC03": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": "sts:AssumeRole",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "ManagedPolicyArns": [
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "arn:",
+                                {
+                                    "Ref": "AWS::Partition"
+                                },
+                                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                            ]
+                        ]
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ]
+            },
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceLambda/ServiceRole/Resource"
+            }
+        },
+        "AmplifyBranchLinkerCustomResourceLambdaServiceRoleDefaultPolicy86099CA1": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": [
+                                "amplify:GetBranch",
+                                "amplify:UpdateBranch"
+                            ],
+                            "Effect": "Allow",
+                            "Resource": "arn:aws:amplify:*:*:apps/d2i3btf99f2e3x/branches/main"
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "PolicyName": "AmplifyBranchLinkerCustomResourceLambdaServiceRoleDefaultPolicy86099CA1",
+                "Roles": [
+                    {
+                        "Ref": "AmplifyBranchLinkerCustomResourceLambdaServiceRole3DDCBC03"
+                    }
+                ]
+            },
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceLambda/ServiceRole/DefaultPolicy/Resource"
+            }
+        },
+        "AmplifyBranchLinkerCustomResourceLambda582AC093": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Code": {
+                    "S3Bucket": {
+                        "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+                    },
+                    "S3Key": "41b9c894270a5b1433ade6f0f0212bc566460b1003b961b2cfbf76842f682b66.zip"
+                },
+                "Handler": "index.handler",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "AmplifyBranchLinkerCustomResourceLambdaServiceRole3DDCBC03",
+                        "Arn"
+                    ]
+                },
+                "Runtime": "nodejs20.x",
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ],
+                "Timeout": 10
+            },
+            "DependsOn": [
+                "AmplifyBranchLinkerCustomResourceLambdaServiceRoleDefaultPolicy86099CA1",
+                "AmplifyBranchLinkerCustomResourceLambdaServiceRole3DDCBC03"
+            ],
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceLambda/Resource",
+                "aws:asset:path": "asset.41b9c894270a5b1433ade6f0f0212bc566460b1003b961b2cfbf76842f682b66",
+                "aws:asset:is-bundled": true,
+                "aws:asset:property": "Code"
+            }
+        },
+        "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRole92A035EB": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": "sts:AssumeRole",
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "ManagedPolicyArns": [
+                    {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "arn:",
+                                {
+                                    "Ref": "AWS::Partition"
+                                },
+                                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                            ]
+                        ]
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ]
+            },
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceProvider/framework-onEvent/ServiceRole/Resource"
+            }
+        },
+        "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRoleDefaultPolicy38AAE412": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyDocument": {
+                    "Statement": [
+                        {
+                            "Action": "lambda:InvokeFunction",
+                            "Effect": "Allow",
+                            "Resource": [
+                                {
+                                    "Fn::GetAtt": [
+                                        "AmplifyBranchLinkerCustomResourceLambda582AC093",
+                                        "Arn"
+                                    ]
+                                },
+                                {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            {
+                                                "Fn::GetAtt": [
+                                                    "AmplifyBranchLinkerCustomResourceLambda582AC093",
+                                                    "Arn"
+                                                ]
+                                            },
+                                            ":*"
+                                        ]
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "Action": "lambda:GetFunction",
+                            "Effect": "Allow",
+                            "Resource": {
+                                "Fn::GetAtt": [
+                                    "AmplifyBranchLinkerCustomResourceLambda582AC093",
+                                    "Arn"
+                                ]
+                            }
+                        }
+                    ],
+                    "Version": "2012-10-17"
+                },
+                "PolicyName": "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRoleDefaultPolicy38AAE412",
+                "Roles": [
+                    {
+                        "Ref": "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRole92A035EB"
+                    }
+                ]
+            },
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceProvider/framework-onEvent/ServiceRole/DefaultPolicy/Resource"
+            }
+        },
+        "AmplifyBranchLinkerCustomResourceProviderframeworkonEvent3B23F900": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Code": {
+                    "S3Bucket": {
+                        "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+                    },
+                    "S3Key": "bdc104ed9cab1b5b6421713c8155f0b753380595356f710400609664d3635eca.zip"
+                },
+                "Description": "AWS CDK resource provider framework - onEvent (amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceProvider)",
+                "Environment": {
+                    "Variables": {
+                        "USER_ON_EVENT_FUNCTION_ARN": {
+                            "Fn::GetAtt": [
+                                "AmplifyBranchLinkerCustomResourceLambda582AC093",
+                                "Arn"
+                            ]
+                        }
+                    }
+                },
+                "Handler": "framework.onEvent",
+                "LoggingConfig": {
+                    "ApplicationLogLevel": "FATAL",
+                    "LogFormat": "JSON"
+                },
+                "Role": {
+                    "Fn::GetAtt": [
+                        "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRole92A035EB",
+                        "Arn"
+                    ]
+                },
+                "Runtime": "nodejs22.x",
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ],
+                "Timeout": 900
+            },
+            "DependsOn": [
+                "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRoleDefaultPolicy38AAE412",
+                "AmplifyBranchLinkerCustomResourceProviderframeworkonEventServiceRole92A035EB"
+            ],
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResourceProvider/framework-onEvent/Resource",
+                "aws:asset:path": "asset.bdc104ed9cab1b5b6421713c8155f0b753380595356f710400609664d3635eca",
+                "aws:asset:is-bundled": false,
+                "aws:asset:property": "Code"
+            }
+        },
+        "AmplifyBranchLinkerCustomResource96E36FC1": {
+            "Type": "Custom::AmplifyBranchLinkerResource",
+            "Properties": {
+                "ServiceToken": {
+                    "Fn::GetAtt": [
+                        "AmplifyBranchLinkerCustomResourceProviderframeworkonEvent3B23F900",
+                        "Arn"
+                    ]
+                },
+                "appId": "d2i3btf99f2e3x",
+                "branchName": "main"
+            },
+            "UpdateReplacePolicy": "Delete",
+            "DeletionPolicy": "Delete",
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/AmplifyBranchLinker/CustomResource/Default"
+            }
+        },
+        "auth179371D7": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ],
+                "TemplateURL": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "https://s3.",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            ".",
+                            {
+                                "Ref": "AWS::URLSuffix"
+                            },
+                            "/",
+                            {
+                                "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+                            },
+                            "/8446674c878f52de0f195772545c9201792847b22d612e2fac712db43e990667.json"
+                        ]
+                    ]
+                }
+            },
+            "UpdateReplacePolicy": "Delete",
+            "DeletionPolicy": "Delete",
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/auth.NestedStack/auth.NestedStackResource",
+                "aws:asset:path": "amplifyd2i3btf99f2e3xmainbranchf53f195933auth248E3A8F.nested.template.json",
+                "aws:asset:property": "TemplateURL"
+            }
+        },
+        "storage0EC3F24A": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "Parameters": {
+                    "referencetoamplifyd2i3btf99f2e3xmainbranchf53f195933authNestedStackauthNestedStackResourceF0924A88Outputsamplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthauthenticatedUserRole4F875C31Ref": {
+                        "Fn::GetAtt": [
+                            "auth179371D7",
+                            "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthauthenticatedUserRole4F875C31Ref"
+                        ]
+                    },
+                    "referencetoamplifyd2i3btf99f2e3xmainbranchf53f195933authNestedStackauthNestedStackResourceF0924A88Outputsamplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthunauthenticatedUserRoleE612BE11Ref": {
+                        "Fn::GetAtt": [
+                            "auth179371D7",
+                            "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthunauthenticatedUserRoleE612BE11Ref"
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ],
+                "TemplateURL": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "https://s3.",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            ".",
+                            {
+                                "Ref": "AWS::URLSuffix"
+                            },
+                            "/",
+                            {
+                                "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+                            },
+                            "/910a4361e0e2a1688b1919d55b2e0ab4c3e4e4e834d94d793724d4dc378e8529.json"
+                        ]
+                    ]
+                }
+            },
+            "UpdateReplacePolicy": "Delete",
+            "DeletionPolicy": "Delete",
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/storage.NestedStack/storage.NestedStackResource",
+                "aws:asset:path": "amplifyd2i3btf99f2e3xmainbranchf53f195933storageF0188C54.nested.template.json",
+                "aws:asset:property": "TemplateURL"
+            }
+        },
+        "customs3bucketstack71733577": {
+            "Type": "AWS::CloudFormation::Stack",
+            "Properties": {
+                "Parameters": {
+                    "referencetoamplifyd2i3btf99f2e3xmainbranchf53f195933authNestedStackauthNestedStackResourceF0924A88Outputsamplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthauthenticatedUserRole4F875C31Ref": {
+                        "Fn::GetAtt": [
+                            "auth179371D7",
+                            "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthauthenticatedUserRole4F875C31Ref"
+                        ]
+                    },
+                    "referencetoamplifyd2i3btf99f2e3xmainbranchf53f195933authNestedStackauthNestedStackResourceF0924A88Outputsamplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthunauthenticatedUserRoleE612BE11Ref": {
+                        "Fn::GetAtt": [
+                            "auth179371D7",
+                            "Outputs.amplifyd2i3btf99f2e3xmainbranchf53f195933authamplifyAuthunauthenticatedUserRoleE612BE11Ref"
+                        ]
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "amplify:app-id",
+                        "Value": "d2i3btf99f2e3x"
+                    },
+                    {
+                        "Key": "amplify:branch-name",
+                        "Value": "main"
+                    },
+                    {
+                        "Key": "amplify:deployment-type",
+                        "Value": "branch"
+                    },
+                    {
+                        "Key": "created-by",
+                        "Value": "amplify"
+                    }
+                ],
+                "TemplateURL": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "https://s3.",
+                            {
+                                "Ref": "AWS::Region"
+                            },
+                            ".",
+                            {
+                                "Ref": "AWS::URLSuffix"
+                            },
+                            "/",
+                            {
+                                "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+                            },
+                            "/d8edcd6a22c264d208cc31b1242917558c8796267854a8890637ae3497c85c81.json"
+                        ]
+                    ]
+                }
+            },
+            "UpdateReplacePolicy": "Delete",
+            "DeletionPolicy": "Delete",
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/custom-s3-bucket-stack.NestedStack/custom-s3-bucket-stack.NestedStackResource",
+                "aws:asset:path": "amplifyd2i3btf99f2e3xmainbranchf53f195933customs3bucketstackAD4F5BFB.nested.template.json",
+                "aws:asset:property": "TemplateURL"
+            }
+        },
+        "CDKMetadata": {
+            "Type": "AWS::CDK::Metadata",
+            "Properties": {
+                "Analytics": "v2:deflate64:H4sIAAAAAAAA/02PXY7CMAyEz8K76y1lLwCVeGRROUBlUoPcn2QVJ6BV1bujpLton76xRjPyVFhVWyw39NTCdEMxyhXnSyAzQH2zXzF8xwD01HYeabp21FrXca94yjhGa4I4C0ITzo0bOaUyz24U85POVS2gu5ZUOSjuE0B3eIhm4HAgZVjrca5v9t36J5YFGlYXvWHI2Uugu9g7mKjBTa3/NRXP3j2kYw91dt6p9NU/nQcukLZgrx+P6hO3JZabXkUKH22QibFZ+QJYMHZ5IgEAAA=="
+            },
+            "Metadata": {
+                "aws:cdk:path": "amplify-d2i3btf99f2e3x-main-branch-f53f195933/CDKMetadata/Default"
+            },
+            "Condition": "CDKMetadataAvailable"
+        }
+    },
+    "Conditions": {
+        "CDKMetadataAvailable": {
+            "Fn::Or": [
+                {
+                    "Fn::Or": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "af-south-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-east-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-northeast-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-northeast-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-northeast-3"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-south-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-south-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-southeast-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-southeast-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-southeast-3"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Fn::Or": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ap-southeast-4"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ca-central-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "ca-west-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "cn-north-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "cn-northwest-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-central-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-central-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-north-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-south-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-south-2"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Fn::Or": [
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-west-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-west-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "eu-west-3"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "il-central-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "me-central-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "me-south-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "sa-east-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "us-east-1"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "us-east-2"
+                            ]
+                        },
+                        {
+                            "Fn::Equals": [
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                "us-west-1"
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "AWS::Region"
+                        },
+                        "us-west-2"
+                    ]
+                }
+            ]
+        }
+    },
+    "Parameters": {
+        "BootstrapVersion": {
+            "Type": "AWS::SSM::Parameter::Value<String>",
+            "Default": "/cdk-bootstrap/hnb659fds/version",
+            "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+        }
+    },
+    "Rules": {
+        "CheckBootstrapVersion": {
+            "Assertions": [
+                {
+                    "Assert": {
+                        "Fn::Not": [
+                            {
+                                "Fn::Contains": [
+                                    [
+                                        "1",
+                                        "2",
+                                        "3",
+                                        "4",
+                                        "5"
+                                    ],
+                                    {
+                                        "Ref": "BootstrapVersion"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+                }
+            ]
+        }
+    }
+}

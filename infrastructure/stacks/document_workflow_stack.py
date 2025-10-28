@@ -297,6 +297,7 @@ class DocumentWorkflowStack(Stack):
             timeout=Duration.minutes(10),
             memory_size=1024,
             environment={
+                "SOURCE_BUCKET_NAME": self.raw_bucket.bucket_name,
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
                 "KNOWLEDGE_BASE_ID": "healthcare-kb",
                 "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80"
@@ -312,6 +313,7 @@ class DocumentWorkflowStack(Stack):
         )
 
         # Grant permissions to extraction lambda
+        self.raw_bucket.grant_read_write(self.extraction_lambda)  # For updating original document metadata
         self.processed_bucket.grant_read_write(self.extraction_lambda)
         
         # Grant permissions to delete from processed bucket for cleanup operations

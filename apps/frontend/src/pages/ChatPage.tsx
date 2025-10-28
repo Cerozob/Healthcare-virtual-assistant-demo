@@ -1,10 +1,10 @@
 import { Avatar, ChatBubble, SupportPromptGroup } from '@cloudscape-design/chat-components';
 import {
+  Alert,
   Box,
   Button,
   Container,
-  FileInput,
-  FileTokenGroup,
+  FileUpload,
   Grid,
   Header,
   Modal,
@@ -93,6 +93,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     autoClassified?: boolean;
     processing?: boolean;
   }>>(new Map());
+  const [error, setError] = useState<string>('');
 
   const defaultPrompts = [
     {
@@ -128,14 +129,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
     // Check if patient is selected when files are attached
     if (files.length > 0 && !selectedPatient) {
-      // Add system message instead of alert
-      const systemMessage: ChatMessage = {
-        id: `system_${Date.now()}`,
-        content: '⚠️ **Atención**: Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico para seguir las pautas del flujo de trabajo.',
-        type: 'system',
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, systemMessage]);
+      setError('Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.');
       return;
     }
 
@@ -170,37 +164,39 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
         // Upload files to S3 using the storage service
         const { storageService } = await import('../services/storageService');
+        const { configService } = await import('../services/configService');
+        const config = configService.getConfig();
 
         for (const file of attachedFiles) {
           const fileKey = getFileKey(file);
           const classification = attachedClassifications.get(fileKey);
 
           try {
-            // Generate file ID and construct S3 path following document workflow guidelines
-            const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const category = classification?.category || 'auto';
 
-            // S3 path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
-            const s3Key = `${selectedPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
+            // S3 path structure: {patient_id}/{filename} (simple structure for BDA processing)
+            const s3Key = `${selectedPatient.patient_id}/${file.name}`;
+
+            // Prepare metadata following document workflow guidelines
+            const fileMetadata = {
+              'patient-id': selectedPatient.patient_id,
+              'document-category': category,
+              'workflow-stage': 'uploaded',
+              'auto-classification-enabled': 'true',
+              'uploaded-from': 'chat-interface'
+            };
+
+            console.log(`📋 Document Workflow Metadata:`, fileMetadata);
+            console.log(`📍 S3 Path: ${s3Key}`);
 
             // Upload file to S3 with metadata
             const uploadResult = await storageService.uploadFile(file, s3Key, {
               contentType: file.type,
-              metadata: {
-                'patient-id': selectedPatient.patient_id,
-                'document-category': category,
-                'upload-timestamp': timestamp,
-                'file-id': fileId,
-                'workflow-stage': 'uploaded',
-                'auto-classification-enabled': 'true',
-                'original-filename': file.name,
-                'uploaded-from': 'chat-interface'
-              }
+              bucket: config.s3BucketName,
+              metadata: fileMetadata
             });
 
             const response = {
-              file_id: fileId,
               patient_id: selectedPatient.patient_id,
               s3_key: uploadResult.key,
               message: `File uploaded successfully for patient ${selectedPatient.full_name} following document workflow guidelines`,
@@ -214,6 +210,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             console.log(`Successfully uploaded ${file.name} for patient ${selectedPatient.full_name}:`, response);
           } catch (uploadError) {
             console.error(`Error uploading ${file.name}:`, uploadError);
+            setError(`Error al subir ${file.name}: ${uploadError instanceof Error ? uploadError.message : 'Error desconocido'}`);
           }
         }
       }
@@ -258,11 +255,11 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           attachments: await Promise.all(attachedFiles.map(async (file) => {
             const fileKey = getFileKey(file);
             const classification = attachedClassifications.get(fileKey);
-            
+
             // For images and documents, include base64 content for AgentCore multi-modal support
             let content: string | undefined;
             let mimeType: string | undefined;
-            
+
             // Supported file types for multi-modal processing
             const supportedTypes = [
               // Images
@@ -278,7 +275,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
               'application/vnd.ms-excel', // .xls
               'text/html' // .html
             ];
-            
+
             if (supportedTypes.includes(file.type)) {
               try {
                 content = await fileToBase64(file);
@@ -288,7 +285,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                 console.warn(`Failed to convert ${file.name} to base64:`, error);
               }
             }
-            
+
             return {
               fileName: file.name,
               fileSize: file.size,
@@ -321,14 +318,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       // Handle automatic patient selection if agent identified a patient
       if (response.patient_context?.patient_found && response.patient_context?.patient_data) {
         const identifiedPatient = response.patient_context.patient_data;
-        
+
         // Only auto-select if no patient is currently selected or if it's a different patient
         if (!selectedPatient || selectedPatient.patient_id !== identifiedPatient.patient_id) {
           console.log(`Agent identified patient: ${identifiedPatient.full_name} (${identifiedPatient.patient_id})`);
-          
+
           // Set the patient in context
           setSelectedPatient(identifiedPatient);
-          
+
           // Load patient reservations
           try {
             const reservationsResponse = await reservationService.getReservations();
@@ -340,7 +337,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             console.error('Error loading patient reservations:', error);
             setPatientExams([]);
           }
-          
+
           // Add system message about automatic patient selection
           const systemMessage: ChatMessage = {
             id: `system_${Date.now()}`,
@@ -365,6 +362,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
     } catch (error) {
       console.error('Error sending message:', error);
+      setError(error instanceof Error ? error.message : 'Error al enviar mensaje');
       setIsLoading(false);
     }
   };
@@ -553,172 +551,154 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           {/* Chat Area */}
           <Container>
             <SpaceBetween size="l">
-              {/* Chat Messages */}
-              <Box padding="l">
-                <div className={`chat-messages-container theme-transition`} data-theme={mode}>
-                  {messages.length === 0 ? (
-                    <Box textAlign="center" color="text-body-secondary" padding="xxl">
-                      {t.chat.placeholder}
-                    </Box>
-                  ) : (
-                    messages.map((message) => {
-                      const isUser = message.type === 'user';
-                      const isAgent = message.type === 'agent';
+              {error && (
+                <Alert type="error" dismissible onDismiss={() => setError('')}>
+                  {error}
+                </Alert>
+              )}
+                {/* Chat Messages */}
+                <Box padding="l">
+                  <div
+                    className={`chat-messages-container theme-transition`}
+                    data-theme={mode}
+                  >
+                    {messages.length === 0 ? (
+                      <Box textAlign="center" color="text-body-secondary" padding="xxl">
+                        {t.chat.placeholder}
+                      </Box>
+                    ) : (
+                      messages.map((message) => {
+                        const isUser = message.type === 'user';
+                        const isAgent = message.type === 'agent';
 
-                      const formatTime = (timestamp: string) => {
-                        const date = new Date(timestamp);
-                        return date.toLocaleString('es-MX', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          day: 'numeric',
-                          month: 'short'
-                        });
-                      };
+                        const formatTime = (timestamp: string) => {
+                          const date = new Date(timestamp);
+                          return date.toLocaleString('es-MX', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            day: 'numeric',
+                            month: 'short'
+                          });
+                        };
 
-                      const avatar = isUser ? (
-                        <Avatar
-                          ariaLabel={"User avatar"}
-
-                          initials={getUserInitials()}
-                        />
-                      ) : (
-                        <Avatar
-                          ariaLabel="Generative AI assistant"
-                          color="gen-ai"
-                          iconName="gen-ai"
-                          tooltipText="Generative AI assistant"
-                        />
-                      );
-
-                      const actions = isAgent ? (
-                        <Button
-                          variant="icon"
-                          iconName="copy"
-                          onClick={() => handleCopy(message.content)}
-                          ariaLabel="Copy message"
-                        />
-                      ) : undefined;
-
-                      return (
-                        <div
-                          key={message.id}
-                          className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
-                        >
-                          <ChatBubble
-                            ariaLabel={`${isUser ? "User" : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
-                            type={isUser ? "outgoing" : "incoming"}
-                            avatar={avatar}
-                            actions={actions}
-                          >
-                            <MarkdownRenderer content={message.content} />
-                          </ChatBubble>
-                        </div>
-                      );
-                    })
-                  )}
-
-                  {/* Loading State */}
-                  {isLoading && (
-                    <div className="chat-bubble-wrapper incoming">
-                      <ChatBubble
-                        ariaLabel="Generative AI assistant generating response"
-                        showLoadingBar
-                        type="incoming"
-                        avatar={
+                        const avatar = isUser ? (
                           <Avatar
-                            loading={loadingStage === 'generating'}
+                            ariaLabel={"User avatar"}
+
+                            initials={getUserInitials()}
+                          />
+                        ) : (
+                          <Avatar
+                            ariaLabel="Generative AI assistant"
                             color="gen-ai"
                             iconName="gen-ai"
-                            ariaLabel="Generative AI assistant"
                             tooltipText="Generative AI assistant"
                           />
-                        }
-                      >
-                        <Box color="text-status-inactive">
-                          {loadingStage === 'processing' ? 'Analizando solicitud' : 'Generando respuesta'}
-                        </Box>
-                      </ChatBubble>
-                    </div>
-                  )}
-                </div>
-              </Box>
+                        );
 
-              {/* Support Prompts */}
-              {!isLoading && messages.length === 0 && (
-                <Box padding="l">
-                  <SupportPromptGroup
-                    onItemClick={({ detail }) => {
-                      const selectedPrompt = defaultPrompts.find(prompt => prompt.id === detail.id);
+                        const actions = isAgent ? (
+                          <Button
+                            variant="icon"
+                            iconName="copy"
+                            onClick={() => handleCopy(message.content)}
+                            ariaLabel="Copy message"
+                          />
+                        ) : undefined;
 
-                      if (selectedPrompt) {
-                        setPromptValue(selectedPrompt.text);
-                        setTimeout(handleSendMessage, 0);
-                      }
-                    }}
-                    ariaLabel="Suggested prompts"
-                    items={defaultPrompts}
-                  />
+                        return (
+                          <div
+                            key={message.id}
+                            className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
+                          >
+                            <ChatBubble
+                              ariaLabel={`${isUser ? "User" : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
+                              type={isUser ? "outgoing" : "incoming"}
+                              avatar={avatar}
+                              actions={actions}
+                            >
+                              <MarkdownRenderer content={message.content} />
+                            </ChatBubble>
+                          </div>
+                        );
+                      })
+                    )}
+
+                    {/* Loading State */}
+                    {isLoading && (
+                      <div className="chat-bubble-wrapper incoming">
+                        <ChatBubble
+                          ariaLabel="Generative AI assistant generating response"
+                          showLoadingBar
+                          type="incoming"
+                          avatar={
+                            <Avatar
+                              loading={loadingStage === 'generating'}
+                              color="gen-ai"
+                              iconName="gen-ai"
+                              ariaLabel="Generative AI assistant"
+                              tooltipText="Generative AI assistant"
+                            />
+                          }
+                        >
+                          <Box color="text-status-inactive">
+                            {loadingStage === 'processing' ? 'Analizando solicitud' : 'Generando respuesta'}
+                          </Box>
+                        </ChatBubble>
+                      </div>
+                    )}
+                  </div>
                 </Box>
-              )}
 
-              {/* Prompt Input */}
+                {/* Support Prompts */}
+                {!isLoading && messages.length === 0 && (
+                  <Box padding="l">
+                    <SupportPromptGroup
+                      onItemClick={({ detail }) => {
+                        const selectedPrompt = defaultPrompts.find(prompt => prompt.id === detail.id);
+
+                        if (selectedPrompt) {
+                          setPromptValue(selectedPrompt.text);
+                          setTimeout(handleSendMessage, 0);
+                        }
+                      }}
+                      ariaLabel="Suggested prompts"
+                      items={defaultPrompts}
+                    />
+                  </Box>
+                )}
+
+              {/* File Upload with Drag and Drop */}
               <Box padding="l">
-                <PromptInput
-                  onChange={({ detail }) => setPromptValue(detail.value)}
-                  value={promptValue}
-                  actionButtonAriaLabel="Send message"
-                  actionButtonIconName="send"
-                  placeholder="Haz una pregunta, incluye archivos con el botón o arrastrandolos a la ventana"
-                  disabled={isLoading}
-                  onAction={handleSendMessage}
-                  secondaryActions={
-                    <Box padding={{ left: "xxs", top: "xs" }}>
-                      <FileInput
-                        variant="icon"
-                        multiple={true}
-                        value={files}
-
-                        onChange={({ detail }) => handleFileChange(detail.value)}
-                        accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
-                      />
-                    </Box>
-                  }
-                  secondaryContent={
-                    files.length > 0 && (
-                      <SpaceBetween size="s">
-                        <FileTokenGroup
-                          items={files.map(file => ({ file }))}
-                          onDismiss={({ detail }) => {
-                            const removedFile = files[detail.fileIndex];
-                            const fileKey = getFileKey(removedFile);
-
-                            setFiles(files =>
-                              files.filter((_, index) =>
-                                index !== detail.fileIndex
-                              )
-                            );
-
-                            // Remove classification for dismissed file
-                            setFileClassifications(prev => {
-                              const newMap = new Map(prev);
-                              newMap.delete(fileKey);
-                              return newMap;
-                            });
-                          }}
-                          alignment="horizontal"
-                          showFileSize={true}
-                          showFileLastModified={true}
-                          showFileThumbnail={true}
-                          i18nStrings={{
-                            removeFileAriaLabel: () => "Remover archivo",
-                            limitShowFewer: "Mostrar menos archivos",
-                            limitShowMore: "Mostrar más archivos",
-                            errorIconAriaLabel: "Error",
-                            warningIconAriaLabel: "Warning"
-                          }}
-                        />
-
-                        {/* Classification Information */}
+                <SpaceBetween size="m">
+                  {!selectedPatient && (
+                    <Alert type="warning">
+                      Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.
+                    </Alert>
+                  )}
+                  
+                  <FileUpload
+                    value={files}
+                    onChange={({ detail }) => handleFileChange(detail.value)}
+                    multiple
+                    constraintText={selectedPatient 
+                      ? `Archivos para ${selectedPatient.full_name} - Arrastra archivos aquí o haz clic para seleccionar`
+                      : "Seleccione un paciente primero para adjuntar archivos"
+                    }
+                    accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
+                    i18nStrings={{
+                      uploadButtonText: (e) => (e ? 'Elegir archivos' : 'Elegir archivo'),
+                      dropzoneText: (e) => (e ? 'Arrastra archivos aquí o haz clic para seleccionar' : 'Arrastra un archivo aquí o haz clic para seleccionar'),
+                      removeFileAriaLabel: (e) => `Eliminar archivo ${e + 1}`,
+                      limitShowFewer: 'Mostrar menos archivos',
+                      limitShowMore: 'Mostrar más archivos',
+                      errorIconAriaLabel: 'Error',
+                    }}
+                  />
+                  
+                  {/* Classification Information */}
+                  {files.length > 0 && (
+                    <Box>
+                      <SpaceBetween size="xs">
                         {files.map((file) => {
                           const fileKey = getFileKey(file);
                           const classification = fileClassifications.get(fileKey);
@@ -745,8 +725,21 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           );
                         })}
                       </SpaceBetween>
-                    )
-                  }
+                    </Box>
+                  )}
+                </SpaceBetween>
+              </Box>
+
+              {/* Prompt Input */}
+              <Box padding="l">
+                <PromptInput
+                  onChange={({ detail }) => setPromptValue(detail.value)}
+                  value={promptValue}
+                  actionButtonAriaLabel="Send message"
+                  actionButtonIconName="send"
+                  placeholder="Haz una pregunta sobre el paciente seleccionado"
+                  disabled={isLoading}
+                  onAction={handleSendMessage}
                 />
               </Box>
             </SpaceBetween>

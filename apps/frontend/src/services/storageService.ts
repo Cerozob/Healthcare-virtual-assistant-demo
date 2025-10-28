@@ -3,7 +3,7 @@
  * Handles file uploads and downloads using AWS S3 SDK directly
  */
 
-import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import { configService } from './configService';
@@ -17,6 +17,7 @@ interface FileItem {
   key: string;
   size?: number;
   lastModified?: Date;
+  metadata?: { [key: string]: string };
 }
 
 interface ProgressEvent {
@@ -344,12 +345,13 @@ class StorageService {
   }
 
   /**
-   * List files in S3 using AWS S3 SDK directly
+   * List files in S3 using AWS S3 SDK directly with metadata
    */
   async listFiles(
     prefix?: string,
     options?: {
       pageSize?: number;
+      includeMetadata?: boolean;
     }
   ): Promise<FileItem[]> {
     try {
@@ -366,13 +368,51 @@ class StorageService {
 
       const result = await s3Client.send(command);
 
-      const files = (result.Contents || []).map(item => ({
-        key: item.Key || '',
-        size: item.Size,
-        lastModified: item.LastModified,
-      }));
+      const files: FileItem[] = [];
+      
+      // If metadata is requested, fetch it for each file
+      if (options?.includeMetadata) {
+        for (const item of result.Contents || []) {
+          if (!item.Key) continue;
+          
+          try {
+            // Fetch object metadata using HeadObject (more efficient than GetObject)
+            const headResponse = await s3Client.send(
+              new HeadObjectCommand({
+                Bucket: config.s3BucketName,
+                Key: item.Key,
+              })
+            );
+            
+            files.push({
+              key: item.Key,
+              size: item.Size,
+              lastModified: item.LastModified,
+              metadata: headResponse.Metadata || {},
+            });
+          } catch (error) {
+            console.warn(`Failed to fetch metadata for ${item.Key}:`, error);
+            // Add file without metadata if fetch fails
+            files.push({
+              key: item.Key,
+              size: item.Size,
+              lastModified: item.LastModified,
+              metadata: {},
+            });
+          }
+        }
+      } else {
+        // Just return basic file info without metadata
+        for (const item of result.Contents || []) {
+          files.push({
+            key: item.Key || '',
+            size: item.Size,
+            lastModified: item.LastModified,
+          });
+        }
+      }
 
-      console.log(`✅ Found ${files.length} files`);
+      console.log(`✅ Found ${files.length} files${options?.includeMetadata ? ' with metadata' : ''}`);
       return files;
     } catch (error) {
       console.error(`❌ Failed to list files`, error);
