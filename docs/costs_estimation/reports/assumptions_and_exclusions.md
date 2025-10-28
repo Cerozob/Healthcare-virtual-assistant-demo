@@ -90,6 +90,16 @@ This document provides a comprehensive overview of all assumptions, exclusions, 
 | **Average Output Tokens** | 800 (Haiku), 1,500 (Sonnet) | Healthcare response patterns | Medium |
 | **Cache Hit Rate** | 60% for both models | Prompt engineering estimate | Medium |
 
+#### Amazon Nova Micro Integration Assumptions
+
+| Assumption | Value | Source | Confidence |
+|------------|-------|--------|------------|
+| **Nova Micro Usage Distribution** | 90-95% of simple queries | Query complexity analysis | Medium |
+| **Nova Micro Input Tokens** | 1,500 tokens average | Simplified healthcare queries | Medium |
+| **Nova Micro Output Tokens** | 600 tokens average | Concise response patterns | Medium |
+| **Nova Micro Accuracy Rate** | 92-95% for simple queries | AWS Nova documentation | Low |
+| **Hybrid Routing Efficiency** | 95% correct model selection | Intelligent classification | Low |
+
 #### **[NEEDS REVIEW]** Critical Assumptions Requiring Validation
 
 | Assumption | Value | Validation Required |
@@ -98,6 +108,8 @@ This document provides a comprehensive overview of all assumptions, exclusions, 
 | **Query Complexity Distribution** | 90% simple, 10% complex | Validate medical query patterns |
 | **Prompt Optimization Effectiveness** | 60% cache hit rate achievable | Test actual caching performance |
 | **Model Routing Accuracy** | 95% correct model selection | Validate query classification |
+| **Amazon Nova Micro Performance** | 90-95% suitable for simple queries | Test accuracy vs Claude 3.5 Haiku |
+| **Nova Micro Cost Savings** | 60-80% reduction vs Claude models | Validate actual pricing and usage patterns |
 
 ---
 
@@ -168,6 +180,7 @@ This document provides a comprehensive overview of all assumptions, exclusions, 
 | Service | Assumption | Validation Required |
 |---------|------------|-------------------|
 | **Bedrock Foundation Models** | Claude 3.5 Haiku vs Claude 4.5 Haiku | Confirm actual model availability and pricing |
+| **Amazon Nova Micro** | 60-80% cost reduction vs Claude models | Validate actual Nova Micro pricing structure |
 | **Bedrock Embeddings** | Titan Embeddings V2 pricing | Validate model name and pricing structure |
 | **Bedrock Data Automation** | Batch processing discount (10%) | Confirm discount availability and thresholds |
 | **Bedrock AgentCore** | Runtime pricing model | Validate actual pricing structure |

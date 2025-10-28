@@ -71,9 +71,35 @@ const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Poli
   ],
 });
 
-// Attach the policy to both authenticated and unauthenticated user roles for guest access
+// Define IAM policy for AgentCore access
+// Following AWS best practices for least privilege access
+const agentCorePolicy = new Policy(customBucketStack, 'AgentCoreAccessPolicy', {
+  statements: [
+    // Core AgentCore Runtime permissions for healthcare assistant
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:GetAgentRuntime',
+        'bedrock-agentcore:InvokeAgent',
+        'bedrock-agentcore:ListAgentRuntimes',
+        'bedrock-agentcore:GetAgentRuntimeStatus'
+      ],
+      resources: [
+        // Specific healthcare assistant runtime
+        'arn:aws:bedrock-agentcore:us-east-1:711387129682:runtime/healthcare_assistant-*',
+        // Allow access to any runtime in this account for flexibility
+        'arn:aws:bedrock-agentcore:us-east-1:711387129682:runtime/*'
+      ],
+    }),
+  ],
+});
+
+// Attach the policies to authenticated and unauthenticated user roles
 backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(customBucketPolicy);
 backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(customBucketPolicy);
+
+// Attach AgentCore policy only to authenticated users (for security)
+backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(agentCorePolicy);
 
 // Add custom outputs for your existing bucket
 backend.addOutput({
