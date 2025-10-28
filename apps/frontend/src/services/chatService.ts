@@ -1,20 +1,36 @@
 /**
  * Chat Service
- * Service class for chat-related API operations with AgentCore streaming support
+ * Service class for chat-related API operations via API Gateway
  */
 
 import { apiClient } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
-import { agentCoreService, type StreamingChatResponse } from './agentCoreService';
 import type {
   SendMessageRequest,
   SendMessageResponse,
   ChatMessage
 } from '../types/api';
 
+// Define StreamingChatResponse type locally since we're no longer using agentCoreService
+export interface StreamingChatResponse {
+  sessionId: string;
+  messageId: string;
+  isComplete: boolean;
+  content: string;
+  metadata?: {
+    apiGateway?: boolean;
+    fallback?: boolean;
+    echoMode?: boolean;
+    responseTimeMs?: number;
+    totalProcessingTimeMs?: number;
+    patientContext?: any;
+    originalResponse?: any;
+  };
+}
+
 export class ChatService {
   /**
-   * Send streaming message to AgentCore
+   * Send streaming message via API Gateway (primary method)
    */
   async sendStreamingMessage(
     data: SendMessageRequest,
@@ -30,31 +46,51 @@ export class ChatService {
       console.log('   • attachments:', data.attachments?.length || 0);
       console.groupEnd();
 
-      // Use AgentCore streaming service
-      const response = await agentCoreService.sendStreamingMessage(
-        data.message,
-        data.sessionId,
-        onChunk,
-        onComplete,
-        onError
-      );
-
-      return response;
-    } catch (error: unknown) {
-      console.error('AgentCore streaming failed, falling back to Lambda:', error);
+      // Use API Gateway endpoint for AgentCore communication
+      const response = await this.sendMessage(data);
       
-      // Fallback to Lambda endpoint
-      const fallbackResponse = await this.sendMessage(data);
-      
-      // Convert to streaming response format
+      // Convert to streaming response format for compatibility
       const streamingResponse: StreamingChatResponse = {
-        sessionId: fallbackResponse.sessionId || `fallback_session_${Date.now()}`,
-        messageId: `fallback_${Date.now()}`,
+        sessionId: response.sessionId || `api_session_${Date.now()}`,
+        messageId: `api_${Date.now()}`,
         isComplete: true,
-        content: fallbackResponse.response || fallbackResponse.message || 'No response received',
+        content: response.response || response.message || 'No response received',
+        metadata: { 
+          apiGateway: true,
+          responseTimeMs: response.responseTimeMs,
+          totalProcessingTimeMs: response.totalProcessingTimeMs,
+          patientContext: response.patient_context
+        }
+      };
+
+      // Simulate streaming by calling onChunk and onComplete
+      if (onChunk) {
+        onChunk(streamingResponse);
+      }
+      
+      if (onComplete) {
+        onComplete(streamingResponse);
+      }
+
+      return streamingResponse;
+    } catch (error: unknown) {
+      console.error('API Gateway request failed, falling back to echo mode:', error);
+      
+      if (onError) {
+        onError(error as Error);
+      }
+
+      // Fallback to echo mode
+      const echoResponse = await this.sendEchoMessage(data.message, data.sessionId);
+      
+      const streamingResponse: StreamingChatResponse = {
+        sessionId: data.sessionId || `echo_session_${Date.now()}`,
+        messageId: `echo_${Date.now()}`,
+        isComplete: true,
+        content: `⚠️ **Modo de desarrollo activo** - El servicio no está disponible.\n\n${echoResponse.agentMessage.content}`,
         metadata: { 
           fallback: true,
-          originalResponse: fallbackResponse
+          echoMode: true
         }
       };
 
@@ -67,7 +103,7 @@ export class ChatService {
   }
 
   /**
-   * Send message to AgentCore chat endpoint (non-streaming fallback)
+   * Send message to API Gateway AgentCore endpoint
    */
   async sendMessage(data: SendMessageRequest): Promise<SendMessageResponse> {
     try {

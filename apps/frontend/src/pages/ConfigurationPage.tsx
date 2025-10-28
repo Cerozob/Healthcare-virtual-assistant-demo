@@ -176,7 +176,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
     } finally {
       setLoading(false);
     }
-  }, [activeTab, t.errors.generic, loadFiles]);
+  }, [activeTab, t.errors.generic, loadFiles, selectedPatientForFiles]);
 
   // Load data on mount and tab change
   useEffect(() => {
