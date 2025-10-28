@@ -76,7 +76,7 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
 
 export default function ChatPage({ signOut, user }: ChatPageProps) {
   const { t } = useLanguage();
-  const { selectedPatient, isPatientSelected, clearPatient } = usePatientContext();
+  const { selectedPatient, isPatientSelected, clearPatient, setSelectedPatient, setPatientExams } = usePatientContext();
   const { mode } = useTheme();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -317,6 +317,50 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       };
 
       setMessages(prev => [...prev, agentMessage]);
+
+      // Handle automatic patient selection if agent identified a patient
+      if (response.patient_context?.patient_found && response.patient_context?.patient_data) {
+        const identifiedPatient = response.patient_context.patient_data;
+        
+        // Only auto-select if no patient is currently selected or if it's a different patient
+        if (!selectedPatient || selectedPatient.patient_id !== identifiedPatient.patient_id) {
+          console.log(`Agent identified patient: ${identifiedPatient.full_name} (${identifiedPatient.patient_id})`);
+          
+          // Set the patient in context
+          setSelectedPatient(identifiedPatient);
+          
+          // Load patient reservations
+          try {
+            const reservationsResponse = await reservationService.getReservations();
+            const patientExams = reservationsResponse.reservations.filter(reservation =>
+              reservation.patient_id === identifiedPatient.patient_id
+            );
+            setPatientExams(patientExams);
+          } catch (error) {
+            console.error('Error loading patient reservations:', error);
+            setPatientExams([]);
+          }
+          
+          // Add system message about automatic patient selection
+          const systemMessage: ChatMessage = {
+            id: `system_${Date.now()}`,
+            content: `🔍 **Paciente identificado automáticamente**: ${identifiedPatient.full_name} (ID: ${identifiedPatient.patient_id})\n\n✅ El paciente ha sido seleccionado en el panel lateral y el contexto ha sido establecido para esta conversación.`,
+            type: 'system',
+            timestamp: new Date().toISOString()
+          };
+          setMessages(prev => [...prev, systemMessage]);
+        } else if (selectedPatient && selectedPatient.patient_id === identifiedPatient.patient_id) {
+          // Patient is already selected, just add a confirmation message
+          const systemMessage: ChatMessage = {
+            id: `system_${Date.now()}`,
+            content: `✅ **Paciente confirmado**: ${identifiedPatient.full_name} (ID: ${identifiedPatient.patient_id})\n\nContinuando con el contexto del paciente actual.`,
+            type: 'system',
+            timestamp: new Date().toISOString()
+          };
+          setMessages(prev => [...prev, systemMessage]);
+        }
+      }
+
       setIsLoading(false);
 
     } catch (error) {

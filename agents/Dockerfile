@@ -25,9 +25,9 @@ RUN mkdir -p /app/logs /app/tmp
 # Set proper permissions
 RUN chmod -R 755 /app
 
-# Health check for AgentCore Runtime
+# Health check for AgentCore Runtime using Python
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/ping || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')" || exit 1
 
 # Expose port 8080 (required for AgentCore Runtime)
 EXPOSE 8080

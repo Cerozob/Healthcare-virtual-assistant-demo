@@ -202,6 +202,14 @@ export interface SendMessageResponse {
   message?: string;
   sessionId?: string;
   timestamp?: string;
+  // Patient context information from agent
+  patient_context?: {
+    patient_id?: string;
+    patient_name?: string;
+    has_patient_context?: boolean;
+    patient_found?: boolean;
+    patient_data?: Patient;
+  };
 }
 
 // Session management is handled by AgentCore internally

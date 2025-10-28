@@ -148,7 +148,7 @@ class BackendStack(Stack):
                                           retention=Duration.days(7)),
                                       removal_policy=RemovalPolicy.DESTROY,
                                       deletion_protection=False,
-                                    #   serverless_v2_auto_pause_duration=Duration.minutes(5),
+                                      #   serverless_v2_auto_pause_duration=Duration.minutes(5),
                                       serverless_v2_min_capacity=0.5,
                                       serverless_v2_max_capacity=40,
                                       storage_encrypted=True,
@@ -662,6 +662,27 @@ class BackendStack(Stack):
         )
         self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
+        # Patient Lookup Function
+        self.patient_lookup_function = lambda_.Function(
+            self,
+            "PatientLookupFunction",
+            function_name="PatientLookupFunction",
+            code=lambda_.Code.from_asset(
+                "lambdas", exclude=["**/__pycache__/**"]),
+            handler="patient_lookup.index.lambda_handler",
+            runtime=lambda_.Runtime.PYTHON_3_11,
+            timeout=Duration.seconds(30),
+            memory_size=256,
+            environment={
+                'LOG_LEVEL': 'INFO',
+                'PATIENT_TABLE': 'patients'
+                # Removed AWS_REGION - it's reserved by Lambda runtime
+            }
+        )
+        self.patient_lookup_function.add_to_role_policy(ssm_policy)
+        self.patient_lookup_function.add_to_role_policy(rds_policy)
+        self.patient_lookup_function.add_to_role_policy(secrets_policy)
+
     def _create_outputs(self) -> None:
         """Create CloudFormation outputs."""
 
@@ -744,4 +765,12 @@ class BackendStack(Stack):
             value=self.data_loader_function.function_name,
             description="Lambda function for loading sample data into database and raw bucket",
             export_name="HealthcareDataLoaderFunctionName"
+        )
+
+        CfnOutput(
+            self,
+            "PatientLookupFunctionName",
+            value=self.patient_lookup_function.function_name,
+            description="Lambda function for patient lookup operations",
+            export_name="HealthcarePatientLookupFunctionName"
         )

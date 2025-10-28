@@ -23,7 +23,8 @@ export class ChatService {
       return {
         response: response.response || response.message || 'No response received',
         sessionId: response.sessionId || data.sessionId || `session_${Date.now()}`,
-        timestamp: response.timestamp || new Date().toISOString()
+        timestamp: response.timestamp || new Date().toISOString(),
+        patient_context: response.patient_context // Pass through patient context from agent
       };
     } catch (error: unknown) {
       console.error('AgentCore request failed, falling back to echo mode:', error);

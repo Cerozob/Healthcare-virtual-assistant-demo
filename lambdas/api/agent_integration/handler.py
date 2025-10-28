@@ -460,13 +460,20 @@ def handle_agentcore_chat(event: Dict[str, Any], request_id: str) -> Dict[str, A
                                  )
                 return create_error_response(502, "Invalid response from AgentCore", "AGENTCORE_INVALID_RESPONSE")
 
-            # Extract the agent's response
-            agent_response = response_data.get('output', {})
-            if isinstance(agent_response, dict):
-                response_text = agent_response.get(
-                    'message', str(agent_response))
-            else:
-                response_text = str(agent_response)
+            # Extract the agent's response - AgentCore compliant format
+            # First try the standard AgentCore response field
+            response_text = response_data.get('response', '')
+            
+            # Fallback to output.message for backward compatibility
+            if not response_text:
+                agent_response = response_data.get('output', {})
+                if isinstance(agent_response, dict):
+                    response_text = agent_response.get('message', str(agent_response))
+                else:
+                    response_text = str(agent_response)
+
+            # Extract patient context from the response if available
+            patient_context = response_data.get('patient_context', {})
 
             total_duration_ms = (
                 datetime.now() - function_start_time).total_seconds() * 1000
@@ -478,6 +485,10 @@ def handle_agentcore_chat(event: Dict[str, Any], request_id: str) -> Dict[str, A
                 'responseTimeMs': round(agentcore_response_time_ms, 2),
                 'totalProcessingTimeMs': round(total_duration_ms, 2)
             }
+            
+            # Add patient context if available
+            if patient_context:
+                formatted_response['patient_context'] = patient_context
 
             log_with_context('info',
                              f"Chat request completed successfully",
@@ -558,6 +569,9 @@ def handle_agentcore_chat(event: Dict[str, Any], request_id: str) -> Dict[str, A
                          )
 
         return create_error_response(500, "Internal server error", "CHAT_HANDLER_ERROR")
+
+
+
 
 
 def handle_agentcore_health(event: Dict[str, Any], request_id: str) -> Dict[str, Any]:
