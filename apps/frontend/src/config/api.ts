@@ -24,6 +24,7 @@ const defaultConfig: ApiConfig = {
 export function getApiConfig(): ApiConfig {
   try {
     const runtimeConfig = configService.getConfig();
+    console.log('Runtime config loaded:', runtimeConfig)
     return {
       ...defaultConfig,
       baseUrl: runtimeConfig.apiBaseUrl
@@ -52,17 +53,9 @@ export const API_ENDPOINTS = {
   reservations: '/reservations',
   reservation: (id: string) => `/reservations/${id}`,
 
-  // Chat endpoints - DEPRECATED: Use AgentCore instead
-  chatMessage: '/chat/message', // DEPRECATED
-  chatSessions: '/chat/sessions', // DEPRECATED
-  chatSessionMessages: (sessionId: string) => `/chat/sessions/${sessionId}/messages`, // DEPRECATED
-
   // AgentCore endpoints
   agentCoreChat: '/agentcore/chat',
   agentCoreHealth: '/agentcore/health',
-
-  // Agent endpoints (legacy)
-  agent: '/agent',
 
   // Document endpoints - removed, using direct S3 upload via Amplify Storage
 } as const;

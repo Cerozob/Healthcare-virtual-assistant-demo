@@ -24,9 +24,9 @@ class ConfigService {
 
     // Load from environment variables (set in Amplify console)
     const config: RuntimeConfig = {
-      apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/v1',
-      s3BucketName: import.meta.env.VITE_S3_BUCKET_NAME || 'dev-bucket',
-      region: import.meta.env.VITE_AWS_REGION || 'us-east-1'
+      apiBaseUrl: import.meta.env.VITE_API_BASE_URL,
+      s3BucketName: import.meta.env.VITE_S3_BUCKET_NAME,
+      region: import.meta.env.VITE_AWS_REGION
     };
 
     this.config = config;
@@ -41,7 +41,7 @@ class ConfigService {
     return this.getConfig();
   }
 
-  
+
   /**
    * Check if configuration is available
    */

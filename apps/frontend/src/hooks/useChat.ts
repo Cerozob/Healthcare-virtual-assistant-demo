@@ -4,15 +4,11 @@
  */
 
 import { chatService } from '../services';
-import { useApi } from './useApi';
 import type {
   SendMessageRequest,
-  SendMessageResponse,
-  CreateSessionRequest,
-  ChatSessionsResponse,
-  ChatMessagesResponse,
-  PaginationParams
+  SendMessageResponse
 } from '../types/api';
+import { useApi } from './useApi';
 
 export function useSendMessage() {
   return useApi<SendMessageResponse>((data: SendMessageRequest) => 
@@ -20,20 +16,5 @@ export function useSendMessage() {
   );
 }
 
-export function useChatSessions() {
-  return useApi<ChatSessionsResponse>((params?: PaginationParams) => 
-    chatService.getSessions(params)
-  );
-}
-
-export function useCreateChatSession() {
-  return useApi<{ message: string; session: any }>((data?: CreateSessionRequest) => 
-    chatService.createSession(data)
-  );
-}
-
-export function useChatMessages() {
-  return useApi<ChatMessagesResponse>((sessionId: string, params?: PaginationParams) => 
-    chatService.getSessionMessages(sessionId, params)
-  );
-}
+// Session management is handled by the lambda/AgentCore
+// Lambda generates session IDs and frontend reuses them

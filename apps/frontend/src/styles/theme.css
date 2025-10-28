@@ -35,11 +35,63 @@
 
 /* Chat message styling enhancements for dark mode */
 [data-theme="dark"] .chat-messages-container {
-  background-color: var(--custom-bg-secondary);
+  background-color: transparent;
+  color: var(--custom-text-primary);
 }
 
 [data-theme="dark"] .chat-bubble-wrapper {
-  filter: brightness(1.1);
+  /* Remove filter that was causing issues */
+}
+
+/* Ensure chat bubbles use proper Cloudscape dark theme colors */
+[data-theme="dark"] .awsui-chat-bubble {
+  background-color: var(--awsui-color-background-container-content);
+  color: var(--awsui-color-text-body-default);
+  border-color: var(--awsui-color-border-divider-default);
+}
+
+/* Fix text color in chat messages for dark mode */
+[data-theme="dark"] .chat-messages-container * {
+  color: inherit;
+}
+
+/* Ensure markdown content in chat uses proper colors */
+[data-theme="dark"] .markdown-content {
+  color: var(--awsui-color-text-body-default);
+}
+
+[data-theme="dark"] .markdown-content h1,
+[data-theme="dark"] .markdown-content h2,
+[data-theme="dark"] .markdown-content h3,
+[data-theme="dark"] .markdown-content h4,
+[data-theme="dark"] .markdown-content h5,
+[data-theme="dark"] .markdown-content h6 {
+  color: var(--awsui-color-text-heading-default);
+}
+
+[data-theme="dark"] .markdown-content code {
+  background-color: var(--awsui-color-background-code-editor);
+  color: var(--awsui-color-text-code-editor-default);
+}
+
+[data-theme="dark"] .markdown-content pre {
+  background-color: var(--awsui-color-background-code-editor);
+  border-color: var(--awsui-color-border-divider-default);
+}
+
+[data-theme="dark"] .markdown-content blockquote {
+  border-left-color: var(--awsui-color-border-divider-default);
+  background-color: var(--awsui-color-background-container-content);
+}
+
+[data-theme="dark"] .markdown-content table {
+  border-color: var(--awsui-color-border-divider-default);
+}
+
+[data-theme="dark"] .markdown-content th,
+[data-theme="dark"] .markdown-content td {
+  border-color: var(--awsui-color-border-divider-default);
+  background-color: var(--awsui-color-background-container-content);
 }
 
 /* File upload area enhancements */

@@ -1,8 +1,6 @@
 import { AppLayout, BreadcrumbGroup, ContentLayout } from '@cloudscape-design/components';
 import type { BreadcrumbGroupProps } from '@cloudscape-design/components';
-import { useState, type ReactNode } from 'react';
-import { useLanguage } from '../../contexts/LanguageContext';
-import { SideNavigation } from './SideNavigation';
+import { type ReactNode } from 'react';
 import { TopNavigationBar } from './TopNavigationBar';
 
 interface MainLayoutProps {
@@ -12,6 +10,13 @@ interface MainLayoutProps {
     signInDetails?: {
       loginId?: string;
     };
+    username?: string;
+    attributes?: {
+      name?: string;
+      given_name?: string;
+      family_name?: string;
+      email?: string;
+    };
   };
   breadcrumbs?: BreadcrumbGroupProps.Item[];
   contentHeader?: ReactNode;
@@ -20,20 +25,15 @@ interface MainLayoutProps {
 export function MainLayout({ 
   children, 
   signOut, 
-  user, // Keep for compatibility but not used in TopNavigationBar anymore
+  user,
   breadcrumbs,
   contentHeader,
 }: MainLayoutProps) {
-  const { t } = useLanguage();
-  const [navigationOpen, setNavigationOpen] = useState(true);
-
   return (
     <>
-      <TopNavigationBar signOut={signOut} />
+      <TopNavigationBar signOut={signOut} user={user} />
       <AppLayout
-        navigation={<SideNavigation />}
-        navigationOpen={navigationOpen}
-        onNavigationChange={({ detail }) => setNavigationOpen(detail.open)}
+        navigationHide
         toolsHide
         breadcrumbs={
           breadcrumbs ? (
@@ -49,16 +49,6 @@ export function MainLayout({
           </ContentLayout>
         }
         contentType="default"
-        navigationWidth={280}
-        ariaLabels={{
-          navigation: t.nav.home,
-          navigationClose: t.common.close,
-          navigationToggle: 'Abrir navegación',
-          notifications: t.notifications.title,
-          tools: 'Herramientas',
-          toolsClose: t.common.close,
-          toolsToggle: 'Abrir herramientas',
-        }}
       />
     </>
   );

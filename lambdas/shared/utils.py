@@ -6,11 +6,79 @@ Common functions for request/response handling, validation, and error management
 import json
 import logging
 import uuid
+import traceback
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Union
 from functools import wraps
 
 logger = logging.getLogger(__name__)
+
+
+class StructuredLogger:
+    """
+    Structured logging utility for Lambda functions.
+    Provides consistent JSON-formatted logging with context.
+    """
+    
+    def __init__(self, logger_name: str = __name__):
+        self.logger = logging.getLogger(logger_name)
+        
+    def log(self, level: str, message: str, **context):
+        """Log a message with structured context."""
+        log_entry = {
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'level': level.upper(),
+            'message': message,
+            **{k: v for k, v in context.items() if v is not None}
+        }
+        
+        # Use the appropriate logging level
+        log_method = getattr(self.logger, level.lower(), self.logger.info)
+        log_method(json.dumps(log_entry))
+    
+    def info(self, message: str, **context):
+        """Log an info message."""
+        self.log('INFO', message, **context)
+    
+    def debug(self, message: str, **context):
+        """Log a debug message."""
+        self.log('DEBUG', message, **context)
+    
+    def warning(self, message: str, **context):
+        """Log a warning message."""
+        self.log('WARNING', message, **context)
+    
+    def error(self, message: str, **context):
+        """Log an error message."""
+        self.log('ERROR', message, **context)
+    
+    def exception(self, message: str, exc: Exception = None, **context):
+        """Log an exception with traceback."""
+        context['error_type'] = type(exc).__name__ if exc else 'Unknown'
+        context['traceback'] = traceback.format_exc()
+        self.log('ERROR', message, **context)
+
+
+def create_request_logger(request_id: str = None) -> StructuredLogger:
+    """
+    Create a structured logger with request context.
+    
+    Args:
+        request_id: Optional request ID to include in all log messages
+        
+    Returns:
+        StructuredLogger instance with request context
+    """
+    class RequestLogger(StructuredLogger):
+        def __init__(self, req_id: str = None):
+            super().__init__()
+            self.request_id = req_id or str(uuid.uuid4())
+        
+        def log(self, level: str, message: str, **context):
+            context['request_id'] = self.request_id
+            super().log(level, message, **context)
+    
+    return RequestLogger(request_id)
 
 
 def create_response(
@@ -223,8 +291,8 @@ def get_current_timestamp() -> datetime:
 
 def handle_exceptions(func):
     """
-    Decorator to handle exceptions in Lambda functions.
-    Catches unhandled exceptions and returns appropriate error responses.
+    Enhanced decorator to handle exceptions in Lambda functions.
+    Catches unhandled exceptions and returns appropriate error responses with structured logging.
     
     Args:
         func: Lambda handler function to wrap
@@ -234,13 +302,96 @@ def handle_exceptions(func):
     """
     @wraps(func)
     def wrapper(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+        start_time = datetime.now(timezone.utc)
+        request_id = context.aws_request_id if context else str(uuid.uuid4())
+        structured_logger = create_request_logger(request_id)
+        
+        # Log function entry
+        structured_logger.info(
+            f"Lambda function {func.__name__} started",
+            function_name=func.__name__,
+            lambda_version=context.function_version if context else 'unknown',
+            memory_limit=context.memory_limit_in_mb if context else 'unknown',
+            remaining_time_ms=context.get_remaining_time_in_millis() if context else 'unknown'
+        )
+        
         try:
-            return func(event, context)
+            result = func(event, context)
+            
+            # Log successful completion
+            duration_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            status_code = result.get('statusCode', 'unknown') if isinstance(result, dict) else 'unknown'
+            
+            structured_logger.info(
+                f"Lambda function {func.__name__} completed successfully",
+                function_name=func.__name__,
+                duration_ms=round(duration_ms, 2),
+                status_code=status_code
+            )
+            
+            return result
+            
         except ValueError as e:
-            logger.error(f"Validation error in {func.__name__}: {e}")
+            duration_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            structured_logger.error(
+                f"Validation error in {func.__name__}: {str(e)}",
+                function_name=func.__name__,
+                error_type="ValidationError",
+                duration_ms=round(duration_ms, 2)
+            )
             return create_error_response(400, str(e), "VALIDATION_ERROR")
+            
         except Exception as e:
-            logger.error(f"Unhandled exception in {func.__name__}: {e}", exc_info=True)
+            duration_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            structured_logger.exception(
+                f"Unhandled exception in {func.__name__}: {str(e)}",
+                exc=e,
+                function_name=func.__name__,
+                duration_ms=round(duration_ms, 2)
+            )
             return create_error_response(500, "Internal server error", "INTERNAL_ERROR")
     
     return wrapper
+
+
+def log_performance_metrics(func_name: str, duration_ms: float, **metrics):
+    """
+    Log performance metrics for a function.
+    
+    Args:
+        func_name: Name of the function
+        duration_ms: Duration in milliseconds
+        **metrics: Additional metrics to log
+    """
+    structured_logger = StructuredLogger()
+    structured_logger.info(
+        f"Performance metrics for {func_name}",
+        function_name=func_name,
+        duration_ms=round(duration_ms, 2),
+        **metrics
+    )
+
+
+def log_aws_api_call(service: str, operation: str, duration_ms: float, success: bool, **context):
+    """
+    Log AWS API call metrics.
+    
+    Args:
+        service: AWS service name (e.g., 'bedrock-agentcore', 'ssm')
+        operation: API operation name
+        duration_ms: Duration in milliseconds
+        success: Whether the call was successful
+        **context: Additional context
+    """
+    structured_logger = StructuredLogger()
+    level = 'info' if success else 'error'
+    
+    structured_logger.log(
+        level,
+        f"AWS API call: {service}.{operation}",
+        aws_service=service,
+        aws_operation=operation,
+        duration_ms=round(duration_ms, 2),
+        success=success,
+        **context
+    )

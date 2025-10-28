@@ -100,13 +100,6 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             extracted_data=validated_data
         )
 
-        # Store extracted data in database (keep for legacy compatibility)
-        stored_document_id = store_in_database(
-            document_id=document_id,
-            patient_id=patient_id,
-            extracted_data=validated_data,
-            s3_uri=organized_s3_uri or output_s3_uri
-        )
 
         # Update Knowledge Base with classification metadata
         kb_document_id = update_knowledge_base(
@@ -270,18 +263,13 @@ def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str, job_id: 
         input_key = input_s3_object.get('name', '')
         if input_key:
             # Extract patient ID and filename from input key
-            # Structure: {patient_id}/{filename} or patients/{patient_id}/{filename}
+            # Structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
             key_parts = input_key.split('/')
             
             if len(key_parts) >= 2:
-                if key_parts[0] == 'patients' and len(key_parts) >= 3:
-                    # Structure: patients/{patient_id}/{filename}
-                    patient_id = key_parts[1]
-                    filename = key_parts[2]
-                else:
-                    # Structure: {patient_id}/{filename}
-                    patient_id = key_parts[0]
-                    filename = key_parts[-1]
+                # New structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
+                patient_id = key_parts[0]
+                filename = key_parts[-1]  # Last part is always the filename
                 
                 # Create document ID from patient_id and filename
                 clean_filename = filename.split('.')[0]
@@ -556,9 +544,9 @@ def organize_processed_data(
         if patient_id and document_id.startswith(f"{patient_id}_"):
             clean_filename = document_id[len(f"{patient_id}_"):]
         
-        # Create clean flattened structure: processed/{patient_id}/{clean_filename}/
+        # Create clean flattened structure: processed/{patient_id}_{clean_filename}/
         clean_patient_id = patient_id or 'unknown'
-        processed_key_prefix = f"processed/{clean_patient_id}/{clean_filename}"
+        processed_key_prefix = f"processed/{clean_patient_id}_{clean_filename}"
 
         logger.info(f"Organizing processed data with flattened structure: {processed_key_prefix}")
 
@@ -635,10 +623,10 @@ def organize_processed_data(
             
             logger.info(f"Stored result file: {file_key}")
 
-        # Copy any assets from the BDA output (like images)
-        assets_copied = copy_bda_assets(extracted_data.get('source_s3_uri', ''), processed_key_prefix)
-        if assets_copied > 0:
-            logger.info(f"Copied {assets_copied} asset files to flattened structure")
+        # Move any assets from the BDA output (like images) to debloat original
+        assets_moved = move_bda_assets(extracted_data.get('source_s3_uri', ''), processed_key_prefix)
+        if assets_moved > 0:
+            logger.info(f"Moved {assets_moved} asset files to flattened structure")
 
         # Store BDA metadata separately for debugging/audit purposes
         if extracted_data.get('bda_job_metadata'):
@@ -651,6 +639,9 @@ def organize_processed_data(
             )
             logger.info(f"Stored BDA metadata: {metadata_key}")
 
+        # Clean up original BDA output to debloat (keep only essential files)
+        cleanup_bda_output(extracted_data.get('source_s3_uri', ''))
+
         processed_uri = f"s3://{PROCESSED_BUCKET}/{main_data_key}"
         logger.info(f"Successfully organized processed data with flattened structure at: {processed_uri}")
         return processed_uri
@@ -660,16 +651,17 @@ def organize_processed_data(
         return ""
 
 
-def copy_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
+def move_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
     """
-    Copy asset files (like images) from the BDA output to the flattened structure.
+    Move asset files (like images) from the BDA output to the flattened structure.
+    This helps debloat the original BDA output by moving files instead of copying.
     
     Args:
         source_s3_uri: Source S3 URI from BDA output
         target_prefix: Target prefix for flattened structure
         
     Returns:
-        Number of assets copied
+        Number of assets moved
     """
     if not source_s3_uri or not PROCESSED_BUCKET:
         return 0
@@ -686,7 +678,7 @@ def copy_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
             Prefix=source_prefix
         )
         
-        assets_copied = 0
+        assets_moved = 0
         if 'Contents' in response:
             for obj in response['Contents']:
                 key = obj['Key']
@@ -709,76 +701,83 @@ def copy_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
                     # Create target key in flattened structure
                     target_key = f"{target_prefix}/assets/{filename}"
                     
-                    # Copy the asset file
+                    # Move the asset file (copy then delete to move)
                     s3_client.copy_object(
                         CopySource={'Bucket': source_bucket, 'Key': key},
                         Bucket=PROCESSED_BUCKET,
                         Key=target_key
                     )
                     
-                    assets_copied += 1
-                    logger.info(f"Copied asset: {key} -> {target_key}")
+                    # Delete the original file to complete the move
+                    s3_client.delete_object(
+                        Bucket=source_bucket,
+                        Key=key
+                    )
+                    
+                    assets_moved += 1
+                    logger.info(f"Moved asset: {key} -> {target_key}")
         
-        return assets_copied
+        return assets_moved
         
     except Exception as e:
-        logger.error(f"Error copying BDA assets: {str(e)}")
+        logger.error(f"Error moving BDA assets: {str(e)}")
         return 0
 
 
-def store_in_database(
-    document_id: str,
-    patient_id: Optional[str],
-    extracted_data: Dict[str, Any],
-    s3_uri: str
-) -> str:
+def cleanup_bda_output(source_s3_uri: str) -> None:
     """
-    Store extracted data in Aurora PostgreSQL.
-
+    Clean up the original BDA output to debloat storage.
+    Keeps only essential files like job_metadata.json and deletes processed files.
+    
     Args:
-        document_id: Document identifier
-        patient_id: Patient identifier
-        extracted_data: Validated extracted data
-        s3_uri: S3 URI of processed document
-
-    Returns:
-        Stored document ID
+        source_s3_uri: Source S3 URI from BDA output
     """
+    if not source_s3_uri:
+        return
+        
     try:
-        # Prepare SQL statement
-        sql = """
-        INSERT INTO processed_documents 
-        (document_id, patient_id, extracted_data, s3_uri, processing_date, created_at)
-        VALUES (:document_id, :patient_id, :extracted_data::jsonb, :s3_uri, :processing_date, :created_at)
-        ON CONFLICT (document_id) 
-        DO UPDATE SET 
-            extracted_data = EXCLUDED.extracted_data,
-            s3_uri = EXCLUDED.s3_uri,
-            processing_date = EXCLUDED.processing_date,
-            updated_at = NOW()
-        RETURNING id
-        """
-
-        parameters = [
-            {'name': 'document_id', 'value': {'stringValue': document_id}},
-            {'name': 'patient_id', 'value': {'stringValue': patient_id or 'unknown'}},
-            {'name': 'extracted_data', 'value': {
-                'stringValue': json.dumps(extracted_data)}},
-            {'name': 's3_uri', 'value': {'stringValue': s3_uri}},
-            {'name': 'processing_date', 'value': {
-                'stringValue': get_current_iso8601()}},
-            {'name': 'created_at', 'value': {'stringValue': get_current_iso8601()}}
-        ]
-
-        response = execute_sql(sql, parameters)
-
-        logger.info(f"Stored document in database: {document_id}")
-        return document_id
-
+        # Parse source S3 URI
+        parts = source_s3_uri.replace('s3://', '').split('/', 1)
+        source_bucket = parts[0]
+        source_prefix = parts[1] if len(parts) > 1 else ''
+        
+        # List all objects in the BDA output directory
+        response = s3_client.list_objects_v2(
+            Bucket=source_bucket,
+            Prefix=source_prefix
+        )
+        
+        files_deleted = 0
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                key = obj['Key']
+                
+                # Keep essential files for audit/debugging
+                if (key.endswith('job_metadata.json') or 
+                    '.s3_access_check' in key or
+                    obj['Size'] == 0):
+                    continue
+                
+                # Delete processed files that we've already moved/organized
+                if (key.endswith('/result.json') or 
+                    key.endswith('/result.html') or 
+                    key.endswith('/result.md') or 
+                    key.endswith('/result.txt') or
+                    '/assets/' in key or 
+                    key.endswith(('.png', '.jpg', '.jpeg', '.gif', '.pdf'))):
+                    
+                    s3_client.delete_object(
+                        Bucket=source_bucket,
+                        Key=key
+                    )
+                    files_deleted += 1
+        
+        if files_deleted > 0:
+            logger.info(f"Cleaned up {files_deleted} files from BDA output to debloat storage")
+        
     except Exception as e:
-        logger.error(f"Error storing in database: {str(e)}")
-        # Don't fail the entire process if database storage fails
-        return document_id
+        logger.error(f"Error cleaning up BDA output: {str(e)}")
+        # Don't fail the process if cleanup fails
 
 
 def validate_extracted_data(extracted_data: Dict[str, Any]) -> Dict[str, Any]:

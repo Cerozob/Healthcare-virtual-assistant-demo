@@ -49,8 +49,6 @@ class ApiStack(Stack):
         """Get the API Gateway endpoint URL with /v1 path."""
         return f"{self.api.api_endpoint}/v1"
 
-
-
     def _create_api_gateway(self) -> None:
         """Create HTTP API Gateway v2 with all endpoints."""
 
@@ -87,19 +85,22 @@ class ApiStack(Stack):
         )
 
         # Debug information
-        print(f"API Stack received functions: {list(self.lambda_functions.keys())}")
+        print(
+            f"API Stack received functions: {list(self.lambda_functions.keys())}")
         for func_name, func_obj in self.lambda_functions.items():
             print(f"Function {func_name}: {func_obj}")
-        
+
         # Validate that all required Lambda functions are provided
-        required_functions = ["patients", "medics", "exams", "reservations", "files", "agent_integration"]
+        required_functions = ["patients", "medics", "exams",
+                              "reservations", "files", "agent_integration"]
         missing_functions = []
         for func_name in required_functions:
             if not self.lambda_functions.get(func_name):
                 missing_functions.append(func_name)
-        
+
         if missing_functions:
-            raise ValueError(f"Required Lambda functions not provided to API stack: {missing_functions}")
+            raise ValueError(
+                f"Required Lambda functions not provided to API stack: {missing_functions}")
 
         # Create Lambda integrations from passed functions
         patients_integration = HttpLambdaIntegration(
@@ -172,34 +173,7 @@ class ApiStack(Stack):
             integration=files_integration
         )
 
-        # Chat routes - REMOVED: Using AgentCore instead of old chat system
-
-        # Agent routes
-        self.api.add_routes(
-            path="/agent",
-            methods=[apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
-            integration=agent_integration
-        )
-
-        self.api.add_routes(
-            path="/agent/query",
-            methods=[apigwv2.HttpMethod.POST],
-            integration=agent_integration
-        )
-
-        self.api.add_routes(
-            path="/agent/health",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=agent_integration
-        )
-
-        self.api.add_routes(
-            path="/agent/metrics",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=agent_integration
-        )
-
-        # AgentCore chat routes (will be integrated with AgentCore endpoint via Lambda proxy)
+        # AgentCore routes only
         self.api.add_routes(
             path="/agentcore/chat",
             methods=[apigwv2.HttpMethod.POST],
@@ -225,8 +199,6 @@ class ApiStack(Stack):
                 burst_limit=200  # burst capacity
             )
         )
-
-
 
     def _create_ssm_parameters(self) -> None:
         """Store API configuration in SSM Parameter Store."""
@@ -272,11 +244,7 @@ class ApiStack(Stack):
             description="Healthcare HTTP API Gateway domain name"
         )
 
-
-
     @property
     def api_gateway_construct(self) -> apigwv2.HttpApi:
         """Get the API Gateway construct for use in other stacks."""
         return self.api
-
-

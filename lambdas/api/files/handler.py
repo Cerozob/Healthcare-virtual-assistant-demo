@@ -100,8 +100,8 @@ def handle_upload_file(event: Dict[str, Any]) -> Dict[str, Any]:
         file_name = body['file_name']
         category = body.get('category', 'other')
         
-        # S3 path structure: patients/{patient_id}/{category}/{file_id}/{file_name}
-        s3_key = f"patients/{patient_id}/{category}/{file_id}/{file_name}"
+        # S3 path structure: {patient_id}/{category}/{file_id}/{file_name}
+        s3_key = f"{patient_id}/{category}/{file_id}/{file_name}"
         s3_uri = f"s3://{os.environ.get('RAW_BUCKET_NAME', 'default-bucket')}/{s3_key}"
         
         # Log the upload initiation with patient context

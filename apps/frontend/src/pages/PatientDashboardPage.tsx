@@ -32,7 +32,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({ sign
 
   const handlePatientSelect = async (patient: Patient | null) => {
     setLocalError(null);
-    
+
     if (!patient) {
       setSelectedPatient(null);
       setPatientExams([]);
@@ -42,7 +42,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({ sign
     try {
       // Fetch patient with exams
       const result = await fetchPatientWithExams(patient.patient_id);
-      
+
       if (result) {
         setSelectedPatient(result.patient);
         setPatientExams(result.exams || []);
@@ -58,7 +58,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({ sign
   return (
     <MainLayout signOut={signOut} user={user}>
       <SpaceBetween size="l">
-        <Header variant="h1">{es.nav.dashboard}</Header>
+        <Header variant="h1">{es.patient.title}</Header>
 
         {/* Patient Selector */}
         <PatientSelector
@@ -81,7 +81,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({ sign
         {selectedPatient && (
           <>
             <PatientInfo patient={selectedPatient} />
-            
+
             {/* Scheduled Exams */}
             <ScheduledExams
               exams={patientExams}

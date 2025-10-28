@@ -49,11 +49,11 @@ export function SpanishAuthenticator({ children }: SpanishAuthenticatorProps) {
             placeholder: 'Confirme su contraseña',
             order: 3,
           },
-          'custom:fullname': {
-            label: 'Nombre completo',
-            placeholder: 'Ingrese su nombre completo',
-            order: 4,
-          },
+          name:{
+            label: "Nombre",
+            placeholder: "Ingrese su nombre",
+            order: 4
+          }
         },
         forceNewPassword: {
           password: {

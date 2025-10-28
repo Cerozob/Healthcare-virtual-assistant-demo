@@ -1,42 +1,43 @@
-import { useState, useEffect, useCallback } from 'react';
 import {
+  Alert,
+  Box,
+  Container,
+  FormField,
   Header,
+  Modal,
   SpaceBetween,
   Tabs,
-  Modal,
-  Alert,
-  Container,
-  Box,
-  FormField,
 } from '@cloudscape-design/components';
+import { useCallback, useEffect, useState } from 'react';
+import { ThemeToggle } from '../components/common/ThemeToggle';
+import {
+  type EntityColumn,
+  EntityManager,
+  ExamForm,
+  FileManager,
+  MedicForm,
+  type PatientFile,
+  PatientForm,
+  ReservationForm,
+} from '../components/config';
 import { MainLayout } from '../components/layout';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { ThemeToggle } from '../components/common/ThemeToggle';
 import { apiClient } from '../services/apiClient';
-import {
-  EntityManager,
-  PatientForm,
-  MedicForm,
-  ExamForm,
-  ReservationForm,
-  FileManager,
-  type EntityColumn,
-  type PatientFile,
-} from '../components/config';
-import { patientService } from '../services/patientService';
-import { medicService } from '../services/medicService';
 import { examService } from '../services/examService';
+import { medicService } from '../services/medicService';
+import { patientService } from '../services/patientService';
 import { reservationService } from '../services/reservationService';
+import { storageService } from '../services/storageService';
 import type {
-  Patient,
-  Medic,
-  Exam,
-  Reservation,
-  CreatePatientRequest,
-  CreateMedicRequest,
   CreateExamRequest,
+  CreateMedicRequest,
+  CreatePatientRequest,
   CreateReservationRequest,
+  Exam,
+  Medic,
+  Patient,
+  Reservation,
 } from '../types/api';
 
 interface ConfigurationPageProps {
@@ -83,7 +84,38 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
   const [editingReservation, setEditingReservation] = useState<Reservation | undefined>();
 
   // Files state
-  const [files] = useState<PatientFile[]>([]);
+  const [files, setFiles] = useState<PatientFile[]>([]);
+
+  const loadFiles = useCallback(async () => {
+    try {
+      console.log('Loading files from S3...');
+      const s3Files = await storageService.listFiles();
+
+      // Convert S3 file items to PatientFile format
+      const patientFiles: PatientFile[] = s3Files.map((s3File) => {
+        // Extract patient ID and other metadata from the file key
+        // Assuming file keys follow a pattern like: patients/{patientId}/{fileId}/{filename}
+        const keyParts = s3File.key.split('/');
+        const fileName = keyParts[keyParts.length - 1] || s3File.key;
+
+        return {
+          id: s3File.key,
+          name: fileName,
+          type: fileName.split('.').pop()?.toUpperCase() || 'UNKNOWN',
+          size: s3File.size || 0,
+          uploadDate: s3File.lastModified?.toISOString() || new Date().toISOString(),
+          category: 'other', // Default category, could be enhanced with metadata
+          url: s3File.key,
+        };
+      });
+
+      setFiles(patientFiles);
+      console.log(`Loaded ${patientFiles.length} files from S3`);
+    } catch (err) {
+      console.error('Failed to load files from S3:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load files');
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -111,9 +143,9 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
           break;
         }
         case 'files': {
-          // Files are managed through Amplify Storage and S3
-          // No API endpoint needed - files are loaded directly from S3 when needed
-          console.log('Files tab loaded - using Amplify Storage for file operations');
+          // Load files from S3 using storageService
+          console.log('Loading files from S3...');
+          await loadFiles();
           break;
         }
       }
@@ -122,7 +154,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
     } finally {
       setLoading(false);
     }
-  }, [activeTab, t.errors.generic]);
+  }, [activeTab, t.errors.generic, loadFiles]);
 
   // Load data on mount and tab change
   useEffect(() => {
@@ -242,14 +274,15 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
   };
 
   // File handlers
-  const handleUploadFile = async (file: File, category: string) => {
+  const handleUploadFile = async (file: File, category: string, selectedPatientId?: string) => {
     try {
       setLoading(true);
       setError('');
 
-      // Get the selected patient from the files tab context
-      // For now, we'll use the first patient as a fallback
-      const targetPatient = patients.length > 0 ? patients[0] : null;
+      // Get the selected patient from the FileManager component
+      const targetPatient = selectedPatientId
+        ? patients.find(p => p.patient_id === selectedPatientId)
+        : patients.length > 0 ? patients[0] : null;
 
       if (!targetPatient) {
         throw new Error('No hay pacientes disponibles. Cree un paciente primero.');
@@ -271,14 +304,13 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       // Generate file ID and construct S3 path following document workflow guidelines
       const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      
-      // S3 path structure: patients/{patient_id}/{category}/{timestamp}/{fileId}/{filename}
-      const s3Key = `patients/${targetPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
+
+      // S3 path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
+      const s3Key = `${targetPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
 
       // Prepare metadata following document workflow guidelines
       const fileMetadata = {
         'patient-id': targetPatient.patient_id,
-        'patient-name': targetPatient.full_name,
         'document-category': category,
         'upload-timestamp': timestamp,
         'file-id': fileId,
@@ -288,7 +320,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       };
 
       console.log(`📋 Document Workflow Metadata:`, fileMetadata);
-      console.log(`📍 S3 Path: ${s3Key}`);
+      console.log(`📍 S3 Path (simplified): ${s3Key}`);
 
       // Get bucket name from config
       const { configService } = await import('../services/configService');
@@ -300,8 +332,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
         bucket: config.s3BucketName,
         metadata: fileMetadata,
         onProgress: (event) => {
-          if (event.transferredBytes && event.totalBytes) {
-            const progress = (event.transferredBytes / event.totalBytes) * 100;
+          if (event.loaded && event.total) {
+            const progress = (event.loaded / event.total) * 100;
             console.log(`Upload progress: ${progress.toFixed(1)}%`);
           }
         }
@@ -318,16 +350,13 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
           expected_processing_time: '2-5 minutes',
           knowledge_base_integration: 'Automatic after processing'
         },
-        note: 'File uploaded to S3 and will be automatically processed by the document workflow'
+        note: 'File uploaded to S3 with simplified path structure and will be automatically processed by the document workflow'
       };
 
       console.log('File upload completed:', response);
-      
-      // Show success message
-      alert(`Archivo "${file.name}" subido exitosamente para el paciente ${targetPatient.full_name}. Será procesado automáticamente según las pautas del flujo de documentos.`);
-      
+
       // Reload files data
-      loadData();
+      await loadFiles();
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al subir archivo';
@@ -346,9 +375,9 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
       // For demo purposes, show a message that download would work in full implementation
       alert(`En una implementación completa, se descargaría el archivo: ${file.name}`);
-      
+
       console.log(`File ${file.name} download simulated`);
-      
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al descargar archivo';
       setError(errorMessage);
@@ -365,11 +394,11 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
       // For demo purposes, show a message that delete would work in full implementation
       alert(`En una implementación completa, se eliminaría el archivo con ID: ${fileId}`);
-      
+
       console.log(`File ${fileId} deletion simulated`);
 
       // Reload files data
-      loadData();
+      await loadFiles();
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al eliminar archivo';
@@ -391,17 +420,29 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       });
 
       console.log('Classification updated:', result);
-      
+
       // Show success message
       alert(`Clasificación actualizada a: ${newCategory}`);
 
       // Reload files data
-      loadData();
+      await loadFiles();
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al actualizar clasificación';
       setError(errorMessage);
       console.error('Classification override error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefreshFiles = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await loadFiles();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh files');
     } finally {
       setLoading(false);
     }
@@ -565,6 +606,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                   onUpload={handleUploadFile}
                   onDownload={handleDownloadFile}
                   onDelete={handleDeleteFile}
+                  onRefresh={handleRefreshFiles}
                   onClassificationOverride={handleClassificationOverride}
                   enableAutoClassification={true}
                   patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
@@ -578,7 +620,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                 <Container>
                   <SpaceBetween size="l">
                     <Header variant="h2">Configuración de la aplicación</Header>
-                    
+
                     <FormField
                       label="Tema de la aplicación"
                       description="Seleccione el tema visual para la aplicación"

@@ -8,10 +8,6 @@ import { API_ENDPOINTS } from '../config/api';
 import type {
   SendMessageRequest,
   SendMessageResponse,
-  CreateSessionRequest,
-  ChatSessionsResponse,
-  ChatMessagesResponse,
-  PaginationParams,
   ChatMessage
 } from '../types/api';
 
@@ -20,29 +16,40 @@ export class ChatService {
    * Send message to AgentCore chat endpoint
    */
   async sendMessage(data: SendMessageRequest): Promise<SendMessageResponse> {
-    return apiClient.post<SendMessageResponse>(API_ENDPOINTS.agentCoreChat, data);
+    try {
+      const response = await apiClient.post<SendMessageResponse>(API_ENDPOINTS.agentCoreChat, data);
+
+      // Ensure we have a proper response format
+      return {
+        response: response.response || response.message || 'No response received',
+        sessionId: response.sessionId || data.sessionId || `session_${Date.now()}`,
+        timestamp: response.timestamp || new Date().toISOString()
+      };
+    } catch (error: unknown) {
+      console.error('AgentCore request failed, falling back to echo mode:', error);
+
+      // Check if it's a network error or server error
+      const errorWithResponse = error as { response?: { status?: number } };
+      const isNetworkError = !errorWithResponse?.response;
+      const statusCode = errorWithResponse?.response?.status;
+
+      if (isNetworkError || (statusCode && statusCode >= 500)) {
+        console.warn('Using echo mode due to service unavailability');
+        // Fallback to echo mode if AgentCore is not available
+        const echoResponse = await this.sendEchoMessage(data.message, data.sessionId);
+        return {
+          response: `⚠️ **Modo de desarrollo activo** - El servicio AgentCore no está disponible.\n\n${echoResponse.agentMessage.content}`,
+          sessionId: data.sessionId || `session_${Date.now()}`,
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        // Re-throw client errors (4xx)
+        throw error;
+      }
+    }
   }
 
-  /**
-   * Get list of chat sessions
-   */
-  async getSessions(params?: PaginationParams): Promise<ChatSessionsResponse> {
-    return apiClient.get<ChatSessionsResponse>(API_ENDPOINTS.chatSessions, params);
-  }
-
-  /**
-   * Create new chat session
-   */
-  async createSession(data?: CreateSessionRequest): Promise<{ message: string; session: Record<string, unknown> }> {
-    return apiClient.post<{ message: string; session: Record<string, unknown> }>(API_ENDPOINTS.chatSessions, data || {});
-  }
-
-  /**
-   * Get messages for a specific session
-   */
-  async getSessionMessages(sessionId: string, params?: PaginationParams): Promise<ChatMessagesResponse> {
-    return apiClient.get<ChatMessagesResponse>(API_ENDPOINTS.chatSessionMessages(sessionId), params);
-  }
+  // Session management methods removed - AgentCore handles sessions internally
 
   /**
    * Echo message functionality (placeholder for AI integration)
@@ -66,7 +73,7 @@ export class ChatService {
     const hasPatientContext = content.includes('[Contexto del paciente:');
     const hasDocuments = content.includes('[Documentos adjuntos');
     const noPatientContext = content.includes('[Sin contexto de paciente seleccionado]');
-    
+
     let patientInfo = '';
     let documentInfo = '';
     let actualMessage = content;

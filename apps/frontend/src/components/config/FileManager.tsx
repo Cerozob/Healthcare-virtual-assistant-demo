@@ -3,22 +3,22 @@
  * Interface for managing patient files with upload and download capabilities
  */
 
-import { useState } from 'react';
 import {
-  Container,
-  Header,
-  SpaceBetween,
-  Button,
-  Table,
-  Box,
   Alert,
-  FormField,
-  Select,
-  FileUpload,
-  ProgressBar,
   Badge,
-  SelectProps,
+  Box,
+  Button,
+  Container,
+  FileUpload,
+  FormField,
+  Header,
+  ProgressBar,
+  Select,
+  type SelectProps,
+  SpaceBetween,
+  Table,
 } from '@cloudscape-design/components';
+import { useState } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 export interface PatientFile {
@@ -38,9 +38,10 @@ export interface FileManagerProps {
   patientId?: string;
   files: PatientFile[];
   loading?: boolean;
-  onUpload: (file: File, category: string) => Promise<void>;
+  onUpload: (file: File, category: string, patientId?: string) => Promise<void>;
   onDownload: (file: PatientFile) => void;
   onDelete: (fileId: string) => Promise<void>;
+  onRefresh?: () => Promise<void>;
   onClassificationOverride?: (fileId: string, newCategory: string) => Promise<void>;
   patients?: Array<{ patient_id: string; full_name: string }>;
   enableAutoClassification?: boolean;
@@ -63,6 +64,7 @@ export function FileManager({
   onUpload,
   onDownload,
   onDelete,
+  onRefresh,
   onClassificationOverride,
   patients = [],
   enableAutoClassification = true,
@@ -112,7 +114,7 @@ export function FileManager({
         console.log(`Uploading file ${file.name} for patient ${patientData?.full_name || selectedPatient} following document workflow guidelines`);
         
         // Call the upload handler with patient context
-        await onUpload(file, selectedCategory?.value || 'auto');
+        await onUpload(file, selectedCategory?.value || 'auto', selectedPatient);
         
         // Update overall progress
         const overallProgress = ((i + 1) / selectedFiles.length) * 100;
@@ -155,7 +157,7 @@ export function FileManager({
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    return `${Math.round(bytes / k ** i * 100) / 100} ${sizes[i]}`;
   };
 
   const getCategoryLabel = (category?: string): string => {
@@ -270,7 +272,7 @@ export function FileManager({
           <FormField
             label="Archivo"
             constraintText="Seleccione uno o más archivos para subir"
-            description={t.fileUpload.supportedFormats + ': PDF, TIFF, JPEG, PNG, DOCX, MP4, MOV, AVI, MKV, WEBM, AMR, FLAC, M4A, MP3, Ogg, WAV'}
+            description={`${t.fileUpload.supportedFormats}: PDF, TIFF, JPEG, PNG, DOCX, MP4, MOV, AVI, MKV, WEBM, AMR, FLAC, M4A, MP3, Ogg, WAV`}
           >
             <FileUpload
               value={selectedFiles}
@@ -379,9 +381,16 @@ export function FileManager({
             variant="h2"
             counter={`(${files.length})`}
             actions={
-              <Button onClick={handleDelete} disabled={selectedTableItems.length === 0}>
-                {t.common.delete}
-              </Button>
+              <SpaceBetween direction="horizontal" size="xs">
+                {onRefresh && (
+                  <Button iconName="refresh" onClick={onRefresh} disabled={loading}>
+                    Actualizar
+                  </Button>
+                )}
+                <Button onClick={handleDelete} disabled={selectedTableItems.length === 0}>
+                  {t.common.delete}
+                </Button>
+              </SpaceBetween>
             }
           >
             Archivos del paciente

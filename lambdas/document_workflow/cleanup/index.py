@@ -203,15 +203,14 @@ def extract_document_id_from_key(object_key: str) -> str:
         Document ID
     """
     # Raw bucket structure examples:
-    # {patient_id}/{filename}
-    # patients/{patient_id}/{filename}
+    # {patient_id}/{category}/{timestamp}/{file_id}/{filename}
     # or could be just {filename}
     try:
         parts = object_key.split('/')
 
-        # Handle structure: patients/{patient_id}/{filename}
-        if len(parts) >= 3 and parts[0] == 'patients':
-            patient_id = parts[1]
+        # Handle new structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
+        if len(parts) >= 2:
+            patient_id = parts[0]
             filename = parts[-1]
             clean_filename = filename.split('.')[0]
             document_id = f"{patient_id}_{clean_filename}"
@@ -310,10 +309,9 @@ def cleanup_raw_data(document_id: str, processed_key: str, source_bucket: str) -
             return 0
 
         # Look for raw files that could match this processed file
-        # Raw structure could be: {patient_id}/{filename} or patients/{patient_id}/{filename}
+        # Raw structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
         possible_prefixes = [
-            f"{patient_id}/",
-            f"patients/{patient_id}/"
+            f"{patient_id}/"
         ]
         
         objects_to_delete = []
@@ -396,14 +394,13 @@ def cleanup_processed_data(document_id: str, original_key: str, source_bucket: s
 
     try:
         # Extract patient_id and filename from original raw key
-        # Raw structure: {patient_id}/{filename} or patients/{patient_id}/{filename}
+        # Raw structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
         key_parts = original_key.split('/')
         
         if len(key_parts) >= 2:
-            if key_parts[0] == 'patients' and len(key_parts) >= 3:
-                # Structure: patients/{patient_id}/{filename}
-                patient_id = key_parts[1]
-                filename = key_parts[2]
+            # New structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
+            patient_id = key_parts[0]
+            filename = key_parts[-1]  # Last part is always the filename
             else:
                 # Structure: {patient_id}/{filename}
                 patient_id = key_parts[0]

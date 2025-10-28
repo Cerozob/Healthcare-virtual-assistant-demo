@@ -164,11 +164,12 @@ class ApiClient {
         if (attempt < retries) {
           const delay = Math.min(1000 * 2 ** attempt, 10000);
 
+
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
-
+    console.log(`ApiClient errror count: ${this.failureCount}`)
     throw lastError || new Error('Request failed after retries');
   }
 

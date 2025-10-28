@@ -75,33 +75,6 @@ except Exception as e:
     raise
 ```
 
-## Configuration Manager
-
-The `SSMConfig` class provides easy access to configuration parameters stored in AWS Systems Manager Parameter Store.
-
-### Usage Example
-
-```python
-from shared.ssm_config import SSMConfig, SSMConfigError
-
-# Initialize config manager
-config = SSMConfig()
-
-try:
-    # Get database configuration
-    db_config = config.get_database_config()
-    cluster_arn = db_config['cluster-arn']
-    
-    # Get individual parameter
-    api_endpoint = config.get_parameter('api/endpoint')
-    
-    # Get agent configuration
-    agent_config = config.get_agent_config('orchestrator')
-    
-except SSMConfigError as e:
-    logger.error(f"Configuration error: {e}")
-```
-
 ## Utilities
 
 The `utils` module provides common functions for Lambda request/response handling:

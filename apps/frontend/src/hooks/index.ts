@@ -4,12 +4,10 @@
  */
 
 export { useApi } from './useApi';
-export {
-  useChatMessages, useChatSessions,
-  useCreateChatSession, useSendMessage
-} from './useChat';
+export { useSendMessage } from './useChat';
 // Document hooks removed - using direct S3 upload via Amplify Storage
+export { useFileProcessing } from './useFileProcessing';
 export {
   useCreatePatient, useDeletePatient, usePatient, usePatients, useUpdatePatient
 } from './usePatients';
-export { useFileProcessing } from './useFileProcessing';
+

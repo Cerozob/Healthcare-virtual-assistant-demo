@@ -1,14 +1,20 @@
 {
   "id": "/",
   "start_url": "/",
-  "name": "Sistema de Salud",
-  "short_name": "Sistema Salud",
+  "name": "AnyHealthcare Demo",
+  "short_name": "AnyHealthcare",
   "description": "Plataforma de gestión médica con inteligencia artificial",
   "lang": "es",
-  "theme_color": "#000000",
+  "theme_color": "#0972d3",
   "background_color": "#ffffff",
   "display": "standalone",
   "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "/images/android-chrome-192x192.png",
       "sizes": "192x192",

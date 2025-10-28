@@ -54,6 +54,7 @@ async def information_retrieval_agent(query: str) -> str:
         str: Detailed information response with sources when available
     """
     try:
+        logger.debug(f"Information retrieval agent processing query: {query[:100]}...")
         logger.info("Information retrieval agent processing query")
         
         # Get configuration

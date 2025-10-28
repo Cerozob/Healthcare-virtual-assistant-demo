@@ -35,6 +35,17 @@ const existingBucket = Bucket.fromBucketName(
   'ab2-cerozob-rawdata-us-east-1'
 );
 
+cfnUserPool.policies = {
+  passwordPolicy:
+  {
+    minimumLength:8,
+    requireLowercase:true,
+    requireNumbers:true,
+    requireSymbols:false,
+    requireUppercase:true
+  }
+}
+
 // Define IAM policy for authenticated users to access your existing S3 bucket
 const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Policy', {
   statements: [

@@ -29,6 +29,11 @@ services:
       - STREAMING_ENABLED=${STREAMING_ENABLED:-true}
       - SESSION_TIMEOUT_MINUTES=${SESSION_TIMEOUT_MINUTES:-30}
       
+      # Session Management Configuration
+      - SESSION_BUCKET=${SESSION_BUCKET:-ab2-cerozob-processeddata-us-east-1}
+      - SESSION_PREFIX=${SESSION_PREFIX:-processed/}  # Base prefix, actual: processed/{patient_id}_{data_type}/
+      - ENABLE_SESSION_MANAGEMENT=${ENABLE_SESSION_MANAGEMENT:-true}
+      
       # Guardrails Configuration (optional for local testing)
       - GUARDRAIL_ID=${GUARDRAIL_ID:-}
       - GUARDRAIL_VERSION=${GUARDRAIL_VERSION:-}

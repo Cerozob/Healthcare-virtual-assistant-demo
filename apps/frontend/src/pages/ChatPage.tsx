@@ -1,24 +1,19 @@
-import { useState } from 'react';
+import { Avatar, ChatBubble, SupportPromptGroup } from '@cloudscape-design/chat-components';
 import {
-  Container,
-  Header,
-  SpaceBetween,
   Box,
-  Grid,
-  Modal,
   Button,
-
-  PromptInput,
+  Container,
   FileInput,
   FileTokenGroup,
-
+  Grid,
+  Header,
+  Modal,
+  PromptInput,
+  SpaceBetween,
 } from '@cloudscape-design/components';
-
-import ChatBubble from '@cloudscape-design/chat-components/chat-bubble';
-import Avatar from '@cloudscape-design/chat-components/avatar';
-import SupportPromptGroup from '@cloudscape-design/chat-components/support-prompt-group';
+import { useState } from 'react';
+import { MarkdownRenderer, PatientChatSidebar } from '../components/chat';
 import { MainLayout } from '../components/layout';
-import { PatientChatSidebar, MarkdownRenderer } from '../components/chat';
 import { PatientSelector } from '../components/patient';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePatientContext } from '../contexts/PatientContext';
@@ -86,7 +81,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'processing' | 'generating'>('processing');
-  const [sessionId] = useState<string>(`session_${Date.now()}`);
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showPatientSelector, setShowPatientSelector] = useState(false);
 
   // Prompt input state
@@ -99,25 +94,33 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     processing?: boolean;
   }>>(new Map());
 
-  // Get user's full name for UI customization
-  const getUserDisplayName = () => {
-    if (user?.attributes?.name) return user.attributes.name;
-    if (user?.attributes?.given_name && user?.attributes?.family_name) {
-      return `${user.attributes.given_name} ${user.attributes.family_name}`;
+  const defaultPrompts = [
+    {
+      text: "Hola, Cómo puedes ayudarme?",
+      id: "prompt-4"
     }
-    if (user?.attributes?.given_name) return user.attributes.given_name;
-    if (user?.username) return user.username;
-    if (user?.signInDetails?.loginId) return user.signInDetails.loginId;
-    return 'Usuario';
-  };
+    ,
+    {
+      text: "¿Puedes ayudarme a revisar el historial médico de este paciente?",
+      id: "prompt-0"
+    },
+    {
+      text: "¿Qué información necesitas para agendar una cita?",
+      id: "prompt-1"
+    },
+    {
+      text: "Agenda una cita para este paciente",
+      id: "prompt-2"
+    },
+    {
+      text: "¿Este paciente presenta síntomas recurrentes?",
+      id: "prompt-3"
+    }
+  ]
 
   const getUserInitials = () => {
-    const name = getUserDisplayName();
-    const parts = name.split(' ');
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    }
-    return name.substring(0, 2).toUpperCase();
+    const name = user?.signInDetails?.loginId
+    return name?.charAt(0).toUpperCase();
   };
 
   const handleSendMessage = async () => {
@@ -151,7 +154,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     const messageContent = promptValue;
     const attachedFiles = [...files];
     const attachedClassifications = new Map(fileClassifications);
-    
+
     setPromptValue('');
     setFiles([]);
     setFileClassifications(new Map());
@@ -164,29 +167,28 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       // Process file uploads if patient is selected
       if (attachedFiles.length > 0 && selectedPatient) {
         console.log(`Processing ${attachedFiles.length} files for patient ${selectedPatient.full_name} following document workflow guidelines`);
-        
+
         // Upload files to S3 using the storage service
         const { storageService } = await import('../services/storageService');
-        
+
         for (const file of attachedFiles) {
           const fileKey = getFileKey(file);
           const classification = attachedClassifications.get(fileKey);
-          
+
           try {
             // Generate file ID and construct S3 path following document workflow guidelines
             const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const category = classification?.category || 'auto';
-            
-            // S3 path structure: patients/{patient_id}/{category}/{timestamp}/{fileId}/{filename}
-            const s3Key = `patients/${selectedPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
+
+            // S3 path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
+            const s3Key = `${selectedPatient.patient_id}/${category}/${timestamp}/${fileId}/${file.name}`;
 
             // Upload file to S3 with metadata
             const uploadResult = await storageService.uploadFile(file, s3Key, {
               contentType: file.type,
               metadata: {
                 'patient-id': selectedPatient.patient_id,
-                'patient-name': selectedPatient.full_name,
                 'document-category': category,
                 'upload-timestamp': timestamp,
                 'file-id': fileId,
@@ -235,8 +237,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
           if (classification && !classification.processing) {
             return `- ${file.name}: ${getCategoryLabel(classification.category)}${classification.autoClassified && classification.confidence
-                ? ` (${classification.confidence.toFixed(0)}% confianza)`
-                : ''
+              ? ` (${classification.confidence.toFixed(0)}% confianza)`
+              : ''
               } - Subido al flujo de documentos`;
           }
           return `- ${file.name}: Procesando clasificación...`;
@@ -245,19 +247,77 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         contextualContent = `[Documentos adjuntos y procesados:\n${documentContext}]\n\n${contextualContent}`;
       }
 
-      // Use echo functionality as placeholder
-      const { agentMessage } = await chatService.sendEchoMessage(contextualContent, sessionId);
+      // Send message to AgentCore
+      setLoadingStage('generating');
 
-      // Simulate processing stage
-      setTimeout(() => {
-        setLoadingStage('generating');
-      }, 500);
+      const response = await chatService.sendMessage({
+        message: contextualContent,
+        ...(sessionId && { sessionId }),
+        // Include file information if available
+        ...(attachedFiles.length > 0 && {
+          attachments: await Promise.all(attachedFiles.map(async (file) => {
+            const fileKey = getFileKey(file);
+            const classification = attachedClassifications.get(fileKey);
+            
+            // For images and documents, include base64 content for AgentCore multi-modal support
+            let content: string | undefined;
+            let mimeType: string | undefined;
+            
+            // Supported file types for multi-modal processing
+            const supportedTypes = [
+              // Images
+              'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+              // Documents
+              'application/pdf',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+              'application/msword', // .doc
+              'text/plain', // .txt
+              'text/markdown', // .md
+              'text/csv', // .csv
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+              'application/vnd.ms-excel', // .xls
+              'text/html' // .html
+            ];
+            
+            if (supportedTypes.includes(file.type)) {
+              try {
+                content = await fileToBase64(file);
+                mimeType = file.type;
+                console.log(`Converted ${file.name} (${file.type}) to base64 for multi-modal processing`);
+              } catch (error) {
+                console.warn(`Failed to convert ${file.name} to base64:`, error);
+              }
+            }
+            
+            return {
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              category: classification?.category || 'other',
+              s3Key: `${selectedPatient?.patient_id}/${classification?.category || 'other'}/${new Date().toISOString().replace(/[:.]/g, '-')}/${file.name}`,
+              content,
+              mimeType
+            };
+          }))
+        })
+      });
 
-      // Simulate generation stage with response
-      setTimeout(() => {
-        setMessages(prev => [...prev, agentMessage]);
-        setIsLoading(false);
-      }, 1500);
+      // Update session ID if this is the first message or if lambda returned a new one
+      if (response.sessionId && response.sessionId !== sessionId) {
+        setSessionId(response.sessionId);
+        console.log(`Using session ID from lambda: ${response.sessionId}`);
+      }
+
+      const agentMessage: ChatMessage = {
+        id: `agent_${Date.now()}`,
+        content: response.response || response.message || 'No response received',
+        type: 'agent',
+        agentType: 'agentcore',
+        timestamp: new Date().toISOString()
+      };
+
+      setMessages(prev => [...prev, agentMessage]);
+      setIsLoading(false);
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -267,6 +327,24 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
   const handleCopy = (content: string) => {
     navigator.clipboard.writeText(content);
+  };
+
+  // Helper function to convert file to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          // Remove the data URL prefix (e.g., "data:image/jpeg;base64,")
+          const base64 = reader.result.split(',')[1];
+          resolve(base64);
+        } else {
+          reject(new Error('Failed to read file as base64'));
+        }
+      };
+      reader.onerror = (error) => reject(error);
+    });
   };
 
   // Simulate auto-classification for uploaded files following document workflow guidelines
@@ -287,27 +365,27 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     let confidence = 60 + Math.random() * 35; // Random confidence between 60-95%
 
     // Medical history documents
-    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical') || 
-        fileName.includes('clinica') || fileName.includes('expediente')) {
+    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical') ||
+      fileName.includes('clinica') || fileName.includes('expediente')) {
       category = 'medical-history';
       confidence = 82 + Math.random() * 15;
-    } 
+    }
     // Exam results and lab reports
-    else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') || 
-             fileName.includes('test') || fileName.includes('analisis') || fileName.includes('reporte')) {
+    else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') ||
+      fileName.includes('test') || fileName.includes('analisis') || fileName.includes('reporte')) {
       category = 'exam-results';
       confidence = 87 + Math.random() * 10;
-    } 
+    }
     // Medical images
     else if (fileType.includes('image') || fileName.includes('radiografia') || fileName.includes('ecografia') ||
-             fileName.includes('tomografia') || fileName.includes('resonancia') || fileName.includes('rx') ||
-             ['jpg', 'jpeg', 'png', 'tiff', 'tif', 'dcm'].includes(fileExtension)) {
+      fileName.includes('tomografia') || fileName.includes('resonancia') || fileName.includes('rx') ||
+      ['jpg', 'jpeg', 'png', 'tiff', 'tif', 'dcm'].includes(fileExtension)) {
       category = 'medical-images';
       confidence = 91 + Math.random() * 8;
-    } 
+    }
     // Identification documents
-    else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') || 
-             fileName.includes('identidad') || fileName.includes('pasaporte') || fileName.includes('licencia')) {
+    else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') ||
+      fileName.includes('identidad') || fileName.includes('pasaporte') || fileName.includes('licencia')) {
       category = 'identification';
       confidence = 94 + Math.random() * 5;
     }
@@ -420,7 +498,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       <SpaceBetween size="l">
         <Header
           variant="h1"
-          description={`Bienvenido, ${getUserDisplayName()}`}
+          description={"Bienvenido"}
         >
           {t.chat.title}
         </Header>
@@ -455,8 +533,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
                       const avatar = isUser ? (
                         <Avatar
-                          ariaLabel={getUserDisplayName()}
-                          tooltipText={getUserDisplayName()}
+                          ariaLabel={"User avatar"}
+
                           initials={getUserInitials()}
                         />
                       ) : (
@@ -483,7 +561,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
                         >
                           <ChatBubble
-                            ariaLabel={`${isUser ? getUserDisplayName() : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
+                            ariaLabel={`${isUser ? "User" : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
                             type={isUser ? "outgoing" : "incoming"}
                             avatar={avatar}
                             actions={actions}
@@ -526,37 +604,15 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                 <Box padding="l">
                   <SupportPromptGroup
                     onItemClick={({ detail }) => {
-                      const selectedPrompt = [
-                        "¿Puedes ayudarme a revisar el historial médico de este paciente?",
-                        "¿Qué información necesitas para agendar una cita?",
-                        "Agenda una cita para este paciente",
-                        "¿Este paciente presenta síntomas recurrentes?"
-                      ].find((_, index) => `prompt-${index}` === detail.id);
+                      const selectedPrompt = defaultPrompts.find(prompt => prompt.id === detail.id);
 
                       if (selectedPrompt) {
-                        setPromptValue(selectedPrompt);
+                        setPromptValue(selectedPrompt.text);
                         setTimeout(handleSendMessage, 0);
                       }
                     }}
                     ariaLabel="Suggested prompts"
-                    items={[
-                      {
-                        text: "¿Puedes ayudarme a revisar el historial médico de este paciente?",
-                        id: "prompt-0"
-                      },
-                      {
-                        text: "¿Qué información necesitas para agendar una cita?",
-                        id: "prompt-1"
-                      },
-                      {
-                        text: "Agenda una cita para este paciente",
-                        id: "prompt-2"
-                      },
-                      {
-                        text: "¿Este paciente presenta síntomas recurrentes?",
-                        id: "prompt-3"
-                      }
-                    ]}
+                    items={defaultPrompts}
                   />
                 </Box>
               )}

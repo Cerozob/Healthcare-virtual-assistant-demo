@@ -148,9 +148,8 @@ class BackendStack(Stack):
                                           retention=Duration.days(7)),
                                       removal_policy=RemovalPolicy.DESTROY,
                                       deletion_protection=False,
-                                      serverless_v2_auto_pause_duration=Duration.minutes(
-                                          5),
-                                      serverless_v2_min_capacity=0,
+                                    #   serverless_v2_auto_pause_duration=Duration.minutes(5),
+                                      serverless_v2_min_capacity=0.5,
                                       serverless_v2_max_capacity=40,
                                       storage_encrypted=True,
                                       iam_authentication=True
@@ -637,6 +636,20 @@ class BackendStack(Stack):
         self.agent_integration_function.add_to_role_policy(rds_policy)
         self.agent_integration_function.add_to_role_policy(secrets_policy)
         self.agent_integration_function.add_to_role_policy(bedrock_policy)
+
+        # Add AgentCore permissions
+        agentcore_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=[
+                "bedrock-agentcore:InvokeAgentRuntime",
+                "bedrock-agentcore:GetAgentRuntime",
+                "bedrock-agentcore:ListAgentRuntimes"
+            ],
+            resources=[
+                f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:runtime/*"
+            ]
+        )
+        self.agent_integration_function.add_to_role_policy(agentcore_policy)
 
         # Add CloudWatch permissions for metrics
         cloudwatch_policy = iam.PolicyStatement(

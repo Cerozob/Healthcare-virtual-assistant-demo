@@ -183,37 +183,29 @@ export interface ChatSession {
 }
 
 export interface SendMessageRequest {
-  content: string;
+  message: string;
   sessionId?: string;
   attachments?: Array<{
-    name: string;
-    type: string;
-    url: string;
+    fileName: string;
+    fileSize: number;
+    fileType: string;
+    category: string;
+    s3Key: string;
+    // For AgentCore multi-modal support
+    content?: string; // base64 encoded content for images
+    mimeType?: string; // MIME type for proper processing
   }>;
 }
 
 export interface SendMessageResponse {
-  sessionId: string;
-  userMessage: ChatMessage;
-  agentMessage: ChatMessage;
-}
-
-export interface CreateSessionRequest {
-  title?: string;
+  response?: string;
+  message?: string;
   sessionId?: string;
-  context?: Record<string, unknown>;
+  timestamp?: string;
 }
 
-export interface ChatSessionsResponse {
-  sessions: ChatSession[];
-  pagination: PaginationInfo;
-}
-
-export interface ChatMessagesResponse {
-  sessionId: string;
-  messages: ChatMessage[];
-  pagination: PaginationInfo;
-}
+// Session management is handled by AgentCore internally
+// Frontend generates session IDs and uses them consistently
 
 // Document types - removed DocumentUploadRequest/Response, using direct S3 upload via Amplify Storage
 

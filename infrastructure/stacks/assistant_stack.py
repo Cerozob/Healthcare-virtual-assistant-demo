@@ -11,7 +11,7 @@ from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
-from aws_cdk import aws_logs as logs
+
 from aws_cdk import aws_ecr_assets as ecr_assets
 
 from constructs import Construct
@@ -67,14 +67,8 @@ class AssistantStack(Stack):
             "Guardrail"
         )
 
-        # Create CloudWatch log group for agent runtime
-        self.agent_log_group = logs.LogGroup(
-            self,
-            "HealthcareAssistantLogGroup",
-            log_group_name="/aws/bedrock/agentcore/healthcare-assistant",
-            retention=logs.RetentionDays.ONE_MONTH,
-            removal_policy=RemovalPolicy.DESTROY
-        )
+        # Note: AgentCore manages its own logging automatically
+        # No need to create a separate CloudWatch log group
 
         print(
             f"building from {str(Path(__file__).parent.parent.parent / "agents")}")
@@ -293,21 +287,28 @@ class AssistantStack(Stack):
             )
         )
 
-        # CloudWatch Logs permissions
-        agent_runtime_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents"
-                ],
-                resources=[
-                    self.agent_log_group.log_group_arn,
-                    f"{self.agent_log_group.log_group_arn}:*"
-                ]
+        # S3 permissions for session management (medical notes storage)
+        if self.processed_bucket:
+            agent_runtime_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "s3:GetObject",
+                        "s3:PutObject",
+                        "s3:DeleteObject",
+                        "s3:ListBucket",
+                        "s3:GetObjectVersion",
+                        "s3:PutObjectAcl"
+                    ],
+                    resources=[
+                        self.processed_bucket.bucket_arn,
+                        f"{self.processed_bucket.bucket_arn}/*"
+                    ]
+                )
             )
-        )
+
+        # Note: AgentCore handles logging automatically
+        # No CloudWatch logs permissions needed
 
         # CloudWatch Metrics permissions
         agent_runtime_role.add_to_policy(
@@ -369,13 +370,13 @@ class AssistantStack(Stack):
     def _create_ssm_parameters(self) -> None:
         """Store AgentCore configuration in SSM Parameter Store."""
         
-        # Store the AgentCore endpoint URL
+        # Store the AgentCore runtime ARN
         self.agentcore_endpoint_parameter = ssm.StringParameter(
             self,
             "AgentCoreEndpointParameter",
             parameter_name="/healthcare/agentcore/endpoint-url",
-            string_value=self.endpoint.endpoint_id,
-            description="AgentCore Runtime endpoint URL",
+            string_value=self.agent_runtime.agent_runtime_arn,
+            description="AgentCore Runtime ARN",
             tier=ssm.ParameterTier.STANDARD
         )
 
@@ -412,9 +413,14 @@ class AssistantStack(Stack):
             "GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
             "GATEWAY_ID": self.agentcore_gateway.attr_gateway_identifier,
 
-            # Observability Configuration
+            # Session Management Configuration - S3 storage for medical notes
+            # Uses consistent structure with document processing: processed/{patient_id}_{data_type}/
+            "SESSION_BUCKET": self.processed_bucket.bucket_name if self.processed_bucket else "",
+            "SESSION_PREFIX": "processed/",  # Base prefix, actual structure: processed/{patient_id}_{data_type}/
+            "ENABLE_SESSION_MANAGEMENT": "true",
+
+            # Observability Configuration - AgentCore handles logging automatically
             "ENABLE_TRACING": "true",
-            "LOG_LEVEL": "INFO",
             "METRICS_NAMESPACE": "Healthcare/Agents",
         }
 
@@ -443,12 +449,8 @@ class AssistantStack(Stack):
             description="Healthcare Assistant AgentCore Runtime ARN"
         )
 
-        CfnOutput(
-            self,
-            "AgentLogGroupName",
-            value=self.agent_log_group.log_group_name,
-            description="CloudWatch log group for agent runtime"
-        )
+        # Note: AgentCore manages logging automatically
+        # No log group output needed
 
         CfnOutput(
             self,
