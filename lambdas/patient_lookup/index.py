@@ -25,20 +25,20 @@ db_manager = DatabaseManager()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Lambda handler for patient lookup requests.
-    
+
     Args:
         event: Lambda event containing the request
         context: Lambda context
-        
+
     Returns:
         Dict containing the response
     """
     try:
         logger.info(f"Received event: {json.dumps(event)}")
-        
+
         # Parse the request
         action = event.get("action")
-        
+
         if action == "search_patient":
             return handle_search_patient(event.get("search_criteria", {}))
         elif action == "list_recent_patients":
@@ -47,7 +47,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_get_patient_by_id(event.get("patient_id"))
         else:
             return create_error_response(400, f"Acción no válida: {action}", "INVALID_ACTION")
-            
+
     except Exception as e:
         logger.error(f"Error in lambda_handler: {str(e)}")
         return create_error_response(500, f"Error interno del servidor: {str(e)}", "INTERNAL_ERROR")
@@ -56,39 +56,39 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 def handle_search_patient(search_criteria: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle patient search based on various criteria.
-    
+
     Args:
         search_criteria: Dictionary containing search parameters
-        
+
     Returns:
         Dict containing the response
     """
     try:
         logger.info(f"Searching patient with criteria: {search_criteria}")
-        
+
         if not search_criteria:
             return create_error_response(400, "Criterios de búsqueda requeridos", "MISSING_CRITERIA")
-        
+
         # Try different search strategies
         patient = None
-        
+
         # 1. Search by patient ID (most precise)
         if search_criteria.get("patient_id"):
             patient = search_by_patient_id(search_criteria["patient_id"])
-        
+
         # 2. Search by email
         if not patient and search_criteria.get("email"):
             patient = search_by_email(search_criteria["email"])
-        
+
         # 3. Search by name (fuzzy matching)
         if not patient and search_criteria.get("full_name"):
             patient = search_by_name(search_criteria["full_name"])
-        
+
         # 4. Search by first and last name
         if not patient and search_criteria.get("first_name") and search_criteria.get("last_name"):
             full_name = f"{search_criteria['first_name']} {search_criteria['last_name']}"
             patient = search_by_name(full_name)
-        
+
         if patient:
             return create_response(200, {
                 "success": True,
@@ -101,7 +101,7 @@ def handle_search_patient(search_criteria: Dict[str, Any]) -> Dict[str, Any]:
                 "error": "No se encontró paciente con los criterios proporcionados",
                 "patient": None
             })
-            
+
     except DatabaseError as e:
         logger.error(f"Database error in handle_search_patient: {str(e)}")
         return create_error_response(500, f"Error buscando paciente: {str(e)}", e.error_code)
@@ -113,28 +113,29 @@ def handle_search_patient(search_criteria: Dict[str, Any]) -> Dict[str, Any]:
 def handle_list_recent_patients(limit: int = 5) -> Dict[str, Any]:
     """
     Handle listing recent patients.
-    
+
     Args:
         limit: Maximum number of patients to return
-        
+
     Returns:
         Dict containing the response
     """
     try:
         logger.info(f"Listing recent patients (limit: {limit})")
-        
+
         # Get recent patients from the database (ordered by updated_at)
         patients = get_recent_patients(limit)
-        
+
         return create_response(200, {
             "success": True,
             "patients": patients,
             "count": len(patients),
             "message": f"Se encontraron {len(patients)} pacientes recientes"
         })
-        
+
     except DatabaseError as e:
-        logger.error(f"Database error in handle_list_recent_patients: {str(e)}")
+        logger.error(
+            f"Database error in handle_list_recent_patients: {str(e)}")
         return create_error_response(500, f"Error listando pacientes: {str(e)}", e.error_code)
     except Exception as e:
         logger.error(f"Error in handle_list_recent_patients: {str(e)}")
@@ -144,21 +145,21 @@ def handle_list_recent_patients(limit: int = 5) -> Dict[str, Any]:
 def handle_get_patient_by_id(patient_id: str) -> Dict[str, Any]:
     """
     Handle getting patient by exact ID.
-    
+
     Args:
         patient_id: The patient ID
-        
+
     Returns:
         Dict containing the response
     """
     try:
         logger.info(f"Getting patient by ID: {patient_id}")
-        
+
         if not patient_id:
             return create_error_response(400, "ID de paciente requerido", "MISSING_PATIENT_ID")
-        
+
         patient = search_by_patient_id(patient_id)
-        
+
         if patient:
             return create_response(200, {
                 "success": True,
@@ -171,7 +172,7 @@ def handle_get_patient_by_id(patient_id: str) -> Dict[str, Any]:
                 "error": f"No se encontró paciente con ID: {patient_id}",
                 "patient": None
             })
-            
+
     except DatabaseError as e:
         logger.error(f"Database error in handle_get_patient_by_id: {str(e)}")
         return create_error_response(500, f"Error obteniendo paciente: {str(e)}", e.error_code)
@@ -183,10 +184,10 @@ def handle_get_patient_by_id(patient_id: str) -> Dict[str, Any]:
 def search_by_patient_id(patient_id: str) -> Optional[Dict[str, Any]]:
     """
     Search patient by patient ID using RDS Data API.
-    
+
     Args:
         patient_id: Patient ID
-        
+
     Returns:
         Patient data or None
     """
@@ -196,20 +197,21 @@ def search_by_patient_id(patient_id: str) -> Optional[Dict[str, Any]]:
         FROM patients
         WHERE patient_id = :patient_id
         """
-        
+
         parameters = [
             db_manager.create_parameter('patient_id', patient_id, 'string')
         ]
-        
+
         response = db_manager.execute_sql(sql, parameters)
         records = response.get('records', [])
-        
+
         if records:
-            patients = db_manager.parse_records(records, response.get('columnMetadata', []))
+            patients = db_manager.parse_records(
+                records, response.get('columnMetadata', []))
             return patients[0] if patients else None
-        
+
         return None
-        
+
     except DatabaseError as e:
         logger.error(f"Database error searching by patient ID: {str(e)}")
         # Fallback to mock data for development
@@ -222,10 +224,10 @@ def search_by_patient_id(patient_id: str) -> Optional[Dict[str, Any]]:
 def search_by_email(email: str) -> Optional[Dict[str, Any]]:
     """
     Search patient by email using RDS Data API.
-    
+
     Args:
         email: Patient email
-        
+
     Returns:
         Patient data or None
     """
@@ -235,20 +237,21 @@ def search_by_email(email: str) -> Optional[Dict[str, Any]]:
         FROM patients
         WHERE email = :email
         """
-        
+
         parameters = [
             db_manager.create_parameter('email', email, 'string')
         ]
-        
+
         response = db_manager.execute_sql(sql, parameters)
         records = response.get('records', [])
-        
+
         if records:
-            patients = db_manager.parse_records(records, response.get('columnMetadata', []))
+            patients = db_manager.parse_records(
+                records, response.get('columnMetadata', []))
             return patients[0] if patients else None
-        
+
         return None
-        
+
     except DatabaseError as e:
         logger.error(f"Database error searching by email: {str(e)}")
         return None
@@ -260,38 +263,77 @@ def search_by_email(email: str) -> Optional[Dict[str, Any]]:
 def search_by_name(full_name: str) -> Optional[Dict[str, Any]]:
     """
     Search patient by name with fuzzy matching using RDS Data API.
-    
+    Uses similarity scoring to find the best match.
+
     Args:
         full_name: Full name to search for
-        
+
     Returns:
-        Patient data or None
+        Patient data or None (best match based on similarity)
     """
     try:
-        sql = """
+        # First try exact match (case-insensitive)
+        sql_exact = """
         SELECT patient_id, full_name, email, date_of_birth, phone, created_at, updated_at
         FROM patients
-        WHERE LOWER(full_name) LIKE LOWER(:name_pattern)
-        ORDER BY full_name
+        WHERE LOWER(full_name) = LOWER(:exact_name)
         LIMIT 1
         """
-        
+
+        parameters_exact = [
+            db_manager.create_parameter('exact_name', full_name, 'string')
+        ]
+
+        response = db_manager.execute_sql(sql_exact, parameters_exact)
+        records = response.get('records', [])
+
+        if records:
+            patients = db_manager.parse_records(
+                records, response.get('columnMetadata', []))
+            logger.info(
+                f"Found exact match for '{full_name}': {patients[0]['full_name']}")
+            return patients[0] if patients else None
+
+        # If no exact match, try fuzzy matching with similarity scoring
+        # Order by: 1) starts with the search term, 2) alphabetically
+        sql_fuzzy = """
+        SELECT patient_id, full_name, email, date_of_birth, phone, created_at, updated_at,
+               CASE 
+                   WHEN LOWER(full_name) LIKE LOWER(:starts_with) THEN 1
+                   ELSE 2
+               END as match_priority
+        FROM patients
+        WHERE LOWER(full_name) LIKE LOWER(:name_pattern)
+        ORDER BY match_priority, full_name
+        LIMIT 5
+        """
+
         # Add wildcards for fuzzy matching
         name_pattern = f"%{full_name}%"
-        
-        parameters = [
-            db_manager.create_parameter('name_pattern', name_pattern, 'string')
+        starts_with = f"{full_name}%"
+
+        parameters_fuzzy = [
+            db_manager.create_parameter(
+                'name_pattern', name_pattern, 'string'),
+            db_manager.create_parameter('starts_with', starts_with, 'string')
         ]
-        
-        response = db_manager.execute_sql(sql, parameters)
+
+        response = db_manager.execute_sql(sql_fuzzy, parameters_fuzzy)
         records = response.get('records', [])
-        
+
         if records:
-            patients = db_manager.parse_records(records, response.get('columnMetadata', []))
-            return patients[0] if patients else None
-        
+            patients = db_manager.parse_records(
+                records, response.get('columnMetadata', []))
+            if patients:
+                logger.info(
+                    f"Found fuzzy matches for '{full_name}': {[p['full_name'] for p in patients]}")
+                logger.info(
+                    f"Selecting best match: {patients[0]['full_name']}")
+                return patients[0]
+
+        logger.info(f"No matches found for '{full_name}'")
         return None
-        
+
     except DatabaseError as e:
         logger.error(f"Database error searching by name: {str(e)}")
         # Fallback to mock data for development
@@ -304,10 +346,10 @@ def search_by_name(full_name: str) -> Optional[Dict[str, Any]]:
 def get_recent_patients(limit: int = 5) -> List[Dict[str, Any]]:
     """
     Get recent patients from the database using RDS Data API.
-    
+
     Args:
         limit: Maximum number of patients to return
-        
+
     Returns:
         List of patient data
     """
@@ -318,19 +360,19 @@ def get_recent_patients(limit: int = 5) -> List[Dict[str, Any]]:
         ORDER BY updated_at DESC, created_at DESC
         LIMIT :limit
         """
-        
+
         parameters = [
             db_manager.create_parameter('limit', limit, 'long')
         ]
-        
+
         response = db_manager.execute_sql(sql, parameters)
         records = response.get('records', [])
-        
+
         if records:
             return db_manager.parse_records(records, response.get('columnMetadata', []))
-        
+
         return []
-        
+
     except DatabaseError as e:
         logger.error(f"Database error getting recent patients: {str(e)}")
         # Fallback to mock data for development
@@ -382,13 +424,13 @@ def get_mock_patient_by_name(search_criteria: Dict[str, Any]) -> Optional[Dict[s
         get_mock_patient_by_id("87654321"),
         get_mock_patient_by_id("11223344")
     ]
-    
+
     search_name = search_criteria.get("full_name", "").strip().lower()
-    
+
     for patient in mock_patients:
         if patient and search_name in patient["full_name"].lower():
             return patient
-    
+
     return None
 
 
@@ -420,5 +462,5 @@ def get_mock_sample_patients(limit: int = 5) -> List[Dict[str, Any]]:
             "updated_at": "2024-01-03T10:00:00Z"
         }
     ]
-    
+
     return mock_patients[:limit]

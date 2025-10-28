@@ -85,11 +85,15 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
   // Files state
   const [files, setFiles] = useState<PatientFile[]>([]);
+  const [selectedPatientForFiles, setSelectedPatientForFiles] = useState<string>('');
 
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async (patientId?: string) => {
     try {
-      console.log('Loading files from S3 with metadata...');
-      const s3Files = await storageService.listFiles(undefined, { includeMetadata: true });
+      console.log(`Loading files from S3 with metadata${patientId ? ` for patient: ${patientId}` : ' (all patients)'}...`);
+
+      // Use patient ID as prefix if provided to filter files
+      const prefix = patientId ? `${patientId}/` : undefined;
+      const s3Files = await storageService.listFiles(prefix, { includeMetadata: true });
 
       // Convert S3 file items to PatientFile format
       const patientFiles: PatientFile[] = s3Files.map((s3File) => {
@@ -128,7 +132,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       });
 
       setFiles(patientFiles);
-      console.log(`Loaded ${patientFiles.length} files from S3 with classification metadata`);
+      console.log(`Loaded ${patientFiles.length} files from S3 with classification metadata${patientId ? ` for patient: ${patientId}` : ' (all patients)'}`);
     } catch (err) {
       console.error('Failed to load files from S3:', err);
       setError(err instanceof Error ? err.message : 'Failed to load files');
@@ -163,7 +167,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
         case 'files': {
           // Load files from S3 using storageService
           console.log('Loading files from S3...');
-          await loadFiles();
+          await loadFiles(selectedPatientForFiles || undefined);
           break;
         }
       }
@@ -382,10 +386,22 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       setLoading(true);
       setError('');
 
-      // For demo purposes, show a message that download would work in full implementation
-      alert(`En una implementación completa, se descargaría el archivo: ${file.name}`);
+      console.log(`Downloading file: ${file.name} (ID: ${file.id})`);
 
-      console.log(`File ${file.name} download simulated`);
+      // Use storage service to download the file from S3
+      const blob = await storageService.downloadFile(file.id);
+
+      // Create a download link and trigger the download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log(`File ${file.name} downloaded successfully`);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al descargar archivo';
@@ -401,12 +417,14 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       setLoading(true);
       setError('');
 
-      // For demo purposes, show a message that delete would work in full implementation
-      alert(`En una implementación completa, se eliminaría el archivo con ID: ${fileId}`);
+      console.log(`Deleting file with ID: ${fileId}`);
 
-      console.log(`File ${fileId} deletion simulated`);
+      // Use storage service to delete the file from S3
+      await storageService.deleteFile(fileId);
 
-      // Reload files data
+      console.log(`File ${fileId} deleted successfully from S3`);
+
+      // Reload files data to reflect the deletion
       await loadFiles();
 
     } catch (err) {
@@ -430,8 +448,10 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
 
       console.log('Classification updated:', result);
 
-      // Show success message
-      alert(`Clasificación actualizada a: ${newCategory}`);
+      // Clear any existing errors
+      setError('');
+
+      console.log(`Classification updated for file ${fileId} to category: ${newCategory}`);
 
       // Reload files data
       await loadFiles();
@@ -449,9 +469,22 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
     setLoading(true);
     setError('');
     try {
-      await loadFiles();
+      await loadFiles(selectedPatientForFiles || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh files');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePatientChangeForFiles = async (patientId: string) => {
+    setSelectedPatientForFiles(patientId);
+    setLoading(true);
+    setError('');
+    try {
+      await loadFiles(patientId || undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load files for patient');
     } finally {
       setLoading(false);
     }
@@ -610,6 +643,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
               label: t.config.files,
               content: (
                 <FileManager
+                  patientId={selectedPatientForFiles}
                   files={files}
                   loading={loading}
                   onUpload={handleUploadFile}
@@ -617,6 +651,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                   onDelete={handleDeleteFile}
                   onRefresh={handleRefreshFiles}
                   onClassificationOverride={handleClassificationOverride}
+                  onPatientChange={handlePatientChangeForFiles}
                   enableAutoClassification={true}
                   patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
                 />

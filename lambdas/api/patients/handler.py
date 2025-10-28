@@ -172,7 +172,7 @@ def list_patients(event: Dict[str, Any]) -> Dict[str, Any]:
         pagination = validate_pagination_params(query_params)
         
         sql = """
-        SELECT patient_id, full_name, date_of_birth, created_at, updated_at
+        SELECT patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
         FROM patients
         ORDER BY full_name
         LIMIT :limit OFFSET :offset
@@ -244,16 +244,18 @@ def create_patient(event: Dict[str, Any]) -> Dict[str, Any]:
         demo_email = f"patient.{patient_id.lower()}@demo.hospital.com"
         
         sql = """
-        INSERT INTO patients (patient_id, full_name, email, date_of_birth, created_at, updated_at)
-        VALUES (:patient_id, :full_name, :email, :date_of_birth, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING patient_id, full_name, date_of_birth, created_at, updated_at
+        INSERT INTO patients (patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at)
+        VALUES (:patient_id, :full_name, :email, :cedula, :date_of_birth, :phone, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
         """
         
         parameters = [
             db_manager.create_parameter('patient_id', patient_id, 'string'),
             db_manager.create_parameter('full_name', body['full_name'], 'string'),
             db_manager.create_parameter('email', demo_email, 'string'),
-            db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string')
+            db_manager.create_parameter('cedula', body.get('cedula'), 'string'),
+            db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string'),
+            db_manager.create_parameter('phone', body.get('phone'), 'string')
         ]
         
         response = db_manager.execute_sql(sql, parameters)
@@ -294,7 +296,7 @@ def get_patient(patient_id: str) -> Dict[str, Any]:
     """
     try:
         sql = """
-        SELECT patient_id, full_name, date_of_birth, created_at, updated_at
+        SELECT patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
         FROM patients
         WHERE patient_id = :patient_id
         """
@@ -347,6 +349,14 @@ def update_patient(patient_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
             update_fields.append('full_name = :full_name')
             parameters.append(db_manager.create_parameter('full_name', body['full_name'], 'string'))
         
+        if 'cedula' in body:
+            update_fields.append('cedula = :cedula')
+            parameters.append(db_manager.create_parameter('cedula', body['cedula'], 'string'))
+        
+        if 'phone' in body:
+            update_fields.append('phone = :phone')
+            parameters.append(db_manager.create_parameter('phone', body['phone'], 'string'))
+        
         if 'date_of_birth' in body and body['date_of_birth']:
             update_fields.append('date_of_birth = :date_of_birth')
             parameters.append(db_manager.create_parameter('date_of_birth', body['date_of_birth'], 'string'))
@@ -361,7 +371,7 @@ def update_patient(patient_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         UPDATE patients
         SET {', '.join(update_fields)}
         WHERE patient_id = :patient_id
-        RETURNING patient_id, full_name, date_of_birth, created_at, updated_at
+        RETURNING patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
         """
         
         response = db_manager.execute_sql(sql, parameters)

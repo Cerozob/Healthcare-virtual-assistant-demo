@@ -172,6 +172,7 @@ lambda_functions = {
     "reservations": backend_stack.reservations_function,
     "files": backend_stack.files_function,
     "agent_integration": backend_stack.agent_integration_function
+    # Note: extraction_lambda removed to avoid cyclic dependencies
 }
 
 # Create the API stack with Lambda functions from backend

@@ -12,6 +12,7 @@ import {
   FileUpload,
   FormField,
   Header,
+  Modal,
   ProgressBar,
   Select,
   type SelectProps,
@@ -43,6 +44,7 @@ export interface FileManagerProps {
   onDelete: (fileId: string) => Promise<void>;
   onRefresh?: () => Promise<void>;
   onClassificationOverride?: (fileId: string, newCategory: string) => Promise<void>;
+  onPatientChange?: (patientId: string) => Promise<void>;
   patients?: Array<{ patient_id: string; full_name: string }>;
   enableAutoClassification?: boolean;
 }
@@ -66,6 +68,7 @@ export function FileManager({
   onDelete,
   onRefresh,
   onClassificationOverride,
+  onPatientChange,
   patients = [],
   enableAutoClassification = true,
 }: FileManagerProps) {
@@ -81,6 +84,8 @@ export function FileManager({
   const [selectedTableItems, setSelectedTableItems] = useState<PatientFile[]>([]);
   const [classificationProcessing, setClassificationProcessing] = useState<Set<string>>(new Set());
   const [editingClassification, setEditingClassification] = useState<string | null>(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [deletingFiles, setDeletingFiles] = useState(false);
 
   const patientOptions: SelectProps.Option[] = patients.map((p) => ({
     label: `${p.full_name} (${p.patient_id})`,
@@ -138,17 +143,62 @@ export function FileManager({
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeleteClick = () => {
+    if (selectedTableItems.length === 0) return;
+    setShowDeleteConfirmation(true);
+  };
+
+  const handleDeleteConfirm = async () => {
     if (selectedTableItems.length === 0) return;
 
+    setDeletingFiles(true);
     setError('');
+    setSuccessMessage('');
+    
     try {
+      console.log(`Deleting ${selectedTableItems.length} files...`);
+      
       for (const file of selectedTableItems) {
+        console.log(`Deleting file: ${file.name} (ID: ${file.id})`);
         await onDelete(file.id);
       }
+      
       setSelectedTableItems([]);
+      setShowDeleteConfirmation(false);
+      
+      // Show success message
+      const fileCount = selectedTableItems.length;
+      const message = fileCount === 1 
+        ? `Archivo "${selectedTableItems[0].name}" eliminado exitosamente`
+        : `${fileCount} archivos eliminados exitosamente`;
+      
+      setSuccessMessage(message);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => setSuccessMessage(''), 5000);
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al eliminar archivo');
+      const errorMessage = err instanceof Error ? err.message : 'Error al eliminar archivo(s)';
+      setError(errorMessage);
+      console.error('File deletion error:', err);
+    } finally {
+      setDeletingFiles(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteConfirmation(false);
+  };
+
+  const handlePatientSelectionChange = async (newPatientId: string) => {
+    setSelectedPatient(newPatientId);
+    if (onPatientChange) {
+      try {
+        await onPatientChange(newPatientId);
+      } catch (error) {
+        console.error('Error changing patient filter:', error);
+        setError('Error al cambiar el filtro de paciente');
+      }
     }
   };
 
@@ -242,6 +292,26 @@ export function FileManager({
           {successMessage}
         </Alert>
       )}
+
+      {/* Patient Filter Section */}
+      <Container header={<Header variant="h2">Filtrar archivos por paciente</Header>}>
+        <FormField 
+          label="Paciente" 
+          constraintText="Seleccione un paciente para ver solo sus archivos, o deje vacío para ver todos los archivos"
+        >
+          <Select
+            selectedOption={selectedPatientOption}
+            onChange={({ detail }) => handlePatientSelectionChange(detail.selectedOption.value || '')}
+            options={[
+              { label: 'Todos los pacientes', value: '' },
+              ...patientOptions
+            ]}
+            placeholder="Seleccione un paciente o vea todos"
+            disabled={loading}
+            filteringType="auto"
+          />
+        </FormField>
+      </Container>
 
       <Container header={<Header variant="h2">Subir archivos</Header>}>
         <SpaceBetween size="m">
@@ -387,7 +457,11 @@ export function FileManager({
                     Actualizar
                   </Button>
                 )}
-                <Button onClick={handleDelete} disabled={selectedTableItems.length === 0}>
+                <Button 
+                  onClick={handleDeleteClick} 
+                  disabled={selectedTableItems.length === 0}
+                  loading={deletingFiles}
+                >
                   {t.common.delete}
                 </Button>
               </SpaceBetween>
@@ -397,6 +471,53 @@ export function FileManager({
           </Header>
         }
       />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirmation}
+        onDismiss={handleDeleteCancel}
+        header="Confirmar eliminación"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={handleDeleteCancel}>
+                Cancelar
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={handleDeleteConfirm}
+                loading={deletingFiles}
+              >
+                Eliminar
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Alert type="warning">
+            <strong>¿Está seguro que desea eliminar los siguientes archivos?</strong>
+          </Alert>
+          
+          <Box>
+            <strong>Archivos a eliminar:</strong>
+            <ul>
+              {selectedTableItems.map((file) => (
+                <li key={file.id}>
+                  <strong>{file.name}</strong> ({formatFileSize(file.size)})
+                  {file.category && (
+                    <span> - {getCategoryLabel(file.category)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Box>
+          
+          <Alert type="error">
+            <strong>Esta acción no se puede deshacer.</strong> Los archivos serán eliminados permanentemente del sistema de almacenamiento.
+          </Alert>
+        </SpaceBetween>
+      </Modal>
     </SpaceBetween>
   );
 }

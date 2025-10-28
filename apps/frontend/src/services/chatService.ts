@@ -1,10 +1,11 @@
 /**
  * Chat Service
- * Service class for chat-related API operations
+ * Service class for chat-related API operations with AgentCore streaming support
  */
 
 import { apiClient } from './apiClient';
 import { API_ENDPOINTS } from '../config/api';
+import { agentCoreService, type StreamingChatResponse } from './agentCoreService';
 import type {
   SendMessageRequest,
   SendMessageResponse,
@@ -13,19 +14,110 @@ import type {
 
 export class ChatService {
   /**
-   * Send message to AgentCore chat endpoint
+   * Send streaming message to AgentCore
+   */
+  async sendStreamingMessage(
+    data: SendMessageRequest,
+    onChunk?: (chunk: StreamingChatResponse) => void,
+    onComplete?: (finalResponse: StreamingChatResponse) => void,
+    onError?: (error: Error) => void
+  ): Promise<StreamingChatResponse> {
+    try {
+      console.group('📤 CHAT SERVICE STREAMING REQUEST');
+      console.log('📝 Request data:', data);
+      console.log('   • message length:', data.message?.length || 0);
+      console.log('   • sessionId:', data.sessionId);
+      console.log('   • attachments:', data.attachments?.length || 0);
+      console.groupEnd();
+
+      // Use AgentCore streaming service
+      const response = await agentCoreService.sendStreamingMessage(
+        data.message,
+        data.sessionId,
+        onChunk,
+        onComplete,
+        onError
+      );
+
+      return response;
+    } catch (error: unknown) {
+      console.error('AgentCore streaming failed, falling back to Lambda:', error);
+      
+      // Fallback to Lambda endpoint
+      const fallbackResponse = await this.sendMessage(data);
+      
+      // Convert to streaming response format
+      const streamingResponse: StreamingChatResponse = {
+        sessionId: fallbackResponse.sessionId || `fallback_session_${Date.now()}`,
+        messageId: `fallback_${Date.now()}`,
+        isComplete: true,
+        content: fallbackResponse.response || fallbackResponse.message || 'No response received',
+        metadata: { 
+          fallback: true,
+          originalResponse: fallbackResponse
+        }
+      };
+
+      if (onComplete) {
+        onComplete(streamingResponse);
+      }
+
+      return streamingResponse;
+    }
+  }
+
+  /**
+   * Send message to AgentCore chat endpoint (non-streaming fallback)
    */
   async sendMessage(data: SendMessageRequest): Promise<SendMessageResponse> {
     try {
+      // 🔍 DEBUG: Log outgoing request
+      console.group('📤 CHAT SERVICE REQUEST');
+      console.log('🎯 Endpoint:', API_ENDPOINTS.agentCoreChat);
+      console.log('📝 Request data:', data);
+      console.log('   • message length:', data.message?.length || 0);
+      console.log('   • sessionId:', data.sessionId);
+      console.log('   • attachments:', data.attachments?.length || 0);
+      console.groupEnd();
+
       const response = await apiClient.post<SendMessageResponse>(API_ENDPOINTS.agentCoreChat, data);
 
+      // 🔍 DEBUG: Log incoming response
+      console.group('📥 CHAT SERVICE RESPONSE');
+      console.log('✅ Raw response from API:', response);
+      console.log('📝 Response message:', response.response || response.message);
+      console.log('🔑 Session ID:', response.sessionId);
+      console.log('👤 Patient context exists:', !!response.patient_context);
+      
+      if (response.patient_context) {
+        console.log('👤 Patient context details:');
+        console.log('   • patient_found:', response.patient_context.patient_found);
+        console.log('   • patient_id:', response.patient_context.patient_id);
+        console.log('   • patient_name:', response.patient_context.patient_name);
+        console.log('   • patient_data:', response.patient_context.patient_data);
+        
+        if (response.patient_context.patient_data) {
+          console.log('📋 Patient data structure:');
+          console.log('   • Keys:', Object.keys(response.patient_context.patient_data));
+          console.log('   • Values:', response.patient_context.patient_data);
+        }
+      }
+      console.groupEnd();
+
       // Ensure we have a proper response format
-      return {
+      const formattedResponse = {
         response: response.response || response.message || 'No response received',
         sessionId: response.sessionId || data.sessionId || `session_${Date.now()}`,
         timestamp: response.timestamp || new Date().toISOString(),
         patient_context: response.patient_context // Pass through patient context from agent
       };
+
+      // 🔍 DEBUG: Log formatted response
+      console.group('🔄 FORMATTED RESPONSE');
+      console.log('📦 Final response object:', formattedResponse);
+      console.groupEnd();
+
+      return formattedResponse;
     } catch (error: unknown) {
       console.error('AgentCore request failed, falling back to echo mode:', error);
 

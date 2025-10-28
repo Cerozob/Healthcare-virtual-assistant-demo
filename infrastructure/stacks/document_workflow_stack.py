@@ -299,9 +299,8 @@ class DocumentWorkflowStack(Stack):
             environment={
                 "SOURCE_BUCKET_NAME": self.raw_bucket.bucket_name,
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
-                "KNOWLEDGE_BASE_ID": "healthcare-kb",
                 "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80"
-                # Database configuration will come from SSM parameters
+                # Knowledge Base ID and database configuration will come from SSM parameters
             },
             log_group=logs.LogGroup(
                 self,
@@ -330,7 +329,7 @@ class DocumentWorkflowStack(Stack):
             )
         )
 
-        # Grant SSM permissions for database configuration
+        # Grant SSM permissions for database and knowledge base configuration
         self.extraction_lambda.add_to_role_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
@@ -339,7 +338,8 @@ class DocumentWorkflowStack(Stack):
                     "ssm:GetParameters"
                 ],
                 resources=[
-                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/database/*"
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/database/*",
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/healthcare/knowledge-base/*"
                 ]
             )
         )

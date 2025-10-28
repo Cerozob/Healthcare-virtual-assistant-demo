@@ -401,6 +401,9 @@ def create_healthcare_tables(rds_data, cluster_arn: str, secret_arn: str, databa
                 "Could not find schema.sql file in any expected location")
             raise FileNotFoundError("schema.sql not found")
 
+        # Run schema migrations first (before creating new tables)
+        run_schema_migrations(rds_data, cluster_arn, secret_arn, database_name)
+
         # Parse the schema content into individual SQL statements
         statements = parse_sql_statements(schema_content)
 
@@ -491,9 +494,161 @@ def create_healthcare_tables(rds_data, cluster_arn: str, secret_arn: str, databa
         logger.info(
             f"Healthcare tables creation completed - executed {executed_count} statements")
 
+        # Run migrations again after table creation (for new deployments)
+        # This ensures that if tables were just created, they get the latest schema
+        run_post_creation_migrations(rds_data, cluster_arn, secret_arn, database_name)
+
     except Exception as e:
         logger.error(f"Failed to create healthcare tables: {e}")
         raise
+
+
+def run_post_creation_migrations(rds_data, cluster_arn: str, secret_arn: str, database_name: str):
+    """Run migrations after table creation for new deployments."""
+    
+    logger.info("Running post-creation schema migrations...")
+    
+    try:
+        # Check if patients table exists and add cedula if missing
+        check_table_sql = """
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_name = 'patients';
+        """
+        
+        response = rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql=check_table_sql
+        )
+        
+        if response.get('records'):
+            # Table exists, check for cedula field
+            check_cedula_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'patients' 
+            AND column_name = 'cedula';
+            """
+            
+            cedula_response = rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=check_cedula_sql
+            )
+            
+            if not cedula_response.get('records'):
+                logger.info("Adding cedula field to existing patients table...")
+                
+                add_cedula_sql = """
+                ALTER TABLE patients 
+                ADD COLUMN cedula VARCHAR(50) UNIQUE;
+                """
+                
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql=add_cedula_sql
+                )
+                
+                # Add index
+                add_cedula_index_sql = """
+                CREATE INDEX IF NOT EXISTS idx_patients_cedula ON patients(cedula);
+                """
+                
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql=add_cedula_index_sql
+                )
+                
+                logger.info("Successfully added cedula field and index")
+            else:
+                logger.info("Cedula field already exists")
+        
+        logger.info("Post-creation migrations completed")
+        
+    except Exception as e:
+        logger.warning(f"Post-creation migration failed (non-critical): {e}")
+        # Don't raise - this is non-critical
+
+
+def run_schema_migrations(rds_data, cluster_arn: str, secret_arn: str, database_name: str):
+    """Run schema migrations to update existing tables with new fields."""
+    
+    logger.info("Running schema migrations...")
+    
+    try:
+        # Migration 1: Add cedula field to patients table if it doesn't exist
+        check_cedula_sql = """
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'patients' 
+        AND column_name = 'cedula';
+        """
+        
+        response = rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql=check_cedula_sql
+        )
+        
+        if not response.get('records'):
+            # Cedula column doesn't exist, add it
+            logger.info("Adding cedula field to patients table...")
+            
+            add_cedula_sql = """
+            ALTER TABLE patients 
+            ADD COLUMN cedula VARCHAR(50) UNIQUE;
+            """
+            
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=add_cedula_sql
+            )
+            
+            logger.info("Successfully added cedula field to patients table")
+            
+            # Add index for the new field
+            add_cedula_index_sql = """
+            CREATE INDEX IF NOT EXISTS idx_patients_cedula ON patients(cedula);
+            """
+            
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=add_cedula_index_sql
+            )
+            
+            logger.info("Successfully created index on cedula field")
+        else:
+            logger.info("Cedula field already exists in patients table")
+            
+        # Add more migrations here as needed in the future
+        # Migration 2: Example for future use
+        # check_future_field_sql = "SELECT ..."
+        # if not response.get('records'):
+        #     logger.info("Adding future field...")
+        #     # Add migration logic
+        
+        logger.info("Schema migrations completed successfully")
+        
+    except Exception as e:
+        # Check if the error is because the patients table doesn't exist yet
+        if "relation \"patients\" does not exist" in str(e).lower():
+            logger.info("Patients table doesn't exist yet, migrations will run after table creation")
+        else:
+            logger.error(f"Schema migration failed: {e}")
+            # Don't raise the exception - let table creation continue
+            # This ensures that new deployments still work even if migrations fail
 
 
 def parse_sql_statements(sql_content: str) -> list:

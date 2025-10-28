@@ -8,7 +8,6 @@ from aws_cdk import aws_bedrockagentcore as agentcore
 from aws_cdk import aws_bedrock_agentcore_alpha as agentcore_alpha
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
-from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
 
@@ -18,7 +17,10 @@ from constructs import Construct
 from typing import Dict
 import json
 import os
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from ..schemas.lambda_tool_schemas import get_all_tool_schemas
 from ..constructs.bedrock_guardrail_construct import BedrockGuardrailConstruct
 from ..constructs.bedrock_knowledge_base_construct import BedrockKnowledgeBaseConstruct
@@ -49,7 +51,9 @@ class AssistantStack(Stack):
         self.db_init_resource = db_init_resource
         self.bedrock_user_secret = bedrock_user_secret
         self.lambda_functions = lambda_functions or {}
-
+        
+        # Note: We no longer directly modify the extraction lambda to avoid cyclic dependencies
+        # Instead, we use SSM parameters for configuration
 
         # Create Bedrock Knowledge Base construct
         self.knowledge_base_construct = BedrockKnowledgeBaseConstruct(
@@ -66,6 +70,8 @@ class AssistantStack(Stack):
             self,
             "Guardrail"
         )
+        
+
 
         # Note: AgentCore manages its own logging automatically
         # No need to create a separate CloudWatch log group
@@ -77,8 +83,6 @@ class AssistantStack(Stack):
             directory=str(Path(__file__).parent.parent.parent / "agents"),
             platform=ecr_assets.Platform.LINUX_ARM64,
         )
-
-
 
         self.inference_profile = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 
@@ -118,25 +122,43 @@ class AssistantStack(Stack):
         )
 
         self.endpoint = agentcore_alpha.RuntimeEndpoint(self,
-            "AgentcoreEndpoint",
-            agent_runtime_id=self.agent_runtime.agent_runtime_id,
-            endpoint_name="AgentEndpoint",
-        )
-
-
+                                                        "AgentcoreEndpoint",
+                                                        agent_runtime_id=self.agent_runtime.agent_runtime_id,
+                                                        endpoint_name="AgentEndpoint",
+                                                        )
 
         # Add dependency on knowledge base and guardrails
-        self.agent_runtime.node.add_dependency(self.knowledge_base_construct.knowledge_base)
+        self.agent_runtime.node.add_dependency(
+            self.knowledge_base_construct.knowledge_base)
         self.agent_runtime.node.add_dependency(self.agentcore_gateway)
-        self.agent_runtime.node.add_dependency(self.guardrail_construct.guardrails)
+        self.agent_runtime.node.add_dependency(
+            self.guardrail_construct.guardrails)
+        
+        # Store Knowledge Base configuration in SSM for extraction lambda to use
+        self.knowledge_base_id_param = ssm.StringParameter(
+            self,
+            "KnowledgeBaseIdParameter",
+            parameter_name="/healthcare/knowledge-base/id",
+            string_value=self.knowledge_base_construct.knowledge_base_id,
+            description="Bedrock Knowledge Base ID for document processing",
+        )
+        
+        self.knowledge_base_data_source_param = ssm.StringParameter(
+            self,
+            "KnowledgeBaseDataSourceParameter", 
+            parameter_name="/healthcare/knowledge-base/data-source-id",
+            string_value=self.knowledge_base_construct.data_source.attr_data_source_id,
+            description="Bedrock Knowledge Base Data Source ID for document processing",
+        )
+        
+        logger.info(f"Stored Knowledge Base ID in SSM: {self.knowledge_base_construct.knowledge_base_id}")
+        logger.info(f"Stored Data Source ID in SSM: {self.knowledge_base_construct.data_source.attr_data_source_id}")
 
         # Store AgentCore endpoint in SSM Parameter Store
         self._create_ssm_parameters()
 
         # Create CloudFormation outputs
         self.create_outputs()
-
-
 
     def _create_unified_lambda_gateway_target(self) -> agentcore.CfnGatewayTarget:
         """
@@ -175,8 +197,6 @@ class AssistantStack(Stack):
             ),
             gateway_identifier=self.agentcore_gateway.attr_gateway_identifier
         )
-
-
 
     def create_agent_runtime_role(self):
         """
@@ -387,7 +407,7 @@ class AssistantStack(Stack):
 
     def _create_ssm_parameters(self) -> None:
         """Store AgentCore configuration in SSM Parameter Store."""
-        
+
         # Store the AgentCore runtime ARN
         self.agentcore_endpoint_parameter = ssm.StringParameter(
             self,
@@ -426,6 +446,9 @@ class AssistantStack(Stack):
             # Guardrails Configuration - Using created guardrail
             "GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
             "GUARDRAIL_VERSION": self.guardrail_construct.guardrail_version_id,
+            "BEDROCK_GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
+            "BEDROCK_GUARDRAIL_VERSION": self.guardrail_construct.guardrail_version_id,
+
 
             # Agentcore gateway
             "GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
@@ -434,7 +457,8 @@ class AssistantStack(Stack):
             # Session Management Configuration - S3 storage for medical notes
             # Uses consistent structure with document processing: processed/{patient_id}_{data_type}/
             "SESSION_BUCKET": self.processed_bucket.bucket_name if self.processed_bucket else "",
-            "SESSION_PREFIX": "processed/",  # Base prefix, actual structure: processed/{patient_id}_{data_type}/
+            # Base prefix, actual structure: processed/{patient_id}_{data_type}/
+            "SESSION_PREFIX": "processed/",
             "ENABLE_SESSION_MANAGEMENT": "true",
 
             # Observability Configuration - CloudWatch logging enabled
@@ -467,7 +491,10 @@ class AssistantStack(Stack):
             description="Healthcare Assistant AgentCore Runtime ARN"
         )
 
-
+        CfnOutput(
+            self, "AgentCoreRuntimeId", value=self.agent_runtime.agent_runtime_id,
+            description="Healthcare Assistant AgentCore Runtime ID"
+        )
 
         CfnOutput(
             self,
@@ -482,5 +509,3 @@ class AssistantStack(Stack):
             value="/v1/agentcore/chat",
             description="AgentCore chat endpoint path in API Gateway"
         )
-
-

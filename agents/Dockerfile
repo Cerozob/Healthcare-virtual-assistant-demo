@@ -11,13 +11,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONPATH=/app
 
 # Copy dependency files first for better caching
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml README.md ./
 
-# Install Python dependencies using uv (creates .venv)
-RUN uv sync --frozen --no-cache
+# Generate ARM64-specific lock file and install dependencies
+RUN uv lock && uv sync --frozen
 
 # Copy agent source code
 COPY . ./
+
+# Ensure ARM64-compatible virtual environment
+RUN rm -rf .venv && uv sync --frozen
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/tmp
@@ -25,12 +28,15 @@ RUN mkdir -p /app/logs /app/tmp
 # Set proper permissions
 RUN chmod -R 755 /app
 
-# Health check for AgentCore Runtime using Python
+# Verify Python installation and architecture
+RUN uv run python -c "import platform; print(f'Architecture: {platform.machine()}'); print(f'Platform: {platform.platform()}')"
+
+# Health check for AgentCore Runtime using uv run
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')" || exit 1
+    CMD uv run python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')" || exit 1
 
 # Expose port 8080 (required for AgentCore Runtime)
 EXPOSE 8080
 
-# Run the FastAPI application with uvicorn
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Run the FastAPI application with uvicorn using uv run
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info"]

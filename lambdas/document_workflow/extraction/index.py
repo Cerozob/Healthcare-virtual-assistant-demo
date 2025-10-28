@@ -22,13 +22,51 @@ ssm_client = boto3.client('ssm')
 
 # Environment variables (minimal)
 PROCESSED_BUCKET = os.environ.get('PROCESSED_BUCKET_NAME', '')
-KNOWLEDGE_BASE_ID = os.environ.get('KNOWLEDGE_BASE_ID', '')
 CLASSIFICATION_CONFIDENCE_THRESHOLD = float(os.environ.get('CLASSIFICATION_CONFIDENCE_THRESHOLD', '80'))
 
 # SSM parameter cache
 _ssm_cache = {}
 _cache_expiry = 0
 CACHE_TTL = 300  # 5 minutes
+
+
+def get_knowledge_base_config() -> Dict[str, str]:
+    """Get Knowledge Base configuration from SSM parameters with caching."""
+    global _ssm_cache, _cache_expiry
+    
+    current_time = datetime.now().timestamp()
+    
+    # Check if cache is still valid
+    if current_time < _cache_expiry and 'knowledge_base_id' in _ssm_cache:
+        return _ssm_cache
+    
+    try:
+        # Get Knowledge Base parameters from SSM
+        response = ssm_client.get_parameters(
+            Names=[
+                '/healthcare/knowledge-base/id',
+                '/healthcare/knowledge-base/data-source-id'
+            ]
+        )
+        
+        # Parse parameters
+        params = {param['Name'].split('/')[-1]: param['Value'] for param in response['Parameters']}
+        
+        _ssm_cache = {
+            'knowledge_base_id': params.get('id', ''),
+            'data_source_id': params.get('data-source-id', '')
+        }
+        
+        # Set cache expiry
+        _cache_expiry = current_time + CACHE_TTL
+        
+        logger.info("Retrieved Knowledge Base configuration from SSM")
+        return _ssm_cache
+        
+    except Exception as e:
+        logger.warning(f"Failed to get Knowledge Base configuration from SSM: {e}")
+        # Return empty config if SSM fails
+        return {'knowledge_base_id': '', 'data_source_id': ''}
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -248,10 +286,10 @@ def download_text_file(bucket: str, key: str) -> str:
 
 def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str, job_id: str) -> str:
     """
-    Extract document ID from event detail or S3 URI.
+    Extract document ID from event detail or S3 URI using the BDA event structure.
 
     Args:
-        detail: Event detail
+        detail: Event detail from BDA completion event
         s3_uri: S3 URI of the BDA output
         job_id: BDA job ID
 
@@ -263,29 +301,37 @@ def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str, job_id: 
     if document_id:
         return document_id
 
-    # Extract from input S3 object information in the event
+    # Extract from input S3 object information in the BDA event
+    # BDA event structure has input_s3_object with s3_bucket and name
     input_s3_object = detail.get('input_s3_object', {})
     if input_s3_object:
+        input_bucket = input_s3_object.get('s3_bucket', '')
         input_key = input_s3_object.get('name', '')
+        
+        logger.info(f"BDA input S3 object - bucket: {input_bucket}, key: {input_key}")
+        
         if input_key:
-            # Extract patient ID and filename from input key
-            # Structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
+            # Frontend uploads with structure: {patient_id}/{filename}
             key_parts = input_key.split('/')
             
             if len(key_parts) >= 2:
-                # New structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
                 patient_id = key_parts[0]
                 filename = key_parts[-1]  # Last part is always the filename
                 
                 # Create document ID from patient_id and filename
-                clean_filename = filename.split('.')[0]
+                clean_filename = filename.split('.')[0]  # Remove extension
                 document_id = f"{patient_id}_{clean_filename}"
                 
-                logger.info(f"Extracted document ID: {document_id} from input S3 object")
+                logger.info(f"Extracted document ID: {document_id} from BDA input S3 object")
                 return document_id
+            elif len(key_parts) == 1:
+                # Single filename without patient prefix
+                filename = key_parts[0]
+                clean_filename = filename.split('.')[0]
+                logger.info(f"Extracted document ID: {clean_filename} from single filename")
+                return clean_filename
 
-    # Fallback: Extract from S3 URI - BDA output structure is:
-    # processed/{patient_id}/{original_filename}/{job_id}/...
+    # Fallback: Extract from BDA output S3 URI structure
     try:
         if s3_uri:
             parts = s3_uri.replace('s3://', '').split('/', 1)
@@ -293,30 +339,35 @@ def extract_document_id_from_event(detail: Dict[str, Any], s3_uri: str, job_id: 
                 key = parts[1]
                 key_parts = key.split('/')
 
-                # Expected structure: processed/{patient_id}/{filename}/{job_id}/...
+                # BDA output structure varies, try to find patient_id and filename
                 if len(key_parts) >= 3:
-                    patient_id = key_parts[1]
-                    filename = key_parts[2]
-
-                    # Create document ID from patient_id and filename
-                    # Remove file extension and any timestamp suffixes
-                    clean_filename = filename.split('.')[0]
-                    document_id = f"{patient_id}_{clean_filename}"
-
-                    logger.info(f"Extracted document ID: {document_id} from BDA output path")
-                    return document_id
+                    # Look for patterns in the BDA output path
+                    for i, part in enumerate(key_parts):
+                        # Skip common BDA directories
+                        if part in ['processed', 'output', 'results']:
+                            continue
+                        # Look for patient_id pattern (alphanumeric)
+                        if part.replace('_', '').replace('-', '').isalnum() and len(part) > 2:
+                            patient_id = part
+                            # Next meaningful part might be filename
+                            if i + 1 < len(key_parts):
+                                filename = key_parts[i + 1]
+                                clean_filename = filename.split('.')[0]
+                                document_id = f"{patient_id}_{clean_filename}"
+                                logger.info(f"Extracted document ID: {document_id} from BDA output path")
+                                return document_id
 
     except Exception as e:
         logger.warning(f"Could not extract document ID from S3 URI: {e}")
 
     # Use job ID as fallback document ID
-    logger.warning(f"Using job ID as document ID: {job_id}")
+    logger.warning(f"Using job ID as document ID fallback: {job_id}")
     return job_id
 
 
 def extract_patient_id_from_data(extracted_data: Dict[str, Any]) -> Optional[str]:
     """
-    Extract patient ID from extracted data or S3 URI structure.
+    Extract patient ID from extracted data, BDA job metadata, or S3 URI structure.
 
     Args:
         extracted_data: Validated extracted data
@@ -324,19 +375,36 @@ def extract_patient_id_from_data(extracted_data: Dict[str, Any]) -> Optional[str
     Returns:
         Patient ID if found
     """
-    # First, try to extract from the S3 URI structure
+    # First, try to extract from BDA job metadata if available
+    bda_metadata = extracted_data.get('bda_job_metadata', {})
+    if bda_metadata:
+        # Check if BDA metadata contains input S3 information
+        input_s3_info = bda_metadata.get('input_s3_object', {})
+        if input_s3_info:
+            input_key = input_s3_info.get('name', '')
+            if input_key:
+                key_parts = input_key.split('/')
+                if len(key_parts) >= 1:
+                    patient_id = key_parts[0]
+                    logger.info(f"Extracted patient ID from BDA metadata: {patient_id}")
+                    return patient_id
+
+    # Try to extract from the S3 URI structure
     source_uri = extracted_data.get('source_s3_uri', '')
     if source_uri:
         try:
             parts = source_uri.replace('s3://', '').split('/', 1)
             if len(parts) > 1:
                 key_parts = parts[1].split('/')
-                # Expected structure: processed/{patient_id}/{filename}/{job_id}/...
-                if len(key_parts) >= 2:
-                    patient_id = key_parts[1]
-                    logger.info(
-                        f"Extracted patient ID from S3 structure: {patient_id}")
-                    return patient_id
+                # BDA output structure varies, look for patient_id patterns
+                for part in key_parts:
+                    # Skip common BDA directories
+                    if part in ['processed', 'output', 'results', 'custom_output', 'standard_output']:
+                        continue
+                    # Look for patient_id pattern (alphanumeric, reasonable length)
+                    if part.replace('_', '').replace('-', '').isalnum() and 3 <= len(part) <= 20:
+                        logger.info(f"Extracted patient ID from S3 structure: {part}")
+                        return part
         except Exception as e:
             logger.warning(f"Could not extract patient ID from S3 URI: {e}")
 
@@ -372,6 +440,9 @@ def extract_classification_from_data(extracted_data: Dict[str, Any]) -> Dict[str
     try:
         document_type = None
         confidence = 0.0
+        matched_blueprint_confidence = 0.0
+        
+        logger.info(f"Extracting classification from BDA data: {json.dumps(extracted_data, indent=2)}")
         
         # Look for classification fields in main data
         if 'document_type' in extracted_data:
@@ -379,36 +450,101 @@ def extract_classification_from_data(extracted_data: Dict[str, Any]) -> Dict[str
         if 'classification_confidence' in extracted_data:
             confidence = float(extracted_data['classification_confidence'])
         
-        # Check in result files
+        # Check in result files for BDA custom output structure
         result_files = extracted_data.get('result_files', {})
-        for result_data in result_files.values():
-            if isinstance(result_data, dict):
-                if not document_type and 'document_type' in result_data:
-                    document_type = result_data['document_type']
-                if confidence == 0.0 and 'classification_confidence' in result_data:
-                    confidence = float(result_data['classification_confidence'])
         
-        # Validate document type
+        # Look specifically for custom_result which contains the BDA blueprint output
+        custom_result = result_files.get('custom_result')
+        if custom_result and isinstance(custom_result, dict):
+            logger.info(f"Found custom_result: {json.dumps(custom_result, indent=2)}")
+            
+            # Extract from matched_blueprint confidence
+            matched_blueprint = custom_result.get('matched_blueprint', {})
+            if matched_blueprint and 'confidence' in matched_blueprint:
+                matched_blueprint_confidence = float(matched_blueprint['confidence'])
+                logger.info(f"Matched blueprint confidence: {matched_blueprint_confidence}")
+            
+            # Extract from inference_result.document_type
+            inference_result = custom_result.get('inference_result', {})
+            if inference_result and 'document_type' in inference_result:
+                document_type = inference_result['document_type']
+                logger.info(f"Found document_type in inference_result: {document_type}")
+            
+            # Also check for classification_confidence in inference_result
+            if inference_result and 'classification_confidence' in inference_result:
+                confidence_str = inference_result['classification_confidence']
+                if confidence_str and confidence_str.strip():
+                    try:
+                        confidence = float(confidence_str)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Could not parse classification_confidence: {confidence_str}")
+        
+        # Check other result files if not found in custom_result
+        if not document_type or confidence == 0.0:
+            for result_name, result_data in result_files.items():
+                if isinstance(result_data, dict):
+                    if not document_type and 'document_type' in result_data:
+                        document_type = result_data['document_type']
+                        logger.info(f"Found document_type in {result_name}: {document_type}")
+                    if confidence == 0.0 and 'classification_confidence' in result_data:
+                        try:
+                            confidence = float(result_data['classification_confidence'])
+                            logger.info(f"Found classification_confidence in {result_name}: {confidence}")
+                        except (ValueError, TypeError):
+                            pass
+        
+        # Use matched_blueprint confidence if no explicit classification confidence
+        if confidence == 0.0 and matched_blueprint_confidence > 0.0:
+            # Convert blueprint confidence (0-1) to percentage (0-100)
+            confidence = matched_blueprint_confidence * 100
+            logger.info(f"Using matched_blueprint confidence as classification confidence: {confidence}%")
+        
+        logger.info(f"Extracted classification - document_type: {document_type}, confidence: {confidence}")
+        
+        # Validate and normalize document type
         valid_categories = ['medical-history', 'exam-results', 'medical-images', 'identification', 'other']
-        if not document_type or document_type not in valid_categories:
+        original_document_type = document_type
+        
+        if not document_type:
             document_type = 'other'
+        elif document_type not in valid_categories:
+            # Try to map common variations
+            document_type_lower = document_type.lower()
+            if 'exam' in document_type_lower or 'result' in document_type_lower or 'lab' in document_type_lower:
+                document_type = 'exam-results'
+            elif 'history' in document_type_lower or 'historia' in document_type_lower or 'record' in document_type_lower:
+                document_type = 'medical-history'
+            elif 'image' in document_type_lower or 'radio' in document_type_lower or 'scan' in document_type_lower:
+                document_type = 'medical-images'
+            elif 'id' in document_type_lower or 'cedula' in document_type_lower or 'identification' in document_type_lower:
+                document_type = 'identification'
+            else:
+                document_type = 'other'
+            
+            logger.info(f"Mapped document type '{original_document_type}' to '{document_type}'")
         
         # Apply confidence threshold
         if confidence < CLASSIFICATION_CONFIDENCE_THRESHOLD:
             final_category = 'not-identified'
+            logger.info(f"Classification confidence {confidence}% below threshold {CLASSIFICATION_CONFIDENCE_THRESHOLD}%, setting category to 'not-identified'")
         else:
             final_category = document_type
+            logger.info(f"Classification confidence {confidence}% meets threshold, using category '{final_category}'")
         
-        return {
+        classification_result = {
             'category': final_category,
             'confidence': confidence,
-            'original_classification': document_type,
+            'original_classification': original_document_type,
             'auto_classified': True,
-            'confidence_threshold_met': confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD
+            'confidence_threshold_met': confidence >= CLASSIFICATION_CONFIDENCE_THRESHOLD,
+            'matched_blueprint_confidence': matched_blueprint_confidence
         }
         
+        logger.info(f"Final classification result: {json.dumps(classification_result, indent=2)}")
+        return classification_result
+        
     except Exception as e:
-        logger.error(f"Error extracting classification: {str(e)}")
+        logger.error(f"Error extracting classification: {str(e)}", exc_info=True)
         return {
             'category': 'not-identified',
             'confidence': 0.0,
@@ -527,10 +663,10 @@ def organize_processed_data(
     classification: Optional[Dict[str, Any]] = None
 ) -> str:
     """
-    Organize and store processed data in the processed bucket with clean, flattened structure.
+    Organize and store processed data in the processed bucket with proper patient/document structure.
     
-    Creates a clean structure: processed/{patient_id}/{clean_filename}/
-    Instead of the horrible nested BDA structure.
+    Creates structure: processed/{patient_id}/{document_identifier}/
+    Following the same pattern as the frontend upload structure.
 
     Args:
         document_id: Document identifier
@@ -552,15 +688,19 @@ def organize_processed_data(
         if patient_id and document_id.startswith(f"{patient_id}_"):
             clean_filename = document_id[len(f"{patient_id}_"):]
         
-        # Create clean flattened structure: processed/{patient_id}_{clean_filename}/
+        # Create proper structure: processed/{patient_id}/{document_identifier}/
+        # This matches the frontend pattern: {patient_id}/{filename}
         clean_patient_id = patient_id or 'unknown'
-        processed_key_prefix = f"processed/{clean_patient_id}_{clean_filename}"
+        processed_key_prefix = f"processed/{clean_patient_id}/{clean_filename}"
 
-        logger.info(f"Organizing processed data with flattened structure: {processed_key_prefix}")
+        logger.info(f"Organizing processed data with proper structure: {processed_key_prefix}")
 
         # Store the main extracted data as JSON
         main_data_key = f"{processed_key_prefix}/extracted_data.json"
 
+        # Get original file metadata to replicate in processed files
+        original_metadata = get_original_file_metadata(document_id, patient_id)
+        
         # Prepare clean extracted data (remove BDA metadata for main file)
         clean_data = {k: v for k, v in extracted_data.items()
                       if k not in ['bda_job_metadata', 'source_s3_uri', 'result_files']}
@@ -571,19 +711,37 @@ def organize_processed_data(
             'patient_id': patient_id,
             'processing_timestamp': get_current_iso8601(),
             'source_bda_uri': extracted_data.get('source_s3_uri'),
-            'flattened_structure': True
+            'proper_structure': True
         }
         
         # Add classification metadata if available
         if classification:
             clean_data['classification'] = classification
 
-        # Upload main extracted data
+        # Prepare S3 metadata for processed files (replicate from original + add processing info)
+        s3_metadata = {
+            **original_metadata,  # Copy original metadata
+            'document-id': document_id,
+            'processing-timestamp': get_current_iso8601(),
+            'workflow-stage': 'processed',
+            'extracted-data': 'true'
+        }
+        
+        # Add classification to metadata if available
+        if classification:
+            s3_metadata.update({
+                'document-category': classification.get('category', 'other'),
+                'classification-confidence': str(classification.get('confidence', 0.0)),
+                'auto-classified': str(classification.get('auto_classified', False))
+            })
+
+        # Upload main extracted data with replicated metadata
         s3_client.put_object(
             Bucket=PROCESSED_BUCKET,
             Key=main_data_key,
             Body=json.dumps(clean_data, indent=2, ensure_ascii=False),
-            ContentType='application/json'
+            ContentType='application/json',
+            Metadata=s3_metadata
         )
         logger.info(f"Stored main extracted data: {main_data_key}")
 
@@ -611,15 +769,16 @@ def organize_processed_data(
             file_key = f"{processed_key_prefix}/{clean_filename_for_type}"
 
             if isinstance(content, dict):
-                # JSON content
+                # JSON content with replicated metadata
                 s3_client.put_object(
                     Bucket=PROCESSED_BUCKET,
                     Key=file_key,
                     Body=json.dumps(content, indent=2, ensure_ascii=False),
-                    ContentType='application/json'
+                    ContentType='application/json',
+                    Metadata=s3_metadata
                 )
             else:
-                # Text content
+                # Text content with replicated metadata
                 content_type = 'text/plain'
                 if clean_filename_for_type.endswith('.html'):
                     content_type = 'text/html'
@@ -630,7 +789,8 @@ def organize_processed_data(
                     Bucket=PROCESSED_BUCKET,
                     Key=file_key,
                     Body=content,
-                    ContentType=content_type
+                    ContentType=content_type,
+                    Metadata=s3_metadata
                 )
             
             logger.info(f"Stored result file: {file_key}")
@@ -647,7 +807,8 @@ def organize_processed_data(
                 Bucket=PROCESSED_BUCKET,
                 Key=metadata_key,
                 Body=json.dumps(extracted_data['bda_job_metadata'], indent=2),
-                ContentType='application/json'
+                ContentType='application/json',
+                Metadata=s3_metadata
             )
             logger.info(f"Stored BDA metadata: {metadata_key}")
 
@@ -655,7 +816,7 @@ def organize_processed_data(
         cleanup_bda_output(extracted_data.get('source_s3_uri', ''))
 
         processed_uri = f"s3://{PROCESSED_BUCKET}/{main_data_key}"
-        logger.info(f"Successfully organized processed data with flattened structure at: {processed_uri}")
+        logger.info(f"Successfully organized processed data with proper structure at: {processed_uri}")
         return processed_uri
 
     except Exception as e:
@@ -739,7 +900,7 @@ def move_bda_assets(source_s3_uri: str, target_prefix: str) -> int:
 def cleanup_bda_output(source_s3_uri: str) -> None:
     """
     Clean up the original BDA output to debloat storage.
-    Keeps only essential files like job_metadata.json and deletes processed files.
+    Deletes ALL BDA output files since we've organized them in the processed bucket.
     
     Args:
         source_s3_uri: Source S3 URI from BDA output
@@ -753,6 +914,8 @@ def cleanup_bda_output(source_s3_uri: str) -> None:
         source_bucket = parts[0]
         source_prefix = parts[1] if len(parts) > 1 else ''
         
+        logger.info(f"Starting cleanup of BDA output at: {source_s3_uri}")
+        
         # List all objects in the BDA output directory
         response = s3_client.list_objects_v2(
             Bucket=source_bucket,
@@ -760,32 +923,47 @@ def cleanup_bda_output(source_s3_uri: str) -> None:
         )
         
         files_deleted = 0
+        files_to_delete = []
+        
         if 'Contents' in response:
             for obj in response['Contents']:
                 key = obj['Key']
                 
-                # Keep essential files for audit/debugging
-                if (key.endswith('job_metadata.json') or 
-                    '.s3_access_check' in key or
-                    obj['Size'] == 0):
+                # Skip empty files and access check files (they're harmless)
+                if obj['Size'] == 0 or '.s3_access_check' in key:
                     continue
                 
-                # Delete processed files that we've already moved/organized
-                if (key.endswith('/result.json') or 
-                    key.endswith('/result.html') or 
-                    key.endswith('/result.md') or 
-                    key.endswith('/result.txt') or
-                    '/assets/' in key or 
-                    key.endswith(('.png', '.jpg', '.jpeg', '.gif', '.pdf'))):
-                    
-                    s3_client.delete_object(
-                        Bucket=source_bucket,
-                        Key=key
-                    )
-                    files_deleted += 1
+                # Delete ALL BDA output files since we've organized them properly
+                files_to_delete.append({'Key': key})
+        
+        # Batch delete for efficiency
+        if files_to_delete:
+            # S3 batch delete supports up to 1000 objects at a time
+            batch_size = 1000
+            for i in range(0, len(files_to_delete), batch_size):
+                batch = files_to_delete[i:i + batch_size]
+                
+                delete_response = s3_client.delete_objects(
+                    Bucket=source_bucket,
+                    Delete={
+                        'Objects': batch,
+                        'Quiet': True  # Don't return info about successful deletions
+                    }
+                )
+                
+                # Count successful deletions
+                deleted_count = len(batch)
+                if 'Errors' in delete_response:
+                    deleted_count -= len(delete_response['Errors'])
+                    for error in delete_response['Errors']:
+                        logger.warning(f"Failed to delete {error['Key']}: {error['Message']}")
+                
+                files_deleted += deleted_count
         
         if files_deleted > 0:
-            logger.info(f"Cleaned up {files_deleted} files from BDA output to debloat storage")
+            logger.info(f"Successfully cleaned up {files_deleted} BDA output files to debloat storage")
+        else:
+            logger.info("No BDA output files found to clean up")
         
     except Exception as e:
         logger.error(f"Error cleaning up BDA output: {str(e)}")
@@ -993,6 +1171,59 @@ def extract_medical_field(extracted_data: Dict[str, Any], field_names: list) -> 
     return None
 
 
+def get_original_file_metadata(document_id: str, patient_id: Optional[str]) -> Dict[str, str]:
+    """
+    Get metadata from the original file to replicate in processed files.
+    
+    Args:
+        document_id: Document identifier
+        patient_id: Patient identifier
+        
+    Returns:
+        Dictionary of original file metadata
+    """
+    if not patient_id:
+        return {}
+    
+    try:
+        # Get the source bucket from environment
+        source_bucket = os.environ.get('SOURCE_BUCKET_NAME', '')
+        if not source_bucket:
+            logger.warning("SOURCE_BUCKET_NAME not configured, cannot get original metadata")
+            return {}
+        
+        # Extract clean filename from document_id
+        clean_filename = document_id
+        if document_id.startswith(f"{patient_id}_"):
+            clean_filename = document_id[len(f"{patient_id}_"):]
+        
+        # Try to find the original document in S3
+        # Structure: {patient_id}/{filename}
+        possible_keys = [
+            f"{patient_id}/{clean_filename}",
+            f"{patient_id}/{clean_filename}.pdf",
+            f"{patient_id}/{clean_filename}.jpg",
+            f"{patient_id}/{clean_filename}.png",
+            f"{patient_id}/{clean_filename}.tiff",
+        ]
+        
+        for key in possible_keys:
+            try:
+                response = s3_client.head_object(Bucket=source_bucket, Key=key)
+                metadata = response.get('Metadata', {})
+                logger.info(f"Retrieved original metadata from: {key}")
+                return metadata
+            except ClientError:
+                continue
+        
+        logger.warning(f"Could not find original document for {document_id}")
+        return {}
+        
+    except Exception as e:
+        logger.error(f"Error getting original file metadata: {str(e)}")
+        return {}
+
+
 def update_original_document_metadata(
     document_id: str,
     patient_id: Optional[str],
@@ -1033,23 +1264,24 @@ def update_original_document_metadata(
         ]
         
         original_key = None
+        original_response = None
         for key in possible_keys:
             try:
-                s3_client.head_object(Bucket=source_bucket, Key=key)
+                response = s3_client.head_object(Bucket=source_bucket, Key=key)
                 original_key = key
+                original_response = response
                 break
             except ClientError:
                 continue
         
-        if not original_key:
+        if not original_key or not original_response:
             logger.warning(f"Could not find original document for {document_id}")
             return
         
         # Get current object metadata
-        response = s3_client.head_object(Bucket=source_bucket, Key=original_key)
-        current_metadata = response.get('Metadata', {})
+        current_metadata = original_response.get('Metadata', {})
         
-        # Update metadata with classification
+        # Update metadata with classification (change document-category from 'auto' to actual category)
         updated_metadata = {
             **current_metadata,
             'document-category': classification.get('category', 'other'),
@@ -1068,11 +1300,12 @@ def update_original_document_metadata(
             Key=original_key,
             Metadata=updated_metadata,
             MetadataDirective='REPLACE',
-            ContentType=response.get('ContentType', 'application/octet-stream')
+            ContentType=original_response.get('ContentType', 'application/octet-stream')
         )
         
         logger.info(f"Updated metadata for original document: {original_key}")
         logger.info(f"Classification: {classification.get('category')} ({classification.get('confidence')}% confidence)")
+        logger.info(f"Changed document-category from '{current_metadata.get('document-category', 'auto')}' to '{classification.get('category')}'")
         
     except Exception as e:
         logger.error(f"Error updating original document metadata: {str(e)}")
@@ -1096,9 +1329,14 @@ def update_knowledge_base(
     Returns:
         Knowledge Base document ID
     """
-    if not KNOWLEDGE_BASE_ID:
+    # Get Knowledge Base configuration
+    kb_config = get_knowledge_base_config()
+    knowledge_base_id = kb_config.get('knowledge_base_id', '')
+    data_source_id = kb_config.get('data_source_id', 'processed-documents')
+    
+    if not knowledge_base_id:
         logger.warning(
-            "KNOWLEDGE_BASE_ID no configurado, omitiendo actualización de KB")
+            "Knowledge Base ID not configured, skipping KB update")
         return document_id
 
     try:
@@ -1111,9 +1349,11 @@ def update_knowledge_base(
         )
 
         # Ingest document into Knowledge Base
+        logger.info(f"Starting ingestion job for KB: {knowledge_base_id}, Data Source: {data_source_id}")
+        
         response = bedrock_agent_client.start_ingestion_job(
-            knowledgeBaseId=KNOWLEDGE_BASE_ID,
-            dataSourceId='processed-documents',
+            knowledgeBaseId=knowledge_base_id,
+            dataSourceId=data_source_id,
             description=f'Ingesting processed document: {document_id}'
         )
 

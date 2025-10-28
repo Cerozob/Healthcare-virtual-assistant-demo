@@ -37,6 +37,8 @@ services:
       # Guardrails Configuration (optional for local testing)
       - GUARDRAIL_ID=${GUARDRAIL_ID:-}
       - GUARDRAIL_VERSION=${GUARDRAIL_VERSION:-}
+      - BEDROCK_GUARDRAIL_ID=${BEDROCK_GUARDRAIL_ID:-}
+      - BEDROCK_GUARDRAIL_VERSION=${BEDROCK_GUARDRAIL_VERSION:-}
       
       # Observability Configuration
       - ENABLE_TRACING=${ENABLE_TRACING:-false}

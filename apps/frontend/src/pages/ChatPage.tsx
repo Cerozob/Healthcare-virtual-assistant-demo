@@ -11,8 +11,9 @@ import {
   PromptInput,
   SpaceBetween,
 } from '@cloudscape-design/components';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MarkdownRenderer, PatientChatSidebar } from '../components/chat';
+import { DebugPanel } from '../components/debug/DebugPanel';
 import { MainLayout } from '../components/layout';
 import { PatientSelector } from '../components/patient';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -76,13 +77,39 @@ function PatientSelectorWrapper({ onComplete }: { onComplete: () => void }) {
 
 export default function ChatPage({ signOut, user }: ChatPageProps) {
   const { t } = useLanguage();
-  const { selectedPatient, isPatientSelected, clearPatient, setSelectedPatient, setPatientExams } = usePatientContext();
+  const { selectedPatient, isPatientSelected, clearPatient } = usePatientContext();
   const { mode } = useTheme();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'processing' | 'generating'>('processing');
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
   const [showPatientSelector, setShowPatientSelector] = useState(false);
+
+  // Chat auto-scroll ref with callback
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll when messages change
+  useEffect(() => {
+    const scrollToBottom = () => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    };
+    
+    const timer = setTimeout(scrollToBottom, 100);
+    return () => clearTimeout(timer);
+  });
+
+  // Debug state for troubleshooting
+  const [debugInfo, setDebugInfo] = useState<{
+    lastResponse: unknown;
+    lastRequest: unknown;
+    patientContext: unknown;
+  }>({
+    lastResponse: null,
+    lastRequest: null,
+    patientContext: null
+  });
 
   // Prompt input state
   const [promptValue, setPromptValue] = useState('');
@@ -247,7 +274,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       // Send message to AgentCore
       setLoadingStage('generating');
 
-      const response = await chatService.sendMessage({
+      const requestData = {
         message: contextualContent,
         ...(sessionId && { sessionId }),
         // Include file information if available
@@ -297,68 +324,85 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             };
           }))
         })
-      });
+      };
 
-      // Update session ID if this is the first message or if lambda returned a new one
-      if (response.sessionId && response.sessionId !== sessionId) {
-        setSessionId(response.sessionId);
-        console.log(`Using session ID from lambda: ${response.sessionId}`);
-      }
-
-      const agentMessage: ChatMessage = {
-        id: `agent_${Date.now()}`,
-        content: response.response || response.message || 'No response received',
+      // Create streaming agent message placeholder
+      const streamingMessageId = `agent_${Date.now()}`;
+      const streamingMessage: ChatMessage = {
+        id: streamingMessageId,
+        content: '',
         type: 'agent',
-        agentType: 'agentcore',
+        agentType: 'agentcore-streaming',
         timestamp: new Date().toISOString()
       };
 
-      setMessages(prev => [...prev, agentMessage]);
+      // Add streaming message to UI
+      setMessages(prev => [...prev, streamingMessage]);
 
-      // Handle automatic patient selection if agent identified a patient
-      if (response.patient_context?.patient_found && response.patient_context?.patient_data) {
-        const identifiedPatient = response.patient_context.patient_data;
-
-        // Only auto-select if no patient is currently selected or if it's a different patient
-        if (!selectedPatient || selectedPatient.patient_id !== identifiedPatient.patient_id) {
-          console.log(`Agent identified patient: ${identifiedPatient.full_name} (${identifiedPatient.patient_id})`);
-
-          // Set the patient in context
-          setSelectedPatient(identifiedPatient);
-
-          // Load patient reservations
-          try {
-            const reservationsResponse = await reservationService.getReservations();
-            const patientExams = reservationsResponse.reservations.filter(reservation =>
-              reservation.patient_id === identifiedPatient.patient_id
-            );
-            setPatientExams(patientExams);
-          } catch (error) {
-            console.error('Error loading patient reservations:', error);
-            setPatientExams([]);
+      // Use streaming service
+      await chatService.sendStreamingMessage(
+        requestData,
+        // onChunk callback - update the streaming message
+        (chunk) => {
+          console.log('📥 Streaming chunk:', chunk);
+          setMessages(prev => prev.map(msg => 
+            msg.id === streamingMessageId 
+              ? { ...msg, content: chunk.content }
+              : msg
+          ));
+        },
+        // onComplete callback - finalize the message
+        (finalResponse) => {
+          console.log('✅ Streaming complete:', finalResponse);
+          
+          // Update session ID
+          if (finalResponse.sessionId && finalResponse.sessionId !== sessionId) {
+            setSessionId(finalResponse.sessionId);
+            console.log(`Using session ID from AgentCore: ${finalResponse.sessionId}`);
           }
 
-          // Add system message about automatic patient selection
-          const systemMessage: ChatMessage = {
-            id: `system_${Date.now()}`,
-            content: `🔍 **Paciente identificado automáticamente**: ${identifiedPatient.full_name} (ID: ${identifiedPatient.patient_id})\n\n✅ El paciente ha sido seleccionado en el panel lateral y el contexto ha sido establecido para esta conversación.`,
-            type: 'system',
-            timestamp: new Date().toISOString()
-          };
-          setMessages(prev => [...prev, systemMessage]);
-        } else if (selectedPatient && selectedPatient.patient_id === identifiedPatient.patient_id) {
-          // Patient is already selected, just add a confirmation message
-          const systemMessage: ChatMessage = {
-            id: `system_${Date.now()}`,
-            content: `✅ **Paciente confirmado**: ${identifiedPatient.full_name} (ID: ${identifiedPatient.patient_id})\n\nContinuando con el contexto del paciente actual.`,
-            type: 'system',
-            timestamp: new Date().toISOString()
-          };
-          setMessages(prev => [...prev, systemMessage]);
-        }
-      }
+          // Finalize the streaming message
+          setMessages(prev => prev.map(msg => 
+            msg.id === streamingMessageId 
+              ? { 
+                  ...msg, 
+                  content: finalResponse.content,
+                  agentType: 'agentcore',
+                  metadata: finalResponse.metadata
+                }
+              : msg
+          ));
 
-      setIsLoading(false);
+          // 🔍 DEBUG: Update debug info
+          setDebugInfo({
+            lastResponse: finalResponse,
+            lastRequest: requestData,
+            patientContext: finalResponse.metadata?.patient_context
+          });
+
+          setIsLoading(false);
+        },
+        // onError callback
+        (error) => {
+          console.error('❌ Streaming error:', error);
+          
+          // Update the streaming message with error
+          setMessages(prev => prev.map(msg => 
+            msg.id === streamingMessageId 
+              ? { 
+                  ...msg, 
+                  content: `Error: ${error.message}`,
+                  agentType: 'error'
+                }
+              : msg
+          ));
+
+          setError(error.message);
+          setIsLoading(false);
+        }
+      );
+
+      // Patient context handling is now done in the streaming callbacks above
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -527,7 +571,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     if (selectedPatient) {
       const systemMessage: ChatMessage = {
         id: `system_${Date.now()}`,
-        content: `Contexto del paciente actualizado: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})`,
+        content: `Contexto del paciente actualizado: ${String(selectedPatient.full_name)} (ID: ${String(selectedPatient.patient_id)})`,
         type: 'system',
         timestamp: new Date().toISOString()
       };
@@ -641,11 +685,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           }
                         >
                           <Box color="text-status-inactive">
-                            {loadingStage === 'processing' ? 'Analizando solicitud' : 'Generando respuesta'}
+                            {loadingStage === 'processing' ? 'Analizando solicitud' : 'Conectando con AgentCore...'}
                           </Box>
                         </ChatBubble>
                       </div>
                     )}
+                    
+                    {/* Auto-scroll target */}
+                    <div ref={messagesEndRef} />
                   </div>
                 </Box>
 
@@ -752,6 +799,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             onClearPatient={isPatientSelected ? handleClearPatient : undefined}
           />
         </Grid>
+
+        {/* Debug Panel */}
+        <DebugPanel
+          lastResponse={debugInfo.lastResponse}
+          lastRequest={debugInfo.lastRequest}
+          patientContext={debugInfo.patientContext}
+          selectedPatient={selectedPatient}
+        />
       </SpaceBetween>
 
       {/* Patient Selection Modal */}

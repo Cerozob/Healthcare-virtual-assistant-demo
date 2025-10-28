@@ -39,11 +39,15 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# Virtual environments (exclude to avoid architecture conflicts)
 .venv/
 venv/
 env/
 ENV/
+.python-version
+
+# UV lock files (regenerate for ARM64 in container)
+uv.lock
 
 # Testing
 .pytest_cache/

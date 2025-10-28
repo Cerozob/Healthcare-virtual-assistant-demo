@@ -15,6 +15,9 @@ def lambda_handler(event, context):
     and upload PDFs/images to the raw bucket for document workflow processing.
     
     This function can be invoked manually or triggered after database initialization.
+    
+    Event parameters:
+    - UPDATE_EXISTING_PATIENTS: 'true'/'false' to control whether to update existing patients
     """
     try:
         logger.info("Starting data loading process")
@@ -33,10 +36,20 @@ def lambda_handler(event, context):
         s3 = boto3.client('s3')
         ssm = boto3.client('ssm')
         
+        # Check if we should update existing patients
+        # Priority: event parameter > environment variable > default (true)
+        update_existing = True  # Default for cedula repopulation
+        if 'UPDATE_EXISTING_PATIENTS' in event:
+            update_existing = str(event['UPDATE_EXISTING_PATIENTS']).lower() == 'true'
+        elif 'UPDATE_EXISTING_PATIENTS' in os.environ:
+            update_existing = os.environ.get('UPDATE_EXISTING_PATIENTS', 'true').lower() == 'true'
+        
+        logger.info(f"Update existing patients: {update_existing}")
+        
         # Load and process sample data (JSON profiles only)
         patients_loaded = load_and_process_sample_data(
             s3, rds_data, sample_bucket, 
-            cluster_arn, secret_arn, database_name
+            cluster_arn, secret_arn, database_name, update_existing
         )
         
         logger.info(f"Data loading completed successfully. Processed {patients_loaded} patients.")
@@ -60,7 +73,7 @@ def lambda_handler(event, context):
 
 
 def load_and_process_sample_data(s3, rds_data, sample_bucket: str, 
-                               cluster_arn: str, secret_arn: str, database_name: str) -> int:
+                               cluster_arn: str, secret_arn: str, database_name: str, update_existing: bool = True) -> int:
     """Load sample patient profiles from S3 and insert into database."""
     
     logger.info(f"Loading sample data from bucket: {sample_bucket}")
@@ -102,9 +115,9 @@ def load_and_process_sample_data(s3, rds_data, sample_bucket: str,
             if not profile_data:
                 continue
             
-            # Insert patient into database
+            # Insert or update patient in database
             insert_patient_to_database(
-                rds_data, cluster_arn, secret_arn, database_name, profile_data
+                rds_data, cluster_arn, secret_arn, database_name, profile_data, update_existing
             )
             
             patients_processed += 1
@@ -140,8 +153,8 @@ def load_patient_profile(s3, bucket: str, key: str) -> Optional[Dict[str, Any]]:
 
 
 def insert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str, 
-                             database_name: str, profile: Dict[str, Any]):
-    """Insert patient data into the database."""
+                             database_name: str, profile: Dict[str, Any], update_existing: bool = True):
+    """Insert or update patient data in the database."""
     
     patient_data = convert_patient_profile_to_db_format(profile)
     
@@ -150,26 +163,32 @@ def insert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
         resourceArn=cluster_arn,
         secretArn=secret_arn,
         database=database_name,
-        sql="SELECT COUNT(*) as count FROM patients WHERE patient_id = :patient_id OR email = :email",
+        sql="SELECT patient_id FROM patients WHERE patient_id = :patient_id OR email = :email",
         parameters=[
             {'name': 'patient_id', 'value': {'stringValue': patient_data['patient_id']}},
             {'name': 'email', 'value': {'stringValue': patient_data.get('email', '')}}
         ]
     )
     
-    if check_response['records'][0][0].get('longValue', 0) > 0:
-        logger.info(f"Patient already exists, skipping: {patient_data.get('full_name', 'Unknown')}")
+    existing_records = check_response.get('records', [])
+    
+    if existing_records:
+        if update_existing:
+            # Patient exists - update with new data including cedula
+            existing_patient_id = existing_records[0][0].get('stringValue')
+            logger.info(f"Patient exists, updating with cedula: {patient_data.get('full_name', 'Unknown')}")
+            update_patient_in_database(rds_data, cluster_arn, secret_arn, database_name, existing_patient_id, patient_data)
+        else:
+            logger.info(f"Patient exists, skipping (update_existing=False): {patient_data.get('full_name', 'Unknown')}")
         return
     
-    # Insert patient
+    # Insert patient (updated to match current schema)
     insert_sql = """
     INSERT INTO patients (
-        patient_id, first_name, last_name, full_name, email, phone,
-        date_of_birth, age, gender, document_type, document_number,
+        patient_id, full_name, email, cedula, date_of_birth, phone,
         address, medical_history, lab_results, source_scan
     ) VALUES (
-        :patient_id, :first_name, :last_name, :full_name, :email, :phone,
-        :date_of_birth::date, :age, :gender, :document_type, :document_number,
+        :patient_id, :full_name, :email, :cedula, :date_of_birth::date, :phone,
         :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan
     )
     """
@@ -178,8 +197,6 @@ def insert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
     for key, value in patient_data.items():
         if value is None:
             param_value = {'isNull': True}
-        elif key == 'age' and value is not None:
-            param_value = {'longValue': int(value)}
         elif key == 'date_of_birth' and value is not None:
             param_value = {'stringValue': str(value)}
         else:
@@ -198,9 +215,56 @@ def insert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
     logger.info(f"Inserted patient: {patient_data['full_name']}")
 
 
+def update_patient_in_database(rds_data, cluster_arn: str, secret_arn: str, 
+                             database_name: str, patient_id: str, patient_data: Dict[str, Any]):
+    """Update existing patient with new data including cedula."""
+    
+    update_sql = """
+    UPDATE patients SET
+        full_name = :full_name,
+        email = :email,
+        cedula = :cedula,
+        date_of_birth = :date_of_birth::date,
+        phone = :phone,
+        address = :address::jsonb,
+        medical_history = :medical_history::jsonb,
+        lab_results = :lab_results::jsonb,
+        source_scan = :source_scan,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE patient_id = :patient_id
+    """
+    
+    parameters = []
+    # Add patient_id for WHERE clause
+    parameters.append({'name': 'patient_id', 'value': {'stringValue': patient_id}})
+    
+    # Add all other fields
+    for key, value in patient_data.items():
+        if key == 'patient_id':
+            continue  # Already added above
+            
+        if value is None:
+            param_value = {'isNull': True}
+        elif key == 'date_of_birth' and value is not None:
+            param_value = {'stringValue': str(value)}
+        else:
+            param_value = {'stringValue': str(value) if value is not None else None}
+        
+        parameters.append({'name': key, 'value': param_value})
+    
+    rds_data.execute_statement(
+        resourceArn=cluster_arn,
+        secretArn=secret_arn,
+        database=database_name,
+        sql=update_sql,
+        parameters=parameters
+    )
+    
+    logger.info(f"Updated patient: {patient_data['full_name']} (ID: {patient_id})")
+
 
 def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert PatientProfile format to database format."""
+    """Convert PatientProfile format to database format (updated for current schema)."""
     
     personal_info = profile.get('personal_info', {})
     
@@ -221,20 +285,37 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
         except Exception as e:
             logger.warning(f"Could not parse date of birth '{fecha_nacimiento}': {e}")
     
+    # Extract cedula from document number if document type is cedula/ID
+    cedula = None
+    document_type = personal_info.get('tipo_documento', '').lower()
+    document_number = personal_info.get('numero_documento', '')
+    
+    if document_type in ['cedula', 'cédula', 'id', 'dni', 'cc'] and document_number:
+        cedula = document_number
+    
+    # Build enhanced medical history with additional patient info
+    enhanced_medical_history = profile.get('medical_history', {})
+    
+    # Add demographic info to medical history for context
+    if personal_info.get('edad'):
+        enhanced_medical_history['age'] = personal_info.get('edad')
+    if personal_info.get('sexo'):
+        enhanced_medical_history['gender'] = personal_info.get('sexo')
+    if document_type and document_number:
+        enhanced_medical_history['document'] = {
+            'type': document_type,
+            'number': document_number
+        }
+    
     return {
         'patient_id': profile.get('patient_id', str(uuid.uuid4())),
-        'first_name': personal_info.get('primer_nombre', ''),
-        'last_name': f"{personal_info.get('primer_apellido', '')} {personal_info.get('segundo_apellido', '')}".strip(),
         'full_name': personal_info.get('nombre_completo', ''),
         'email': personal_info.get('email', ''),
+        'cedula': cedula,  # New field for national ID
         'phone': personal_info.get('telefono', ''),
         'date_of_birth': date_of_birth,
-        'age': personal_info.get('edad'),
-        'gender': personal_info.get('sexo'),
-        'document_type': personal_info.get('tipo_documento'),
-        'document_number': personal_info.get('numero_documento'),
         'address': json.dumps(personal_info.get('direccion', {})),
-        'medical_history': json.dumps(profile.get('medical_history', {})),
+        'medical_history': json.dumps(enhanced_medical_history),
         'lab_results': json.dumps(profile.get('lab_results', [])),
         'source_scan': profile.get('source_scan')
     }
@@ -246,8 +327,6 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
     sample_medics = [
         {
             'medic_id': str(uuid.uuid4()),
-            'first_name': 'Dr. Sarah',
-            'last_name': 'Wilson',
             'full_name': 'Dr. Sarah Wilson',
             'email': 'sarah.wilson@hospital.com',
             'phone': '+1-555-0101',
@@ -257,8 +336,6 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
         },
         {
             'medic_id': str(uuid.uuid4()),
-            'first_name': 'Dr. Michael',
-            'last_name': 'Brown',
             'full_name': 'Dr. Michael Brown',
             'email': 'michael.brown@hospital.com',
             'phone': '+1-555-0102',
@@ -268,8 +345,6 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
         },
         {
             'medic_id': str(uuid.uuid4()),
-            'first_name': 'Dr. Emily',
-            'last_name': 'Davis',
             'full_name': 'Dr. Emily Davis',
             'email': 'emily.davis@hospital.com',
             'phone': '+1-555-0103',
@@ -296,13 +371,13 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
                     f"Medic already exists, skipping: {medic['email']}")
                 continue
 
-            # Insert medic
+            # Insert medic (updated to match current schema)
             insert_sql = """
             INSERT INTO medics (
-                medic_id, first_name, last_name, full_name, email, phone,
+                medic_id, full_name, email, phone,
                 specialization, license_number, department
             ) VALUES (
-                :medic_id, :first_name, :last_name, :full_name, :email, :phone,
+                :medic_id, :full_name, :email, :phone,
                 :specialization, :license_number, :department
             )
             """

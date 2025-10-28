@@ -104,6 +104,7 @@ def extract_and_search_patient(
                 agent = tool_context.agent
                 agent.state.set("current_patient_id", patient_info.get('cedula', patient_info.get('patient_id')))
                 agent.state.set("current_patient_name", patient_info['full_name'])
+                agent.state.set("current_patient_data", patient_info)  # Store complete patient object
                 agent.state.set("session_context", "patient_session")
                 logger.info(f"Set patient context in agent state: {patient_info['full_name']} (ID: {patient_info.get('cedula', patient_info.get('patient_id'))})")
             
@@ -238,8 +239,11 @@ def _search_patient_via_lambda(extracted_info: Dict[str, Any]) -> Dict[str, Any]
                 
         except ClientError as e:
             logger.error(f"Lambda invocation error: {str(e)}")
-            # Fallback to mock data for development/testing
-            return _fallback_patient_search(extracted_info)
+            return {
+                "success": False,
+                "error": f"Error invocando Lambda: {str(e)}",
+                "patient": None
+            }
             
     except Exception as e:
         logger.error(f"Error in Lambda patient search: {str(e)}")
@@ -248,92 +252,6 @@ def _search_patient_via_lambda(extracted_info: Dict[str, Any]) -> Dict[str, Any]
             "error": f"Error buscando paciente: {str(e)}",
             "patient": None
         }
-
-
-def _fallback_patient_search(extracted_info: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Fallback patient search using mock data when Lambda is not available.
-    
-    Args:
-        extracted_info: Extracted patient information
-        
-    Returns:
-        Dict containing patient search results
-    """
-    logger.info("Using fallback patient search with mock data")
-    
-    # Mock patient database for development/testing
-    mock_patients = [
-        {
-            "patient_id": "12345678",
-            "cedula": "12345678",
-            "first_name": "Juan",
-            "last_name": "Pérez",
-            "full_name": "Juan Pérez",
-            "date_of_birth": "1985-03-15",
-            "phone": "555-0123",
-            "email": "juan.perez@email.com",
-            "medical_record_number": "MRN-001",
-            "created_at": "2024-01-01T10:00:00Z",
-            "updated_at": "2024-01-01T10:00:00Z"
-        },
-        {
-            "patient_id": "87654321",
-            "cedula": "87654321",
-            "first_name": "María",
-            "last_name": "González",
-            "full_name": "María González",
-            "date_of_birth": "1990-07-22",
-            "phone": "555-0456",
-            "email": "maria.gonzalez@email.com",
-            "medical_record_number": "MRN-002",
-            "created_at": "2024-01-02T10:00:00Z",
-            "updated_at": "2024-01-02T10:00:00Z"
-        },
-        {
-            "patient_id": "11223344",
-            "cedula": "11223344",
-            "first_name": "Carlos",
-            "last_name": "Rodríguez",
-            "full_name": "Carlos Rodríguez",
-            "date_of_birth": "1978-12-03",
-            "phone": "555-0789",
-            "email": "carlos.rodriguez@email.com",
-            "medical_record_number": "MRN-003",
-            "created_at": "2024-01-03T10:00:00Z",
-            "updated_at": "2024-01-03T10:00:00Z"
-        }
-    ]
-    
-    # Search logic based on extracted information
-    for patient in mock_patients:
-        # Check cedula match
-        if extracted_info.get("cedula") and extracted_info["cedula"] == patient["cedula"]:
-            return {"success": True, "patient": patient}
-        
-        # Check medical record number match
-        if (extracted_info.get("medical_record_number") and 
-            extracted_info["medical_record_number"].upper() == patient["medical_record_number"]):
-            return {"success": True, "patient": patient}
-        
-        # Check name match (fuzzy)
-        if extracted_info.get("full_name"):
-            extracted_name = extracted_info["full_name"].lower()
-            patient_name = patient["full_name"].lower()
-            if extracted_name in patient_name or patient_name in extracted_name:
-                return {"success": True, "patient": patient}
-        
-        # Check first/last name combination
-        if (extracted_info.get("first_name") and extracted_info.get("last_name")):
-            if (extracted_info["first_name"].lower() in patient["first_name"].lower() and
-                extracted_info["last_name"].lower() in patient["last_name"].lower()):
-                return {"success": True, "patient": patient}
-    
-    return {
-        "success": False,
-        "error": "No se encontró paciente con la información proporcionada",
-        "patient": None
-    }
 
 
 @tool(

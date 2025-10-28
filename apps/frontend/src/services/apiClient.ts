@@ -113,15 +113,28 @@ class ApiClient {
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
+        // 🔍 DEBUG: Log outgoing request
+        console.group(`📤 API REQUEST [${method}] ${url}`);
+        console.log('🎯 URL:', url);
+        console.log('📋 Headers:', requestHeaders);
+        console.log('📦 Body:', body);
+        console.log('⏱️ Timeout:', timeout);
+        console.log('🔄 Attempt:', attempt + 1);
+        console.groupEnd();
 
         const response = await fetch(url, requestOptions);
 
-
+        // 🔍 DEBUG: Log response details
+        console.group(`📥 API RESPONSE [${response.status}] ${url}`);
+        console.log('✅ Status:', response.status, response.statusText);
+        console.log('📋 Headers:', Object.fromEntries(response.headers.entries()));
+        console.log('📦 Content-Type:', response.headers.get('content-type'));
 
         if (!response.ok) {
           console.error(`❌ ApiClient: HTTP error ${response.status}`);
           const errorData = await this.parseErrorResponse(response);
           console.error(`❌ ApiClient: Error data:`, errorData);
+          console.groupEnd();
           throw new ApiError(
             errorData.message || `HTTP ${response.status}: ${response.statusText}`,
             errorData.errorCode,
@@ -132,14 +145,23 @@ class ApiClient {
         // Handle empty responses
         const contentType = response.headers.get('content-type');
 
-
         if (!contentType || !contentType.includes('application/json')) {
-
+          console.log('⚠️ Non-JSON response, returning empty object');
+          console.groupEnd();
           return {} as T;
         }
 
         const data = await response.json();
-
+        
+        // 🔍 DEBUG: Log parsed response data
+        console.log('📊 Parsed data:', data);
+        console.log('🔍 Data keys:', Object.keys(data));
+        
+        if (data.patient_context) {
+          console.log('👤 Patient context in response:', data.patient_context);
+        }
+        
+        console.groupEnd();
 
         this.recordSuccess();
         return data;
