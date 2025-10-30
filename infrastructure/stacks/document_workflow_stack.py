@@ -41,25 +41,7 @@ class DocumentWorkflowStack(Stack):
 
         # * S3 Buckets
 
-        # Create S3 access logs bucket first
-        self.access_logs_bucket = s3.Bucket(
-            self,
-            "AccessLogsBucket",
-            bucket_name=f"ab2-cerozob-access-logs-{self.region}",
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            enforce_ssl=True,
-            removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,
-            lifecycle_rules=[
-                s3.LifecycleRule(
-                    id="DeleteOldAccessLogs",
-                    enabled=True,
-                    expiration=Duration.days(30),  # Keep logs for 30 days
-                    abort_incomplete_multipart_upload_after=Duration.days(1)
-                )
-            ]
-        )
+        # S3 buckets without access logging
 
         self.raw_bucket = s3.Bucket(
             self,
@@ -72,9 +54,6 @@ class DocumentWorkflowStack(Stack):
             event_bridge_enabled=True,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
-            # Enable S3 access logging
-            server_access_logs_bucket=self.access_logs_bucket,
-            server_access_logs_prefix="raw-bucket-access-logs/",
             cors=[
                 s3.CorsRule(
                     allowed_headers=["*"],
@@ -121,9 +100,6 @@ class DocumentWorkflowStack(Stack):
             event_bridge_enabled=True,
             removal_policy=RemovalPolicy.DESTROY,
             auto_delete_objects=True,
-            # Enable S3 access logging
-            server_access_logs_bucket=self.access_logs_bucket,
-            server_access_logs_prefix="processed-bucket-access-logs/",
             cors=[
                 s3.CorsRule(
                     allowed_headers=["*"],
@@ -208,14 +184,7 @@ class DocumentWorkflowStack(Stack):
             description="Raw data bucket name for document workflow",
         )
 
-        # Create SSM parameter for access logs bucket
-        self.access_logs_bucket_param = ssm.StringParameter(
-            self,
-            "AccessLogsBucketParameter",
-            parameter_name="/healthcare/document-workflow/access-logs-bucket",
-            string_value=self.access_logs_bucket.bucket_name,
-            description="Access logs bucket name for S3 request logging",
-        )
+
 
         self.bda_trigger_lambda = aws_lambda.Function(
             self,
@@ -456,52 +425,7 @@ class DocumentWorkflowStack(Stack):
         self.raw_bucket.grant_read_write(self.cleanup_lambda)
         self.processed_bucket.grant_read_write(self.cleanup_lambda)
 
-        # * S3 Error Analysis Lambda Function
-        self.error_analysis_lambda = aws_lambda.Function(
-            self,
-            "S3ErrorAnalysisLambda",
-            function_name="healthcare-s3-error-analysis",
-            runtime=aws_lambda.Runtime.PYTHON_3_13,
-            handler="document_workflow.error_analysis.index.lambda_handler",
-            code=aws_lambda.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            timeout=Duration.minutes(5),
-            memory_size=512,
-            environment={
-                "ACCESS_LOGS_BUCKET": self.access_logs_bucket.bucket_name,
-                "CLOUDTRAIL_LOG_GROUP": self.s3_api_log_group.log_group_name,
-                "RAW_BUCKET_NAME": self.raw_bucket.bucket_name,
-                "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name
-            },
-            log_group=logs.LogGroup(
-                self,
-                "S3ErrorAnalysisLambdaLogGroup",
-                log_group_name="/aws/lambda/healthcare-s3-error-analysis",
-                retention=logs.RetentionDays.ONE_WEEK,
-                removal_policy=RemovalPolicy.DESTROY,
-            ),
-        )
 
-        # Grant permissions to error analysis lambda
-        self.access_logs_bucket.grant_read(self.error_analysis_lambda)
-
-        # Grant CloudWatch Logs permissions
-        self.error_analysis_lambda.add_to_role_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents",
-                    "logs:DescribeLogGroups",
-                    "logs:DescribeLogStreams",
-                    "logs:FilterLogEvents"
-                ],
-                resources=[
-                    self.s3_api_log_group.log_group_arn,
-                    f"{self.s3_api_log_group.log_group_arn}:*"
-                ]
-            )
-        )
 
         # * EventBridge Rules for S3 Object Deletion Events
 
@@ -569,12 +493,7 @@ class DocumentWorkflowStack(Stack):
             description="Name of the S3 bucket for processed data",
         )
 
-        CfnOutput(
-            self,
-            "AccessLogsBucketName",
-            value=self.access_logs_bucket.bucket_name,
-            description="Name of the S3 bucket for access logs",
-        )
+
 
         CfnOutput(
             self,
@@ -597,9 +516,4 @@ class DocumentWorkflowStack(Stack):
             description="Name of the cleanup Lambda function",
         )
 
-        CfnOutput(
-            self,
-            "ErrorAnalysisLambdaName",
-            value=self.error_analysis_lambda.function_name,
-            description="Name of the S3 error analysis Lambda function",
-        )
+
