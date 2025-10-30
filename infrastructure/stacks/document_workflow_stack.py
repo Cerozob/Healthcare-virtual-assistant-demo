@@ -95,7 +95,15 @@ class DocumentWorkflowStack(Stack):
                         "ETag",
                         "x-amz-server-side-encryption",
                         "x-amz-request-id",
-                        "x-amz-id-2"
+                        "x-amz-id-2",
+                        # Raw bucket metadata headers
+                        "x-amz-meta-auto-classification-enabled",
+                        "x-amz-meta-auto-classified",
+                        "x-amz-meta-classification-confidence",
+                        "x-amz-meta-classification-timestamp",
+                        "x-amz-meta-document-category",
+                        "x-amz-meta-patient-id",
+                        "x-amz-meta-workflow-stage"
                     ],
                     max_age=3000
                 )
@@ -136,7 +144,15 @@ class DocumentWorkflowStack(Stack):
                         "ETag",
                         "x-amz-server-side-encryption",
                         "x-amz-request-id",
-                        "x-amz-id-2"
+                        "x-amz-id-2",
+                        # Processed bucket metadata headers
+                        "x-amz-meta-auto-classified",
+                        "x-amz-meta-classification-confidence",
+                        "x-amz-meta-document-category",
+                        "x-amz-meta-document-id",
+                        "x-amz-meta-patient-id",
+                        "x-amz-meta-processing-timestamp",
+                        "x-amz-meta-workflow-stage"
                     ],
                     max_age=3000
                 )
@@ -171,7 +187,7 @@ class DocumentWorkflowStack(Stack):
             s3_selector=[
                 cloudtrail.S3EventSelector(bucket=self.raw_bucket),
                 cloudtrail.S3EventSelector(bucket=self.processed_bucket)
-                
+
             ]
         )
 
@@ -312,9 +328,10 @@ class DocumentWorkflowStack(Stack):
         )
 
         # Grant permissions to extraction lambda
-        self.raw_bucket.grant_read_write(self.extraction_lambda)  # For updating original document metadata
+        # For updating original document metadata
+        self.raw_bucket.grant_read_write(self.extraction_lambda)
         self.processed_bucket.grant_read_write(self.extraction_lambda)
-        
+
         # Grant permissions to delete from processed bucket for cleanup operations
         self.extraction_lambda.add_to_role_policy(
             iam.PolicyStatement(
@@ -467,7 +484,7 @@ class DocumentWorkflowStack(Stack):
 
         # Grant permissions to error analysis lambda
         self.access_logs_bucket.grant_read(self.error_analysis_lambda)
-        
+
         # Grant CloudWatch Logs permissions
         self.error_analysis_lambda.add_to_role_policy(
             iam.PolicyStatement(
@@ -487,7 +504,7 @@ class DocumentWorkflowStack(Stack):
         )
 
         # * EventBridge Rules for S3 Object Deletion Events
-        
+
         # Rule for raw bucket deletions
         self.raw_bucket_deletion_rule = events.Rule(
             self,

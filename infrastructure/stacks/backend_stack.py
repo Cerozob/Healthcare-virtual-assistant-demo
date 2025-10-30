@@ -616,51 +616,9 @@ class BackendStack(Stack):
         )
         self.files_function.add_to_role_policy(bedrock_kb_policy)
 
-        # Agent Integration Function
-        self.agent_integration_function = lambda_.Function(
-            self,
-            "AgentIntegrationFunction",
-            function_name="healthcare-agent-integration",
-            code=lambda_.Code.from_asset(
-                "lambdas", exclude=["**/__pycache__/**"]),
-            handler="api.agent_integration.handler.lambda_handler",
-            runtime=lambda_.Runtime.PYTHON_3_13,
-            timeout=Duration.seconds(60),
-            memory_size=512,
-            environment={
-                # AgentCore endpoint will be set via SSM parameter
-                "AGENTCORE_ENDPOINT_PARAMETER": "/healthcare/agentcore/endpoint-url"
-            }
-        )
-        self.agent_integration_function.add_to_role_policy(ssm_policy)
-        self.agent_integration_function.add_to_role_policy(rds_policy)
-        self.agent_integration_function.add_to_role_policy(secrets_policy)
-        self.agent_integration_function.add_to_role_policy(bedrock_policy)
 
-        # Add AgentCore permissions
-        agentcore_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "bedrock-agentcore:InvokeAgentRuntime",
-                "bedrock-agentcore:GetAgentRuntime",
-                "bedrock-agentcore:ListAgentRuntimes"
-            ],
-            resources=[
-                f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:runtime/*"
-            ]
-        )
-        self.agent_integration_function.add_to_role_policy(agentcore_policy)
+        # AgentCore permissions removed - using AgentCore SDK directly from frontend
 
-        # Add CloudWatch permissions for metrics
-        cloudwatch_policy = iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "cloudwatch:PutMetricData",
-                "cloudwatch:GetMetricStatistics"
-            ],
-            resources=["*"]
-        )
-        self.agent_integration_function.add_to_role_policy(cloudwatch_policy)
 
         # Patient Lookup Function
         self.patient_lookup_function = lambda_.Function(

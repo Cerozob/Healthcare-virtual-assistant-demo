@@ -101,11 +101,11 @@ class StorageService {
       // Get and log bucket configuration
       const config = configService.getConfig();
       const bucketName = options?.bucket || config.s3BucketName;
-      
+
       // Prepare variables for upload and potential retry
       const fileBuffer = await file.arrayBuffer();
       const contentType = options?.contentType || file.type;
-      
+
       // Clean and encode metadata to prevent signature issues
       const uploadMetadata: { [key: string]: string } = {};
       if (options?.metadata) {
@@ -119,7 +119,7 @@ class StorageService {
           // Remove common problematic characters for S3 metadata
           cleanValue = cleanValue.replace(/[^\x20-\x7E]/g, ''); // Keep only printable ASCII
           cleanValue = cleanValue.substring(0, 2048); // S3 metadata value limit
-          
+
           uploadMetadata[cleanKey] = cleanValue;
         }
       }
@@ -139,7 +139,7 @@ class StorageService {
       console.log(`📋 Cleaned metadata being uploaded:`, uploadMetadata);
       console.log(`📋 S3 Key:`, key);
       console.log(`📋 Bucket Name:`, bucketName);
-      
+
       // Check for potential signature issues
       const currentTime = new Date().toISOString();
       console.log(`🕐 Current time:`, currentTime);
@@ -187,12 +187,12 @@ class StorageService {
       };
     } catch (error) {
       console.error(`❌ Failed to upload file: ${key}`, error);
-      
+
       // Get variables for error logging (re-declare if needed)
       const config = configService.getConfig();
       const bucketName = options?.bucket || config.s3BucketName;
       const uploadMetadata = { ...options?.metadata };
-      
+
       console.error(`❌ StorageService - Error details:`, {
         bucketFromConfig: config.s3BucketName,
         bucketFromOptions: options?.bucket,
@@ -212,17 +212,17 @@ class StorageService {
           credentialsRefreshTime: this.lastCredentialsRefresh,
           timeSinceRefresh: Date.now() - this.lastCredentialsRefresh
         });
-        
+
         // Try refreshing credentials and retrying once
         console.log(`🔄 Attempting to refresh credentials and retry...`);
         this.refreshCredentials();
-        
+
         try {
           const retryFileBuffer = await file.arrayBuffer();
           const retryContentType = options?.contentType || file.type;
-          
+
           const newS3Client = await this.getS3Client();
-          
+
           // First try without metadata to isolate the issue
           console.log(`🔄 Retry 1: Attempting upload without metadata...`);
           const simpleRetryCommand = new PutObjectCommand({
@@ -232,22 +232,22 @@ class StorageService {
             ContentType: retryContentType,
             // No metadata on first retry
           });
-          
+
           const simpleRetryResult = await newS3Client.send(simpleRetryCommand);
           console.log(`✅ File uploaded successfully without metadata: ${key}`);
           console.log(`📍 S3 ETag: ${simpleRetryResult.ETag}`);
           console.log(`⚠️ Note: Metadata was skipped due to signature issues`);
-          
+
           return { key: key };
         } catch (retryError) {
           console.error(`❌ Retry without metadata also failed:`, retryError);
-          
+
           // Try one more time with minimal metadata
           try {
             console.log(`🔄 Retry 2: Attempting with minimal metadata...`);
             const retryFileBuffer = await file.arrayBuffer();
             const newS3Client = await this.getS3Client();
-            
+
             const minimalRetryCommand = new PutObjectCommand({
               Bucket: bucketName,
               Key: key,
@@ -259,11 +259,11 @@ class StorageService {
                 'document-category': uploadMetadata['document-category'] || "auto"
               }
             });
-            
+
             const minimalRetryResult = await newS3Client.send(minimalRetryCommand);
             console.log(`✅ File uploaded successfully with minimal metadata: ${key}`);
             console.log(`📍 S3 ETag: ${minimalRetryResult.ETag}`);
-            
+
             return { key: key };
           } catch (finalError) {
             console.error(`❌ All retries failed:`, finalError);
@@ -271,7 +271,7 @@ class StorageService {
           }
         }
       }
-      
+
       throw error;
     }
   }
@@ -280,16 +280,20 @@ class StorageService {
    * Download a file from S3 using AWS S3 SDK directly
    */
   async downloadFile(
-    key: string
+    key: string,
+    options?: {
+      bucket?: string;
+    }
   ): Promise<Blob> {
     try {
       console.log(`📥 Downloading file: ${key}`);
 
       const config = configService.getConfig();
+      const bucketName = options?.bucket || config.s3BucketName;
       const s3Client = await this.getS3Client();
 
       const command = new GetObjectCommand({
-        Bucket: config.s3BucketName,
+        Bucket: bucketName,
         Key: key,
       });
 
@@ -301,16 +305,16 @@ class StorageService {
 
       // Convert the response body to a blob using the most compatible method
       const byteArray = await result.Body.transformToByteArray();
-      const buffer = byteArray.buffer instanceof ArrayBuffer 
-        ? byteArray.buffer 
+      const buffer = byteArray.buffer instanceof ArrayBuffer
+        ? byteArray.buffer
         : new ArrayBuffer(byteArray.byteLength);
-      
+
       if (!(byteArray.buffer instanceof ArrayBuffer)) {
         new Uint8Array(buffer).set(byteArray);
       }
-      
+
       const blob = new Blob([buffer], { type: result.ContentType });
-      console.log(`✅ File downloaded successfully: ${key}`);
+      console.log(`✅ File downloaded successfully: ${key} from bucket: ${bucketName}`);
       return blob;
     } catch (error) {
       console.error(`❌ Failed to download file: ${key}`, error);
@@ -323,21 +327,25 @@ class StorageService {
    */
   async deleteFile(
     key: string,
+    options?: {
+      bucket?: string;
+    }
   ): Promise<void> {
     try {
       console.log(`🗑️ Deleting file: ${key}`);
 
       const config = configService.getConfig();
+      const bucketName = options?.bucket || config.s3BucketName;
       const s3Client = await this.getS3Client();
 
       const command = new DeleteObjectCommand({
-        Bucket: config.s3BucketName,
+        Bucket: bucketName,
         Key: key,
       });
 
       await s3Client.send(command);
 
-      console.log(`✅ File deleted successfully: ${key}`);
+      console.log(`✅ File deleted successfully: ${key} from bucket: ${bucketName}`);
     } catch (error) {
       console.error(`❌ Failed to delete file: ${key}`, error);
       throw error;
@@ -352,16 +360,18 @@ class StorageService {
     options?: {
       pageSize?: number;
       includeMetadata?: boolean;
+      bucket?: string;
     }
   ): Promise<FileItem[]> {
     try {
       console.log(`📋 Listing files with prefix: ${prefix || 'all'}`);
-
+      console.log(`📋 Options:`, options);
       const config = configService.getConfig();
+      const bucketName = options?.bucket || config.s3BucketName;
       const s3Client = await this.getS3Client();
 
       const command = new ListObjectsV2Command({
-        Bucket: config.s3BucketName,
+        Bucket: bucketName,
         Prefix: prefix || '',
         MaxKeys: options?.pageSize || 100,
       });
@@ -369,21 +379,24 @@ class StorageService {
       const result = await s3Client.send(command);
 
       const files: FileItem[] = [];
-      
+
       // If metadata is requested, fetch it for each file
       if (options?.includeMetadata) {
         for (const item of result.Contents || []) {
           if (!item.Key) continue;
-          
+
           try {
             // Fetch object metadata using HeadObject (more efficient than GetObject)
             const headResponse = await s3Client.send(
               new HeadObjectCommand({
-                Bucket: config.s3BucketName,
+                Bucket: bucketName,
                 Key: item.Key,
               })
             );
-            
+
+            console.log(`✅ Fetched metadata for ${item.Key}`)
+            console.log(headResponse.Metadata);
+
             files.push({
               key: item.Key,
               size: item.Size,
@@ -412,10 +425,10 @@ class StorageService {
         }
       }
 
-      console.log(`✅ Found ${files.length} files${options?.includeMetadata ? ' with metadata' : ''}`);
+      console.log(`✅ Found ${files.length} files${options?.includeMetadata ? ' with metadata' : ''} from bucket: ${bucketName}`);
       return files;
     } catch (error) {
-      console.error(`❌ Failed to list files`, error);
+      console.error(`❌ Failed to list files from bucket: ${options?.bucket || 'default'}`, error);
       throw error;
     }
   }
@@ -427,16 +440,18 @@ class StorageService {
     key: string,
     options?: {
       expiresIn?: number; // seconds
+      bucket?: string;
     }
   ): Promise<string> {
     try {
       console.log(`🔗 Generating download URL for: ${key}`);
 
       const config = configService.getConfig();
+      const bucketName = options?.bucket || config.s3BucketName;
       const s3Client = await this.getS3Client();
 
       const command = new GetObjectCommand({
-        Bucket: config.s3BucketName,
+        Bucket: bucketName,
         Key: key,
       });
 
@@ -444,7 +459,7 @@ class StorageService {
         expiresIn: options?.expiresIn || 3600, // Default 1 hour
       });
 
-      console.log(`✅ Download URL generated for: ${key}`);
+      console.log(`✅ Download URL generated for: ${key} from bucket: ${bucketName}`);
       return url;
     } catch (error) {
       console.error(`❌ Failed to generate download URL: ${key}`, error);

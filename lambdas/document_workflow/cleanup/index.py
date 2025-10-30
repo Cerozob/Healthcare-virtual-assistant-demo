@@ -162,7 +162,8 @@ def handle_processed_bucket_deletion(object_key: str, bucket_name: str) -> Dict[
         document_id = extract_document_id_from_processed_key(object_key)
 
         # Clean up corresponding raw files when processed files are deleted
-        raw_objects_deleted = cleanup_raw_data(document_id, object_key, bucket_name)
+        raw_objects_deleted = cleanup_raw_data(
+            document_id, object_key, bucket_name)
         if raw_objects_deleted:
             cleanup_actions.append(
                 f"Deleted {raw_objects_deleted} raw files")
@@ -262,10 +263,10 @@ def extract_document_id_from_processed_key(object_key: str) -> str:
         if len(parts) >= 3 and parts[0] == 'processed':
             patient_id = parts[1]
             clean_filename = parts[2]
-            
+
             # Create document ID from patient and clean filename
             document_id = f"{patient_id}_{clean_filename}"
-            
+
             logger.info(
                 f"Extracted from flattened processed key - Patient: {patient_id}, Clean filename: {clean_filename}, Document ID: {document_id}")
             return document_id
@@ -300,12 +301,13 @@ def cleanup_raw_data(document_id: str, processed_key: str, source_bucket: str) -
         # Extract patient_id and clean_filename from processed key
         # Processed structure: processed/{patient_id}/{clean_filename}/file.json
         key_parts = processed_key.split('/')
-        
+
         if len(key_parts) >= 3 and key_parts[0] == 'processed':
             patient_id = key_parts[1]
             clean_filename = key_parts[2]
         else:
-            logger.warning(f"Unexpected processed key structure: {processed_key}")
+            logger.warning(
+                f"Unexpected processed key structure: {processed_key}")
             return 0
 
         # Look for raw files that could match this processed file
@@ -313,12 +315,12 @@ def cleanup_raw_data(document_id: str, processed_key: str, source_bucket: str) -
         possible_prefixes = [
             f"{patient_id}/"
         ]
-        
+
         objects_to_delete = []
-        
+
         for prefix in possible_prefixes:
             logger.info(f"Looking for raw files with prefix: {prefix}")
-            
+
             try:
                 response = s3_client.list_objects_v2(
                     Bucket=RAW_BUCKET,
@@ -330,18 +332,21 @@ def cleanup_raw_data(document_id: str, processed_key: str, source_bucket: str) -
                         # Check if this raw file corresponds to our processed file
                         raw_filename = obj['Key'].split('/')[-1]
                         raw_clean_filename = raw_filename.split('.')[0]
-                        
+
                         # Remove patient prefix if present
                         if raw_clean_filename.startswith(f"patient_{patient_id}_"):
-                            raw_clean_filename = raw_clean_filename[len(f"patient_{patient_id}_"):]
-                        
+                            raw_clean_filename = raw_clean_filename[len(
+                                f"patient_{patient_id}_"):]
+
                         # Match if clean filenames are the same
                         if raw_clean_filename == clean_filename:
                             objects_to_delete.append({'Key': obj['Key']})
-                            logger.info(f"Found matching raw file: {obj['Key']}")
-                            
+                            logger.info(
+                                f"Found matching raw file: {obj['Key']}")
+
             except Exception as e:
-                logger.warning(f"Error listing objects with prefix {prefix}: {e}")
+                logger.warning(
+                    f"Error listing objects with prefix {prefix}: {e}")
                 continue
 
         if objects_to_delete:
@@ -368,7 +373,8 @@ def cleanup_raw_data(document_id: str, processed_key: str, source_bucket: str) -
                 f"Deleted {deleted_count} raw objects for patient {patient_id}, clean filename {clean_filename}")
             return deleted_count
         else:
-            logger.info(f"No matching raw files found for processed file: {processed_key}")
+            logger.info(
+                f"No matching raw files found for processed file: {processed_key}")
 
         return 0
 
@@ -396,15 +402,11 @@ def cleanup_processed_data(document_id: str, original_key: str, source_bucket: s
         # Extract patient_id and filename from original raw key
         # Raw structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
         key_parts = original_key.split('/')
-        
+
         if len(key_parts) >= 2:
             # New structure: {patient_id}/{category}/{timestamp}/{file_id}/{filename}
             patient_id = key_parts[0]
             filename = key_parts[-1]  # Last part is always the filename
-            else:
-                # Structure: {patient_id}/{filename}
-                patient_id = key_parts[0]
-                filename = key_parts[-1]
         else:
             # Single filename - use unknown patient
             patient_id = 'unknown'
@@ -415,9 +417,9 @@ def cleanup_processed_data(document_id: str, original_key: str, source_bucket: s
         clean_filename = filename.split('.')[0]
         if clean_filename.startswith(f"patient_{patient_id}_"):
             clean_filename = clean_filename[len(f"patient_{patient_id}_"):]
-        
+
         prefix = f"processed/{patient_id}/{clean_filename}/"
-        
+
         logger.info(f"Looking for processed files with prefix: {prefix}")
 
         response = s3_client.list_objects_v2(

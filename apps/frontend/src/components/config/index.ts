@@ -20,3 +20,6 @@ export type { ReservationFormProps } from './ReservationForm';
 
 export { FileManager } from './FileManager';
 export type { FileManagerProps, PatientFile } from './FileManager';
+
+export { ProcessedFileManager } from './ProcessedFileManager';
+export type { ProcessedFileManagerProps, ProcessedFile } from './ProcessedFileManager';

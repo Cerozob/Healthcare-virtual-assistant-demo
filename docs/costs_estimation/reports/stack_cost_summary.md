@@ -65,6 +65,7 @@ API Stack:              0.04% ▌
 | ECR | $0.20 | <0.1% |
 
 **Key Metrics**:
+
 - Cost per AI Interaction: $0.93
 - Primary Model: Claude 3.5 Haiku (90% of interactions)
 - Cache Hit Rate: 60%
@@ -85,6 +86,7 @@ API Stack:              0.04% ▌
 | EventBridge | $10.00 | 0.1% |
 
 **Key Metrics**:
+
 - Cost per Document: $0.37
 - Cost per Page: $0.046
 - Document Volume: 25,000 documents/month (200,000 pages)
@@ -108,6 +110,7 @@ API Stack:              0.04% ▌
 | ECR | $1.40 | 0.1% |
 
 **Key Metrics**:
+
 - Cost per MAU: $0.17/month
 - Database: 6,480 ACU-hours/month
 - Authentication: 10,000 MAU with Advanced Security Features
@@ -127,6 +130,7 @@ API Stack:              0.04% ▌
 | Storage | $0.12 | 0.1% |
 
 **Key Metrics**:
+
 - Cost per MAU: $0.018/month
 - Page Views: 3M/month
 - Data Transfer: 1,200 GB/month (after 80% CDN cache hit rate)
@@ -145,6 +149,7 @@ API Stack:              0.04% ▌
 | Data Transfer IN | $0.00 | 0.0% |
 
 **Key Metrics**:
+
 - Cost per MAU: $0.001032/month
 - API Requests: 6M/month
 - Cost per Request: $0.00000172
@@ -196,15 +201,18 @@ Based on 200,000 sessions/month (10,000 MAU × 20 sessions):
 ### Scaling Characteristics by Stack
 
 #### Linear Scaling Stacks (1:1 with MAU)
+
 - **Assistant Stack**: Scales directly with AI interactions
 - **Document Workflow**: Scales with document processing volume
 - **API Stack**: Scales with request volume
 
 #### Sub-Linear Scaling Stacks (Economies of Scale)
+
 - **Backend Stack**: Aurora efficiency improves, volume discounts apply
 - **Frontend Stack**: CDN efficiency improves at scale
 
 #### Fixed Cost Components
+
 - **VPC/NAT Gateway**: $54.90/month regardless of users
 - **KMS Keys**: $2.00/month per key
 - **Base monitoring**: Core CloudWatch costs

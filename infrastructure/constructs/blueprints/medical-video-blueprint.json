@@ -5,6 +5,54 @@
   "type": "object",
   "definitions": {},
   "properties": {
+    "patient_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient name visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "date_of_birth": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient date of birth visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "age": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient age visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "gender": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient gender visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "medical_record_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract medical record number or patient ID visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "phone_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any phone numbers visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "address": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any address information visible or mentioned in the video",
+      "granularity": ["video"]
+    },
+    "healthcare_provider_names": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract names of healthcare providers, doctors, or medical staff visible or mentioned in the video",
+      "granularity": ["video"]
+    },
     "video_type": {
       "type": "string",
       "inferenceType": "inferred",
@@ -90,6 +138,12 @@
       "type": "number",
       "inferenceType": "inferred",
       "instruction": "Provide confidence score (0-100) for the document type classification based on video content clarity, medical context, and visual/audio cues.",
+      "granularity": ["video"]
+    },
+    "other_pii_phi": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Look for any other Unclassified PIIs/PHIs not captured in the above fields visible or mentioned in the video. This includes but is not limited to: social security numbers, passport numbers, driver's license numbers, insurance numbers, email addresses, biometric identifiers, device serial numbers, account numbers, or any other personally identifiable or protected health information that doesn't fit the specific categories above.",
       "granularity": ["video"]
     }
   }

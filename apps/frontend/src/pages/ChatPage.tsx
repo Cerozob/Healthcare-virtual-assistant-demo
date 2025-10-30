@@ -4,14 +4,18 @@ import {
   Box,
   Button,
   Container,
-  FileUpload,
+  FileDropzone,
+  FileInput,
+  FileTokenGroup,
   Grid,
   Header,
+  Icon,
   Modal,
   PromptInput,
   SpaceBetween,
 } from '@cloudscape-design/components';
-import { useState, useEffect, useRef } from 'react';
+import { useFilesDragging } from '@cloudscape-design/components/file-dropzone';
+import { useEffect, useRef, useState } from 'react';
 import { MarkdownRenderer, PatientChatSidebar } from '../components/chat';
 import { DebugPanel } from '../components/debug/DebugPanel';
 import { MainLayout } from '../components/layout';
@@ -95,7 +99,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
     };
-    
+
     const timer = setTimeout(scrollToBottom, 100);
     return () => clearTimeout(timer);
   });
@@ -121,6 +125,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     processing?: boolean;
   }>>(new Map());
   const [error, setError] = useState<string>('');
+
+  // File dragging state
+  const { areFilesDragging } = useFilesDragging();
 
   const defaultPrompts = [
     {
@@ -150,6 +157,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     const name = user?.signInDetails?.loginId
     return name?.charAt(0).toUpperCase();
   };
+
 
   const handleSendMessage = async () => {
     if (!promptValue.trim() && files.length === 0) return;
@@ -345,8 +353,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         // onChunk callback - update the streaming message
         (chunk) => {
           console.log('📥 Streaming chunk:', chunk);
-          setMessages(prev => prev.map(msg => 
-            msg.id === streamingMessageId 
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingMessageId
               ? { ...msg, content: chunk.content }
               : msg
           ));
@@ -354,7 +362,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         // onComplete callback - finalize the message
         (finalResponse) => {
           console.log('✅ Streaming complete:', finalResponse);
-          
+
           // Update session ID
           if (finalResponse.sessionId && finalResponse.sessionId !== sessionId) {
             setSessionId(finalResponse.sessionId);
@@ -362,14 +370,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           }
 
           // Finalize the streaming message
-          setMessages(prev => prev.map(msg => 
-            msg.id === streamingMessageId 
-              ? { 
-                  ...msg, 
-                  content: finalResponse.content,
-                  agentType: 'agentcore',
-                  metadata: finalResponse.metadata
-                }
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingMessageId
+              ? {
+                ...msg,
+                content: finalResponse.content,
+                agentType: 'agentcore',
+                metadata: finalResponse.metadata
+              }
               : msg
           ));
 
@@ -385,15 +393,15 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         // onError callback
         (error) => {
           console.error('❌ Streaming error:', error);
-          
+
           // Update the streaming message with error
-          setMessages(prev => prev.map(msg => 
-            msg.id === streamingMessageId 
-              ? { 
-                  ...msg, 
-                  content: `Error: ${error.message}`,
-                  agentType: 'error'
-                }
+          setMessages(prev => prev.map(msg =>
+            msg.id === streamingMessageId
+              ? {
+                ...msg,
+                content: `Error: ${error.message}`,
+                agentType: 'error'
+              }
               : msg
           ));
 
@@ -600,195 +608,236 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                   {error}
                 </Alert>
               )}
-                {/* Chat Messages */}
-                <Box padding="l">
-                  <div
-                    className={`chat-messages-container theme-transition`}
-                    data-theme={mode}
-                  >
-                    {messages.length === 0 ? (
-                      <Box textAlign="center" color="text-body-secondary" padding="xxl">
-                        {t.chat.placeholder}
-                      </Box>
-                    ) : (
-                      messages.map((message) => {
-                        const isUser = message.type === 'user';
-                        const isAgent = message.type === 'agent';
+              {/* Chat Messages */}
+              
+                <div
+                  className={`chat-messages-container theme-transition`}
+                  data-theme={mode}
+                >
+                  {messages.length === 0 ? (
+                    <Box textAlign="center" color="text-body-secondary" padding="xxl">
+                      {t.chat.placeholder}
+                    </Box>
+                  ) : (
+                    messages.map((message) => {
+                      const isUser = message.type === 'user';
+                      const isAgent = message.type === 'agent';
 
-                        const formatTime = (timestamp: string) => {
-                          const date = new Date(timestamp);
-                          return date.toLocaleString('es-MX', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            day: 'numeric',
-                            month: 'short'
-                          });
-                        };
+                      const formatTime = (timestamp: string) => {
+                        const date = new Date(timestamp);
+                        return date.toLocaleString('es-MX', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          day: 'numeric',
+                          month: 'short'
+                        });
+                      };
 
-                        const avatar = isUser ? (
+                      const avatar = isUser ? (
+                        <Avatar
+                          ariaLabel={"User avatar"}
+                          initials={getUserInitials()}
+                        />
+                      ) : (
+                        <Avatar
+                          ariaLabel="Generative AI assistant"
+                          color="gen-ai"
+                          iconName="gen-ai"
+                          tooltipText="Generative AI assistant"
+                          loading={message.agentType === 'agentcore-streaming' && !message.content}
+                        />
+                      );
+
+                      const actions = isAgent ? (
+                        <Button
+                          variant="icon"
+                          iconName="copy"
+                          onClick={() => handleCopy(message.content)}
+                          ariaLabel="Copy message"
+                          disabled={message.agentType === 'agentcore-streaming' && !message.content}
+                        />
+                      ) : undefined;
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
+                        >
+                          <ChatBubble
+                            ariaLabel={`${isUser ? "User" : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
+                            type={isUser ? "outgoing" : "incoming"}
+                            avatar={avatar}
+                            actions={actions}
+                            showLoadingBar={message.agentType === 'agentcore-streaming' && !message.content}
+                          >
+                            {message.agentType === 'agentcore-streaming' && !message.content ? (
+                              <Box color="text-status-inactive">
+                                Conectando con AgentCore...
+                              </Box>
+                            ) : (
+                              <MarkdownRenderer content={message.content} />
+                            )}
+                          </ChatBubble>
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {/* Loading State - Only show when no streaming message exists */}
+                  {isLoading && !messages.some(msg => msg.agentType === 'agentcore-streaming') && (
+                    <div className="chat-bubble-wrapper incoming">
+                      <ChatBubble
+                        ariaLabel="Generative AI assistant generating response"
+                        showLoadingBar
+                        type="incoming"
+                        avatar={
                           <Avatar
-                            ariaLabel={"User avatar"}
-
-                            initials={getUserInitials()}
-                          />
-                        ) : (
-                          <Avatar
-                            ariaLabel="Generative AI assistant"
+                            loading={loadingStage === 'generating'}
                             color="gen-ai"
                             iconName="gen-ai"
+                            ariaLabel="Generative AI assistant"
                             tooltipText="Generative AI assistant"
                           />
-                        );
-
-                        const actions = isAgent ? (
-                          <Button
-                            variant="icon"
-                            iconName="copy"
-                            onClick={() => handleCopy(message.content)}
-                            ariaLabel="Copy message"
-                          />
-                        ) : undefined;
-
-                        return (
-                          <div
-                            key={message.id}
-                            className={`chat-bubble-wrapper ${isUser ? 'outgoing' : 'incoming'}`}
-                          >
-                            <ChatBubble
-                              ariaLabel={`${isUser ? "User" : 'Generative AI assistant'} at ${formatTime(message.timestamp)}`}
-                              type={isUser ? "outgoing" : "incoming"}
-                              avatar={avatar}
-                              actions={actions}
-                            >
-                              <MarkdownRenderer content={message.content} />
-                            </ChatBubble>
-                          </div>
-                        );
-                      })
-                    )}
-
-                    {/* Loading State */}
-                    {isLoading && (
-                      <div className="chat-bubble-wrapper incoming">
-                        <ChatBubble
-                          ariaLabel="Generative AI assistant generating response"
-                          showLoadingBar
-                          type="incoming"
-                          avatar={
-                            <Avatar
-                              loading={loadingStage === 'generating'}
-                              color="gen-ai"
-                              iconName="gen-ai"
-                              ariaLabel="Generative AI assistant"
-                              tooltipText="Generative AI assistant"
-                            />
-                          }
-                        >
-                          <Box color="text-status-inactive">
-                            {loadingStage === 'processing' ? 'Analizando solicitud' : 'Conectando con AgentCore...'}
-                          </Box>
-                        </ChatBubble>
-                      </div>
-                    )}
-                    
-                    {/* Auto-scroll target */}
-                    <div ref={messagesEndRef} />
-                  </div>
-                </Box>
-
-                {/* Support Prompts */}
-                {!isLoading && messages.length === 0 && (
-                  <Box padding="l">
-                    <SupportPromptGroup
-                      onItemClick={({ detail }) => {
-                        const selectedPrompt = defaultPrompts.find(prompt => prompt.id === detail.id);
-
-                        if (selectedPrompt) {
-                          setPromptValue(selectedPrompt.text);
-                          setTimeout(handleSendMessage, 0);
                         }
-                      }}
-                      ariaLabel="Suggested prompts"
-                      items={defaultPrompts}
-                    />
-                  </Box>
-                )}
-
-              {/* File Upload with Drag and Drop */}
-              <Box padding="l">
-                <SpaceBetween size="m">
-                  {!selectedPatient && (
-                    <Alert type="warning">
-                      Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.
-                    </Alert>
+                      >
+                        <Box color="text-status-inactive">
+                          {loadingStage === 'processing' ? 'Analizando solicitud' : 'Conectando con AgentCore...'}
+                        </Box>
+                      </ChatBubble>
+                    </div>
                   )}
-                  
-                  <FileUpload
-                    value={files}
-                    onChange={({ detail }) => handleFileChange(detail.value)}
-                    multiple
-                    constraintText={selectedPatient 
-                      ? `Archivos para ${selectedPatient.full_name} - Arrastra archivos aquí o haz clic para seleccionar`
-                      : "Seleccione un paciente primero para adjuntar archivos"
-                    }
-                    accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
-                    i18nStrings={{
-                      uploadButtonText: (e) => (e ? 'Elegir archivos' : 'Elegir archivo'),
-                      dropzoneText: (e) => (e ? 'Arrastra archivos aquí o haz clic para seleccionar' : 'Arrastra un archivo aquí o haz clic para seleccionar'),
-                      removeFileAriaLabel: (e) => `Eliminar archivo ${e + 1}`,
-                      limitShowFewer: 'Mostrar menos archivos',
-                      limitShowMore: 'Mostrar más archivos',
-                      errorIconAriaLabel: 'Error',
+
+                  {/* Auto-scroll target */}
+                  <div ref={messagesEndRef} />
+                </div>
+              
+
+              {/* Support Prompts */}
+              {!isLoading && messages.length === 0 && (
+                
+                  <SupportPromptGroup
+                    onItemClick={({ detail }) => {
+                      const selectedPrompt = defaultPrompts.find(prompt => prompt.id === detail.id);
+
+                      if (selectedPrompt) {
+                        setPromptValue(selectedPrompt.text);
+                        setTimeout(handleSendMessage, 0);
+                      }
                     }}
+                    ariaLabel="Suggested prompts"
+                    items={defaultPrompts}
                   />
-                  
-                  {/* Classification Information */}
-                  {files.length > 0 && (
-                    <Box>
-                      <SpaceBetween size="xs">
-                        {files.map((file) => {
-                          const fileKey = getFileKey(file);
-                          const classification = fileClassifications.get(fileKey);
+                
+              )}
 
-                          if (!classification) return null;
-
-                          return (
-                            <Box key={fileKey} fontSize="body-s" color="text-body-secondary">
-                              <strong>{file.name}:</strong>{' '}
-                              {classification.processing ? (
-                                <span>Clasificando...</span>
-                              ) : (
-                                <span>
-                                  {getCategoryLabel(classification.category)}
-                                  {classification.autoClassified && classification.confidence && (
-                                    <span> ({classification.confidence.toFixed(0)}% confianza)</span>
-                                  )}
-                                  {classification.category === 'not-identified' && (
-                                    <span style={{ color: '#d91515' }}> - Requiere clasificación manual</span>
-                                  )}
-                                </span>
-                              )}
-                            </Box>
-                          );
-                        })}
-                      </SpaceBetween>
-                    </Box>
-                  )}
-                </SpaceBetween>
-              </Box>
-
-              {/* Prompt Input */}
-              <Box padding="l">
+              {/* Prompt Input with File Upload */}
+              
                 <PromptInput
                   onChange={({ detail }) => setPromptValue(detail.value)}
                   value={promptValue}
                   actionButtonAriaLabel="Send message"
                   actionButtonIconName="send"
-                  placeholder="Haz una pregunta sobre el paciente seleccionado"
+                  disableSecondaryActionsPaddings
+                  placeholder={selectedPatient
+                    ? `Haz una pregunta sobre ${selectedPatient.full_name}`
+                    : "Selecciona un paciente y haz una pregunta"
+                  }
                   disabled={isLoading}
                   onAction={handleSendMessage}
+                  secondaryActions={
+                    <Box padding={{ left: "xxs", top: "xs" }}>
+                      <FileInput
+                        variant="icon"
+                        multiple={true}
+                        value={files}
+                        onChange={({ detail }) => handleFileChange(detail.value)}
+                        accept=".pdf,.tiff,.tif,.jpeg,.jpg,.png,.docx,.txt,.md,.html,.csv,.xlsx,.mp4,.mov,.avi,.mkv,.webm,.amr,.flac,.m4a,.mp3,.ogg,.wav"
+                      />
+                    </Box>
+                  }
+                  secondaryContent={
+                    areFilesDragging ? (
+                      <FileDropzone
+                        onChange={({ detail }) => {
+                          if (!selectedPatient) {
+                            setError('Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.');
+                            return;
+                          }
+                          handleFileChange([...files, ...detail.value]);
+                        }}
+                      >
+                        <SpaceBetween size="xs" alignItems="center">
+                          <Icon name="upload" />
+                          <Box>
+                            {selectedPatient 
+                              ? `Suelta los archivos aquí para ${selectedPatient.full_name}`
+                              : "Selecciona un paciente primero para adjuntar archivos"
+                            }
+                          </Box>
+                        </SpaceBetween>
+                      </FileDropzone>
+                    ) : (
+                      files.length > 0 && (
+                        <SpaceBetween size="s">
+                          <FileTokenGroup
+                            items={files.map(file => ({ file }))}
+                            onDismiss={({ detail }) =>
+                              setFiles(files =>
+                                files.filter((_, index) =>
+                                  index !== detail.fileIndex
+                                )
+                              )
+                            }
+                            alignment="horizontal"
+                            showFileSize={true}
+                            showFileLastModified={true}
+                            showFileThumbnail={true}
+                            i18nStrings={{
+                              removeFileAriaLabel: () => "Eliminar archivo",
+                              limitShowFewer: "Mostrar menos archivos",
+                              limitShowMore: "Mostrar más archivos",
+                              errorIconAriaLabel: "Error",
+                              warningIconAriaLabel: "Advertencia"
+                            }}
+                          />
+
+                          {/* Classification Information */}
+                          <Box>
+                            <SpaceBetween size="xs">
+                              {files.map((file) => {
+                                const fileKey = getFileKey(file);
+                                const classification = fileClassifications.get(fileKey);
+
+                                if (!classification) return null;
+
+                                return (
+                                  <Box key={fileKey} fontSize="body-s" color="text-body-secondary">
+                                    <strong>{file.name}:</strong>{' '}
+                                    {classification.processing ? (
+                                      <span>Clasificando...</span>
+                                    ) : (
+                                      <span>
+                                        {getCategoryLabel(classification.category)}
+                                        {classification.autoClassified && classification.confidence && (
+                                          <span> ({classification.confidence.toFixed(0)}% confianza)</span>
+                                        )}
+                                        {classification.category === 'not-identified' && (
+                                          <span style={{ color: '#d91515' }}> - Requiere clasificación manual</span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </Box>
+                                );
+                              })}
+                            </SpaceBetween>
+                          </Box>
+                        </SpaceBetween>
+                      )
+                    )
+                  }
                 />
-              </Box>
+              
+
             </SpaceBetween>
           </Container>
 

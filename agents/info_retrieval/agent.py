@@ -5,25 +5,8 @@ Handles patient information queries and medical document searches using Bedrock 
 
 from typing import Dict, Any, Optional
 
-# Strands Agents imports
-try:
-    from strands import Agent, tool
-    from strands.models import BedrockModel
-except ImportError:
-    # Placeholder for development
-    def tool(func):
-        return func
-    
-    class Agent:
-        def __init__(self, *args, **kwargs):
-            pass
-        
-        def __call__(self, *args, **kwargs):
-            return "Placeholder response"
-    
-    class BedrockModel:
-        def __init__(self, *args, **kwargs):
-            pass
+from strands import Agent, tool
+from strands.models import BedrockModel
 
 from ..shared.config import get_agent_config, get_model_config
 from ..shared.utils import get_logger
@@ -41,35 +24,36 @@ logger = get_logger(__name__)
 async def information_retrieval_agent(query: str) -> str:
     """
     Process and respond to information retrieval queries using Bedrock Knowledge Base.
-    
+
     This agent specializes in:
     - Patient information searches
     - Medical document retrieval from Bedrock Knowledge Base
     - Healthcare data queries
-    
+
     Args:
         query: Information query requiring patient data or medical knowledge
-        
+
     Returns:
         str: Detailed information response with sources when available
     """
     try:
-        logger.debug(f"Information retrieval agent processing query: {query[:100]}...")
+        logger.debug(
+            f"Information retrieval agent processing query: {query[:100]}...")
         logger.info("Information retrieval agent processing query")
-        
+
         # Get configuration
         config = get_agent_config()
         model_config = get_model_config()
-        
+
         # Load system prompt from file
         system_prompt = get_prompt("information_retrieval")
-        
+
         # Create specialized agent with tools for information retrieval and Bedrock Guardrails
         info_agent = Agent(
             system_prompt=system_prompt,
             tools=[
                 _search_patient_tool,
-                _search_medical_knowledge_tool, 
+                _search_medical_knowledge_tool,
                 _search_patient_info_tool
             ],
             model=BedrockModel(
@@ -81,11 +65,11 @@ async def information_retrieval_agent(query: str) -> str:
             guardrail_id=config.guardrail_id,
             guardrail_version=config.guardrail_version
         )
-        
+
         # Process the query
         response = info_agent(query)
         return str(response)
-        
+
     except Exception as e:
         logger.error(f"Error in information retrieval agent: {str(e)}")
         return f"❌ Error en agente de información: {str(e)}"
@@ -114,7 +98,7 @@ async def _search_patient_tool(
             if result.success:
                 patients_data = result.result
                 all_patients = patients_data.get("patients", [])
-                
+
                 # Filter patients based on search term and type
                 filtered_patients = []
                 for patient in all_patients:
@@ -122,18 +106,18 @@ async def _search_patient_tool(
                         filtered_patients.append(patient)
                     elif search_type == "cedula" and search_term in str(patient.get("cedula", "")):
                         filtered_patients.append(patient)
-                
+
                 return {
                     "success": True,
                     "patients": filtered_patients,
                     "message": f"👤 {len(filtered_patients)} pacientes encontrados"
                 }
-        
+
         return {
             "success": False,
             "message": "❌ No se encontraron pacientes"
         }
-            
+
     except Exception as e:
         return {
             "success": False,
@@ -153,7 +137,7 @@ async def _search_medical_knowledge_tool(
             document_type=document_type,
             max_results=max_results
         )
-        
+
         if result.get("success"):
             results = result.get("results", [])
             return {
@@ -166,7 +150,7 @@ async def _search_medical_knowledge_tool(
                 "success": False,
                 "message": f"❌ No se encontraron documentos: {result.get('error', 'Error')}"
             }
-            
+
     except Exception as e:
         return {
             "success": False,
@@ -184,7 +168,7 @@ async def _search_patient_info_tool(
             patient_query=patient_query,
             max_results=max_results
         )
-        
+
         if result.get("success"):
             results = result.get("results", [])
             return {
@@ -197,7 +181,7 @@ async def _search_patient_info_tool(
                 "success": False,
                 "message": f"❌ No se encontró información: {result.get('error', 'Error')}"
             }
-            
+
     except Exception as e:
         return {
             "success": False,

@@ -5,6 +5,51 @@
   "type": "object",
   "definitions": {},
   "properties": {
+    "patient_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient name mentioned in the audio recording"
+    },
+    "date_of_birth": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient date of birth mentioned in the audio"
+    },
+    "age": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient age mentioned in the audio"
+    },
+    "gender": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient gender mentioned in the audio"
+    },
+    "phone_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any phone numbers mentioned in the audio"
+    },
+    "address": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any address information mentioned in the audio"
+    },
+    "medical_record_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract medical record number or patient ID mentioned in the audio"
+    },
+    "social_security_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract social security number or national ID mentioned in the audio"
+    },
+    "insurance_information": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract insurance numbers or policy information mentioned in the audio"
+    },
     "transcript_summary": {
       "type": "string",
       "inferenceType": "inferred",
@@ -74,6 +119,11 @@
       "type": "number",
       "inferenceType": "inferred",
       "instruction": "Provide confidence score (0-100) for the document type classification based on audio content clarity, medical terminology usage, and conversation structure."
+    },
+    "other_pii_phi": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Look for any other Unclassified PIIs/PHIs not captured in the above fields mentioned in the audio. This includes but is not limited to: passport numbers, driver's license numbers, bank account numbers, credit card numbers, email addresses, employer information, emergency contact details, biometric identifiers, device identifiers, account numbers, or any other personally identifiable or protected health information that doesn't fit the specific categories above."
     }
   }
 }

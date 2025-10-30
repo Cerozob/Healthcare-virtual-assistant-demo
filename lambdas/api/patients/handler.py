@@ -172,7 +172,9 @@ def list_patients(event: Dict[str, Any]) -> Dict[str, Any]:
         pagination = validate_pagination_params(query_params)
         
         sql = """
-        SELECT patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
+        SELECT patient_id, first_name, last_name, full_name, email, phone, date_of_birth, 
+               age, gender, document_type, document_number, address, medical_history, 
+               lab_results, source_scan, cedula, created_at, updated_at
         FROM patients
         ORDER BY full_name
         LIMIT :limit OFFSET :offset
@@ -246,7 +248,9 @@ def create_patient(event: Dict[str, Any]) -> Dict[str, Any]:
         sql = """
         INSERT INTO patients (patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at)
         VALUES (:patient_id, :full_name, :email, :cedula, :date_of_birth, :phone, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        RETURNING patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
+        RETURNING patient_id, first_name, last_name, full_name, email, phone, date_of_birth, 
+                  age, gender, document_type, document_number, address, medical_history, 
+                  lab_results, source_scan, cedula, created_at, updated_at
         """
         
         parameters = [
@@ -296,7 +300,9 @@ def get_patient(patient_id: str) -> Dict[str, Any]:
     """
     try:
         sql = """
-        SELECT patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
+        SELECT patient_id, first_name, last_name, full_name, email, phone, date_of_birth, 
+               age, gender, document_type, document_number, address, medical_history, 
+               lab_results, source_scan, cedula, created_at, updated_at
         FROM patients
         WHERE patient_id = :patient_id
         """
@@ -371,7 +377,9 @@ def update_patient(patient_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         UPDATE patients
         SET {', '.join(update_fields)}
         WHERE patient_id = :patient_id
-        RETURNING patient_id, full_name, email, cedula, date_of_birth, phone, created_at, updated_at
+        RETURNING patient_id, first_name, last_name, full_name, email, phone, date_of_birth, 
+                  age, gender, document_type, document_number, address, medical_history, 
+                  lab_results, source_scan, cedula, created_at, updated_at
         """
         
         response = db_manager.execute_sql(sql, parameters)

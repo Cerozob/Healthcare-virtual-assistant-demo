@@ -13,7 +13,32 @@
     "date_of_birth": {
       "type": "string",
       "inferenceType": "explicit",
-      "instruction": "Extract patient date of birth in YYYY-MM-DD format"
+      "instruction": "Extract patient date of birth in any format (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD, etc.)"
+    },
+    "age": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient age in years"
+    },
+    "gender": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient gender or sex (Masculino, Femenino, Male, Female, etc.)"
+    },
+    "passport_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract passport number or passport identifier"
+    },
+    "national_id": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract national ID number, cedula, DNI, or similar government identification number"
+    },
+    "social_security_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract social security number or equivalent national insurance number"
     },
     "medical_record_number": {
       "type": "string",
@@ -23,12 +48,32 @@
     "phone_number": {
       "type": "string",
       "inferenceType": "explicit",
-      "instruction": "Extract patient contact phone number"
+      "instruction": "Extract patient contact phone number including country code if present"
+    },
+    "email_address": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient email address"
     },
     "address": {
       "type": "string",
       "inferenceType": "explicit",
-      "instruction": "Extract patient complete home address"
+      "instruction": "Extract patient complete home address including street, city, state, postal code"
+    },
+    "emergency_contact": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract emergency contact name and phone number"
+    },
+    "insurance_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract health insurance number or policy number"
+    },
+    "employer": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient employer or workplace information"
     },
     "diagnoses": {
       "type": "string",
@@ -99,6 +144,11 @@
       "type": "number",
       "inferenceType": "inferred",
       "instruction": "Provide confidence score (0-100) for the document type classification based on how clearly the document fits the assigned category. Consider document structure clarity, medical terminology presence, and content completeness."
+    },
+    "other_pii_phi": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Look for any other Unclassified PIIs/PHIs not captured in the above fields. This includes but is not limited to: driver's license numbers, bank account numbers, credit card numbers, biometric identifiers, IP addresses, device identifiers, account numbers, certificate numbers, license numbers, vehicle identifiers, facial photographs, fingerprints, voiceprints, iris scans, genetic information, web URLs containing personal information, geolocation data, or any other personally identifiable or protected health information that doesn't fit the specific categories above."
     }
   }
 }

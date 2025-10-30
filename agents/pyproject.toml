@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     # Strands Agents Framework
     "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.2.13",
     # FastAPI and ASGI server
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
@@ -26,6 +27,8 @@ dependencies = [
     # Utilities
     "python-dateutil>=2.8.0",
     "typing-extensions>=4.8.0",
+    "boto3>=1.40.62",
+    "aws-requests-auth>=0.4.3"
 ]
 
 [project.optional-dependencies]

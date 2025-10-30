@@ -13,23 +13,20 @@ ENV PYTHONPATH=/app
 # Copy dependency files first for better caching
 COPY pyproject.toml README.md ./
 
+RUN rm -rf .venv
+
 # Generate ARM64-specific lock file and install dependencies
 RUN uv lock && uv sync --frozen
 
 # Copy agent source code
 COPY . ./
 
-# Ensure ARM64-compatible virtual environment
-RUN rm -rf .venv && uv sync --frozen
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/tmp
 
 # Set proper permissions
 RUN chmod -R 755 /app
-
-# Verify Python installation and architecture
-RUN uv run python -c "import platform; print(f'Architecture: {platform.machine()}'); print(f'Platform: {platform.platform()}')"
 
 # Health check for AgentCore Runtime using uv run
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -39,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 EXPOSE 8080
 
 # Run the FastAPI application with uvicorn using uv run
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "debug"]

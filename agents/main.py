@@ -1,998 +1,48 @@
 """
-Healthcare Assistant Agent using Strands Agents framework.
-FastAPI implementation for AgentCore Runtime deployment with S3 session management.
+Simplified Healthcare Assistant Agent using Strands framework.
+FastAPI implementation for AgentCore Runtime deployment.
 """
 
 import logging
 import os
-import boto3
-import re
 import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
-from strands import Agent
-from strands.session.s3_session_manager import S3SessionManager
-from strands.tools.mcp import MCPClient
-from mcp.client.streamable_http import streamablehttp_client
-from shared.utils import get_logger, extract_patient_context, extract_patient_id_from_message
+
+from config import get_config
+from healthcare_agent import create_healthcare_agent
+from shared.utils import get_logger
+from shared.models import PatientInfoResponse, SessionContext
 from logging_config import setup_agentcore_logging
+import uvicorn
 
-# Configure Strands Agents logging
-
-
-def configure_logging():
-    """
-    Configure comprehensive logging for Strands Agents SDK and FastAPI/uvicorn.
-    Ensures all logs are visible in AgentCore CloudWatch logs and not suppressed by WSGI.
-    """
-    import sys
-
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_level_value = getattr(logging, log_level, logging.INFO)
-
-    # CRITICAL: Force all output to stdout to prevent WSGI suppression
-    sys.stderr = sys.stdout
-
-    # Create formatter optimized for CloudWatch and container logs
-    formatter = logging.Formatter(
-        fmt='%(asctime)s | %(levelname)-8s | %(name)-20s | %(funcName)-15s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    # Configure root logger to capture everything
-    root_logger = logging.getLogger()
-    # Capture everything, filter at handler level
-    root_logger.setLevel(logging.DEBUG)
-
-    # Remove ALL existing handlers to prevent conflicts
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    # Create console handler that FORCES output to stdout
-    console_handler = logging.StreamHandler(stream=sys.stdout)
-    console_handler.setLevel(log_level_value)
-    console_handler.setFormatter(formatter)
-
-    # Add the handler to root logger
-    root_logger.addHandler(console_handler)
-
-    # DISABLE uvicorn's default logging to prevent conflicts
-    logging.getLogger("uvicorn").handlers.clear()
-    logging.getLogger("uvicorn.access").handlers.clear()
-    logging.getLogger("uvicorn.error").handlers.clear()
-
-    # Configure specific loggers with forced propagation
-    loggers_to_configure = [
-        ("strands", log_level_value),
-        ("uvicorn", log_level_value),
-        ("uvicorn.access", log_level_value),
-        ("uvicorn.error", log_level_value),
-        ("fastapi", log_level_value),
-        ("agents", log_level_value),
-        ("mcp", log_level_value),
-        ("boto3", logging.WARNING),  # Reduce boto3 noise
-        ("botocore", logging.WARNING),  # Reduce botocore noise
-        ("urllib3", logging.WARNING),  # Reduce urllib3 noise
-    ]
-
-    for logger_name, level in loggers_to_configure:
-        logger_obj = logging.getLogger(logger_name)
-        logger_obj.setLevel(level)
-        logger_obj.propagate = True  # FORCE propagation to root
-
-        # Remove any existing handlers to prevent duplicates
-        logger_obj.handlers.clear()
-
-    # FORCE uvicorn to use our logging configuration
-    uvicorn_logger = logging.getLogger("uvicorn")
-    uvicorn_logger.propagate = True
-    uvicorn_logger.disabled = False
-
-    # Test logging immediately to verify it works
-    print("=" * 80, flush=True)  # Direct print to ensure visibility
-    print("🔧 LOGGING CONFIGURATION TEST", flush=True)
-    print("=" * 80, flush=True)
-
-    # Test different log levels
-    root_logger.info("✅ ROOT LOGGER TEST - This should be visible")
-    logging.getLogger("agents").info(
-        "✅ AGENTS LOGGER TEST - This should be visible")
-    logging.getLogger("uvicorn").info(
-        "✅ UVICORN LOGGER TEST - This should be visible")
-
-    print("=" * 80, flush=True)
-
-
-def test_logging():
-    """Test function to verify logging is working and not suppressed by WSGI."""
-    logger = logging.getLogger("agents.test")
-
-    print("\n🧪 RUNTIME LOGGING TEST", flush=True)
-    print("-" * 40, flush=True)
-
-    logger.debug("🔍 DEBUG level test message")
-    logger.info("ℹ️ INFO level test message")
-    logger.warning("⚠️ WARNING level test message")
-    logger.error("❌ ERROR level test message")
-
-    # Also test direct print statements
-    print("📝 Direct print statement (should always work)", flush=True)
-
-    # Test sys.stdout directly
-    import sys
-    sys.stdout.write("📤 Direct sys.stdout write\n")
-    sys.stdout.flush()
-
-    print("-" * 40, flush=True)
-
-    return True
-
-
-def log_all_environment_variables():
-    """Log all environment variables related to agent configuration."""
-    logger.info("🌍 === ALL ENVIRONMENT VARIABLES ===")
-
-    # Define categories of environment variables
-    env_categories = {
-        "🤖 Agent Configuration": [
-            "USE_MCP_GATEWAY", "MCP_GATEWAY_URL", "ENVIRONMENT", "DEBUG", "LOG_LEVEL"
-        ],
-        "🧠 Bedrock Configuration": [
-            "BEDROCK_MODEL_ID", "BEDROCK_KNOWLEDGE_BASE_ID", "BEDROCK_GUARDRAIL_ID",
-            "BEDROCK_GUARDRAIL_VERSION", "GUARDRAIL_ID", "GUARDRAIL_VERSION"
-        ],
-        "☁️ AWS Configuration": [
-            "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-            "AWS_SESSION_TOKEN", "AWS_PROFILE"
-        ],
-        "💾 Session Management": [
-            "SESSION_BUCKET", "SESSION_PREFIX", "S3_BUCKET", "S3_PREFIX"
-        ],
-        "🔧 Runtime Configuration": [
-            "PORT", "HOST", "WORKERS", "TIMEOUT", "UVICORN_LOG_LEVEL"
-        ]
-    }
-
-    for category, var_names in env_categories.items():
-        logger.info(f"{category}:")
-        for var_name in var_names:
-            value = os.getenv(var_name)
-            if value:
-                # Mask sensitive values
-                if "KEY" in var_name or "SECRET" in var_name or "TOKEN" in var_name:
-                    masked_value = f"{value[:8]}***" if len(
-                        value) > 8 else "***"
-                    logger.info(f"   • {var_name}: {masked_value}")
-                else:
-                    logger.info(f"   • {var_name}: {value}")
-            else:
-                logger.info(f"   • {var_name}: not set")
-
-    # Log any other environment variables that might be relevant
-    logger.info("🔍 Other relevant environment variables:")
-    all_env_vars = dict(os.environ)
-    relevant_patterns = ["BEDROCK", "AGENT",
-                         "MCP", "STRANDS", "HEALTHCARE", "CLAUDE"]
-
-    for key, value in all_env_vars.items():
-        if any(pattern in key.upper() for pattern in relevant_patterns):
-            if key not in [var for vars_list in env_categories.values() for var in vars_list]:
-                # Mask sensitive values
-                if any(sensitive in key.upper() for sensitive in ["KEY", "SECRET", "TOKEN", "PASSWORD"]):
-                    masked_value = f"{value[:8]}***" if len(
-                        value) > 8 else "***"
-                    logger.info(f"   • {key}: {masked_value}")
-                else:
-                    logger.info(f"   • {key}: {value}")
-
-    logger.info("🌍 === ENVIRONMENT VARIABLES COMPLETE ===")
-
-
-# Initialize logging with AgentCore-optimized configuration
-print("🔧 Initializing AgentCore logging configuration...", flush=True)
+# Initialize logging
 setup_agentcore_logging()
-
-# Also run the legacy configuration for compatibility
-configure_logging()
-
-# Test logging immediately after configuration
-print("🧪 Testing logging configuration...", flush=True)
-test_logging()
-
-# Log all environment variables for debugging
-log_all_environment_variables()
-
-# Get logger for this module
 logger = get_logger(__name__)
 
-# Log comprehensive startup configuration
-print("\n🔧 COMPREHENSIVE AGENT STARTUP CONFIGURATION", flush=True)
-print("=" * 80, flush=True)
-logger.info("🔧 AGENT STARTUP CONFIGURATION:")
-logger.info(f"   • MCP Gateway: {os.getenv('USE_MCP_GATEWAY', 'false')}")
-logger.info(
-    f"   • Gateway URL: {os.getenv('MCP_GATEWAY_URL', 'not configured')}")
-logger.info(f"   • AWS Region: {os.getenv('AWS_REGION', 'us-east-1')}")
-logger.info(f"   • Log Level: {os.getenv('LOG_LEVEL', 'INFO')}")
-logger.info(f"   • Environment: {os.getenv('ENVIRONMENT', 'development')}")
 
-logger.info("🧠 BEDROCK STARTUP CONFIG:")
-logger.info(
-    f"   • Model ID: {os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-3-5-sonnet-20241022-v2:0')}")
-logger.info(
-    f"   • Knowledge Base ID: {os.getenv('BEDROCK_KNOWLEDGE_BASE_ID', 'not configured')}")
-logger.info(
-    f"   • Guardrail ID: {os.getenv('GUARDRAIL_ID') or os.getenv('BEDROCK_GUARDRAIL_ID', 'not configured')}")
-logger.info(
-    f"   • Guardrail Version: {os.getenv('GUARDRAIL_VERSION') or os.getenv('BEDROCK_GUARDRAIL_VERSION', 'DRAFT')}")
+def log_environment_variables():
+    """Log all environment variables for debugging."""
+    logger.info("=== ENVIRONMENT VARIABLES ===")
+    env_vars = dict(os.environ)
+    for key, value in sorted(env_vars.items()):
+        # Skip AWS credentials for security
+        if any(sensitive in key.upper() for sensitive in ["ACCESS_KEY", "SECRET_KEY", "TOKEN", "PASSWORD"]):
+            continue
+        logger.info(f"{key}={value}")
+    logger.info("=== END ENVIRONMENT VARIABLES ===")
 
-logger.info("💾 SESSION MANAGEMENT CONFIG:")
-logger.info(f"   • S3 Bucket: {S3_BUCKET}")
-logger.info(f"   • S3 Prefix: {S3_PREFIX}")
-logger.info(f"   • AWS Region: {AWS_REGION}")
 
-logger.info("🔐 SECURITY CONFIG:")
-logger.info(
-    f"   • IAM Authentication: {'✅ Enabled' if os.getenv('USE_MCP_GATEWAY', 'false') == 'true' else '❌ Local only'}")
-logger.info(
-    f"   • Guardrails: {'✅ Enabled' if os.getenv('GUARDRAIL_ID') or os.getenv('BEDROCK_GUARDRAIL_ID') else '❌ Disabled'}")
-
-print("=" * 80, flush=True)
+# Log environment variables for debugging
+log_environment_variables()
 
 # Initialize FastAPI app
-app = FastAPI(title="Healthcare Assistant Agent", version="1.0.0")
+app = FastAPI(title="Healthcare Assistant Agent", version="2.0.0")
 
-
-@app.on_event("startup")
-async def startup_event():
-    """FastAPI startup event with comprehensive configuration logging."""
-    print("\n🚀 FASTAPI COMPREHENSIVE STARTUP EVENT", flush=True)
-    print("=" * 60, flush=True)
-
-    logger.info("🚀 FastAPI application starting up")
-    logger.info("🔍 Testing logging from FastAPI startup event")
-
-    # Test that logging works in async context
-    test_logging()
-
-    # Log FastAPI configuration
-    logger.info("⚙️ FASTAPI CONFIGURATION:")
-    logger.info(f"   • Title: {app.title}")
-    logger.info(f"   • Version: {app.version}")
-    logger.info(f"   • Debug mode: {app.debug}")
-
-    # Log available endpoints
-    logger.info("🛣️ AVAILABLE ENDPOINTS:")
-    for route in app.routes:
-        if hasattr(route, 'methods') and hasattr(route, 'path'):
-            methods = ', '.join(route.methods) if route.methods else 'N/A'
-            logger.info(f"   • {methods} {route.path}")
-
-    # Test agent creation during startup
-    logger.info("🧪 STARTUP AGENT TEST:")
-    try:
-        test_session_id = f"startup_test_{int(time.time())}"
-        test_agent = get_or_create_agent(test_session_id)
-        logger.info("   • ✅ Agent creation successful during startup")
-
-        # Quick health check
-        try:
-            quick_response = test_agent("Test de inicio")
-            logger.info(
-                f"   • ✅ Agent response test successful: {len(quick_response.message)} chars")
-        except Exception as e:
-            logger.warning(f"   • ⚠️ Agent response test failed: {str(e)}")
-
-    except Exception as e:
-        logger.error(f"   • ❌ Agent creation failed during startup: {str(e)}")
-
-    logger.info("✅ FastAPI startup complete - all systems operational!")
-    print("=" * 60, flush=True)
-
-# Add comprehensive request logging middleware
-
-
-@app.middleware("http")
-async def log_requests(request, call_next):
-    """Log all HTTP requests and responses with detailed information for AgentCore debugging."""
-    import time
-    import uuid
-
-    # Generate request ID if not provided
-    request_id = request.headers.get("x-request-id", str(uuid.uuid4())[:8])
-    start_time = time.time()
-
-    # Log incoming request
-    logger.info(f"🔄 [{request_id}] {request.method} {request.url.path}")
-    logger.debug(
-        f"🔍 [{request_id}] Query params: {dict(request.query_params)}")
-    logger.debug(f"🔍 [{request_id}] Headers: {dict(request.headers)}")
-
-    # Log client information
-    client_host = request.client.host if request.client else "unknown"
-    user_agent = request.headers.get("user-agent", "unknown")
-    logger.debug(
-        f"🔍 [{request_id}] Client: {client_host} | User-Agent: {user_agent}")
-
-    try:
-        # Process request
-        response = await call_next(request)
-
-        # Calculate processing time
-        processing_time = (time.time() - start_time) * \
-            1000  # Convert to milliseconds
-
-        # Log successful response
-        logger.info(
-            f"✅ [{request_id}] {response.status_code} | {processing_time:.2f}ms")
-
-        # Log response headers for debugging
-        logger.debug(
-            f"🔍 [{request_id}] Response headers: {dict(response.headers)}")
-
-        return response
-
-    except Exception as e:
-        # Calculate processing time for failed requests
-        processing_time = (time.time() - start_time) * 1000
-
-        # Log failed request with full error details
-        logger.error(
-            f"❌ [{request_id}] Request failed after {processing_time:.2f}ms")
-        logger.error(f"❌ [{request_id}] Error: {str(e)}")
-        logger.error(f"❌ [{request_id}] Exception type: {type(e).__name__}")
-
-        # Log full traceback in debug mode
-        if logger.isEnabledFor(logging.DEBUG):
-            import traceback
-            logger.debug(
-                f"❌ [{request_id}] Full traceback:\n{traceback.format_exc()}")
-
-        raise
-
-# Healthcare assistant system prompt
-HEALTHCARE_SYSTEM_PROMPT = """
-Eres un asistente de salud inteligente diseñado para ayudar a profesionales médicos con:
-- Gestión de información de pacientes
-- Programación de citas
-- Consultas de base de conocimientos médicos
-- Procesamiento y análisis de documentos
-
-INSTRUCCIONES IMPORTANTES:
-1. Siempre responde en español (LATAM) a menos que se solicite específicamente otro idioma.
-2. Mantén estándares profesionales médicos y confidencialidad del paciente.
-3. Sé útil, preciso y profesional en todas las interacciones.
-
-GESTIÓN INTELIGENTE DE PACIENTES:
-Cuando un usuario mencione información de un paciente, SIEMPRE usa la herramienta 'extract_and_search_patient' que:
-- Analiza inteligentemente el mensaje del usuario para extraer información del paciente
-- Busca automáticamente en la base de datos usando múltiples criterios
-- Establece el contexto del paciente para toda la conversación
-- Permite que el frontend seleccione automáticamente al paciente identificado
-
-EJEMPLOS DE USO AUTOMÁTICO (SIEMPRE usar extract_and_search_patient):
-- "Necesito información del paciente Juan Pérez" → extract_and_search_patient(mensaje completo)
-- "Busca la cédula 12345678" → extract_and_search_patient(mensaje completo)
-- "Revisa la historia clínica MRN-001" → extract_and_search_patient(mensaje completo)
-- "El paciente María González necesita..." → extract_and_search_patient(mensaje completo)
-- "Agenda una cita para Juan" → extract_and_search_patient(mensaje completo)
-- "¿Qué síntomas tiene María?" → extract_and_search_patient(mensaje completo)
-
-IMPORTANTE: 
-- Cada vez que identifiques un paciente, el frontend automáticamente lo seleccionará en el panel lateral
-- Usa las herramientas para establecer el contexto del paciente en el estado del agente
-- Proporciona respuestas claras y profesionales sobre el paciente encontrado
-
-HERRAMIENTAS DISPONIBLES:
-- extract_and_search_patient: Extrae información del paciente del mensaje y busca en la base de datos
-- get_patient_by_id: Busca paciente por ID específico cuando ya lo tienes
-- list_recent_patients: Lista pacientes recientes para selección rápida
-- validate_patient_session: Verifica si hay un paciente activo en la sesión
-
-FLUJO DE TRABAJO:
-1. Si el usuario menciona un paciente, usa extract_and_search_patient con el mensaje completo
-2. Confirma la identidad del paciente encontrado
-3. Procede con la información médica contextualizada para ese paciente
-4. Mantén el contexto del paciente durante toda la conversación
-
-Siempre confirma la identidad del paciente antes de proceder con información médica sensible.
-"""
-
-# S3 Configuration for session management
-# Uses consistent structure with document processing: processed/{patient_id}_{data_type}/
-S3_BUCKET = os.getenv("SESSION_BUCKET", "ab2-cerozob-processeddata-us-east-1")
-S3_PREFIX = os.getenv("SESSION_PREFIX", "processed/")  # Base prefix only
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-
-
-def extract_patient_id_from_message(message: str) -> Optional[str]:
-    """
-    Extract patient ID from user message using various patterns.
-
-    Args:
-        message: User message
-
-    Returns:
-        Optional[str]: Extracted patient ID or None
-    """
-    # Pattern for explicit patient ID (case insensitive)
-    patient_id_patterns = [
-        r"paciente\s+id[:\s]+([a-zA-Z0-9\-_]+)",
-        r"patient\s+id[:\s]+([a-zA-Z0-9\-_]+)",
-        r"cedula[:\s]+(\d+)",
-        r"cédula[:\s]+(\d+)",
-        r"id\s+paciente[:\s]+([a-zA-Z0-9\-_]+)",
-        r"esta sesión es del paciente\s+([a-zA-Z0-9\-_\s]+)",
-    ]
-
-    for pattern in patient_id_patterns:
-        # Use case-insensitive search but preserve original case in capture group
-        match = re.search(pattern, message, re.IGNORECASE)
-        if match:
-            patient_id = match.group(1).strip()
-            # Clean up patient ID (remove spaces, normalize)
-            patient_id = re.sub(r'\s+', '_', patient_id)
-            return patient_id
-
-    return None
-
-
-def create_session_manager(session_id: str, patient_id: Optional[str] = None) -> S3SessionManager:
-    """
-    Create S3SessionManager with patient-specific prefix consistent with document processing structure.
-
-    Uses the same pattern as document extraction: processed/{patient_id}_{session_type}/
-
-    Args:
-        session_id: Session identifier
-        patient_id: Patient identifier for organizing notes
-
-    Returns:
-        S3SessionManager: Configured session manager
-    """
-    # Create patient-specific prefix consistent with document processing structure
-    if patient_id:
-        # Use the same pattern as document extraction: processed/{patient_id}_{session_type}/
-        clean_patient_id = patient_id
-        prefix = f"processed/{clean_patient_id}_medical_notes/"
-        logger.info(
-            f"Creating session manager for patient {patient_id} with consistent structure")
-    else:
-        # For sessions without patient context, use unknown patient pattern
-        prefix = f"processed/unknown_medical_notes/"
-        logger.info(
-            "Creating session manager for session without patient context")
-
-    try:
-        session_manager = S3SessionManager(
-            session_id=session_id,
-            bucket=S3_BUCKET,
-            prefix=prefix,
-            region_name=AWS_REGION
-        )
-        logger.debug(f"Session manager created with prefix: {prefix}")
-        return session_manager
-    except Exception as e:
-        logger.error(f"Failed to create session manager: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initialize session management: {str(e)}"
-        )
-
-
-def _extract_patient_from_agent_state(agent: Agent) -> tuple[Optional[str], Optional[str], Optional[Dict[str, Any]]]:
-    """
-    Extract patient information from agent state instead of parsing response text.
-
-    Args:
-        agent: Agent instance with state
-
-    Returns:
-        Tuple of (patient_id, patient_name, patient_data) or (None, None, None)
-    """
-    try:
-        # Get patient information from agent state if available
-        current_patient_id = agent.state.get("current_patient_id")
-        current_patient_name = agent.state.get("current_patient_name")
-        current_patient_data = agent.state.get("current_patient_data")
-
-        if current_patient_id and current_patient_name:
-            logger.info(
-                f"Retrieved patient from agent state: {current_patient_name} (ID: {current_patient_id})")
-            return current_patient_id, current_patient_name, current_patient_data
-
-        return None, None, None
-
-    except Exception as e:
-        logger.error(f"Error extracting patient from agent state: {str(e)}")
-        return None, None, None
-
-
-def _log_agent_capabilities(agent: Agent, use_mcp_gateway: bool):
-    """
-    Log comprehensive information about agent capabilities and configuration.
-
-    Args:
-        agent: The configured agent instance
-        use_mcp_gateway: Whether MCP Gateway is being used
-    """
-    logger.info("🔍 === COMPREHENSIVE AGENT CAPABILITIES ANALYSIS ===")
-
-    try:
-        # Log basic agent information
-        logger.info("📊 AGENT BASIC INFO:")
-        logger.info(f"   • Agent type: {type(agent).__name__}")
-        logger.info(f"   • Agent ID: {getattr(agent, 'id', 'not available')}")
-        logger.info(
-            f"   • Agent class: {agent.__class__.__module__}.{agent.__class__.__name__}")
-
-        # Log detailed tools information
-        tools = getattr(agent, 'tools', [])
-        logger.info(f"🔧 DETAILED TOOLS CONFIGURATION:")
-        logger.info(
-            f"   • Total tools registered: {len(tools) if tools else 0}")
-
-        if tools:
-            logger.info("   • Available tools:")
-            for i, tool in enumerate(tools):
-                tool_name = getattr(tool, 'name', getattr(
-                    tool, 'tool_name', getattr(tool, '__name__', f'tool_{i}')))
-                tool_type = type(tool).__name__
-                tool_description = getattr(
-                    tool, 'description', 'No description available')
-
-                logger.info(f"     [{i+1}] {tool_name}")
-                logger.info(f"         • Type: {tool_type}")
-                logger.info(
-                    f"         • Description: {tool_description[:150]}{'...' if len(tool_description) > 150 else ''}")
-
-                # Log tool parameters if available
-                if hasattr(tool, 'parameters') and tool.parameters:
-                    logger.info(
-                        f"         • Parameters: {list(tool.parameters.keys()) if isinstance(tool.parameters, dict) else 'Available'}")
-
-                # Log tool schema if available
-                if hasattr(tool, 'input_schema'):
-                    schema = tool.input_schema
-                    if isinstance(schema, dict) and 'properties' in schema:
-                        param_names = list(schema['properties'].keys())
-                        logger.info(f"         • Input schema: {param_names}")
-        else:
-            logger.warning("   • ⚠️ No tools configured!")
-
-        # Log MCP Gateway detailed status
-        logger.info(f"🌐 MCP GATEWAY DETAILED STATUS:")
-        logger.info(f"   • Enabled: {use_mcp_gateway}")
-        if use_mcp_gateway:
-            gateway_url = os.getenv('MCP_GATEWAY_URL')
-            logger.info(f"   • Gateway URL: {gateway_url}")
-            logger.info(f"   • Authentication: IAM")
-            logger.info(
-                f"   • Connection status: {'✅ Connected' if tools else '❌ No tools loaded'}")
-
-            # Log MCP client details if available
-            mcp_client = getattr(agent, '_mcp_client', None)
-            if mcp_client:
-                logger.info(
-                    f"   • MCP Client type: {type(mcp_client).__name__}")
-        else:
-            logger.info(f"   • Using local tools instead")
-            logger.info(f"   • Local tools path: tools/patient_lookup.py")
-
-        # Log comprehensive Bedrock configuration
-        logger.info(f"🧠 BEDROCK COMPREHENSIVE CONFIGURATION:")
-        bedrock_region = os.getenv('AWS_REGION', 'us-east-1')
-        logger.info(f"   • Region: {bedrock_region}")
-
-        # Model configuration
-        model_id = os.getenv('BEDROCK_MODEL_ID',
-                             'anthropic.claude-3-5-sonnet-20241022-v2:0')
-        logger.info(f"   • Model ID: {model_id}")
-        logger.info(
-            f"   • Model family: {'Claude 3.5' if 'claude-3-5' in model_id else 'Other'}")
-
-        # Knowledge Base configuration
-        kb_id = os.getenv('BEDROCK_KNOWLEDGE_BASE_ID')
-        kb_status = '✅ Enabled' if kb_id else '❌ Not configured'
-        logger.info(f"   • Knowledge Base ID: {kb_id or 'not configured'}")
-        logger.info(f"   • Knowledge Base Status: {kb_status}")
-
-        # Guardrails configuration - comprehensive logging
-        guardrail_id = os.getenv('GUARDRAIL_ID') or os.getenv(
-            'BEDROCK_GUARDRAIL_ID')
-        guardrail_version = os.getenv('GUARDRAIL_VERSION') or os.getenv(
-            'BEDROCK_GUARDRAIL_VERSION', 'DRAFT')
-        guardrail_status = 'ENABLED' if guardrail_id else 'DISABLED'
-
-        logger.info(f"🛡️ GUARDRAILS DETAILED CONFIGURATION:")
-        logger.info(f"   • Guardrail ID: {guardrail_id or 'not configured'}")
-        logger.info(f"   • Guardrail Version: {guardrail_version}")
-        logger.info(f"   • Guardrail Status: {guardrail_status}")
-        logger.info(
-            f"   • Content filtering: {'✅ Active' if guardrail_id else '❌ Inactive'}")
-        logger.info(
-            f"   • PII detection: {'✅ Active' if guardrail_id else '❌ Inactive'}")
-        logger.info(
-            f"   • Harmful content blocking: {'✅ Active' if guardrail_id else '❌ Inactive'}")
-
-        # Log for CloudWatch monitoring (structured format)
-        logger.info(
-            f"GUARDRAIL_CONFIG: ID={guardrail_id}, VERSION={guardrail_version}, STATUS={guardrail_status}")
-        logger.info(
-            f"KNOWLEDGE_BASE_CONFIG: ID={kb_id}, STATUS={'ENABLED' if kb_id else 'DISABLED'}")
-        logger.info(
-            f"MODEL_CONFIG: ID={model_id}, FAMILY={'Claude-3.5' if 'claude-3-5' in model_id else 'Other'}")
-
-        # Log agent state capabilities
-        logger.info(f"📋 AGENT STATE MANAGEMENT:")
-        if hasattr(agent, 'state'):
-            state_keys = list(agent.state._state.keys()) if hasattr(
-                agent.state, '_state') else []
-            logger.info(f"   • State management: ✅ Available")
-            logger.info(f"   • Current state keys: {state_keys}")
-            logger.info(
-                f"   • State persistence: {'✅ S3 backed' if hasattr(agent, 'session_manager') else '❌ Memory only'}")
-
-            # Log current state values (safely)
-            try:
-                current_session_id = agent.state.get("session_id", "not set")
-                current_patient_id = agent.state.get(
-                    "current_patient_id", "not set")
-                session_context = agent.state.get("session_context", "not set")
-                logger.info(f"   • Current session ID: {current_session_id}")
-                logger.info(f"   • Current patient ID: {current_patient_id}")
-                logger.info(f"   • Session context: {session_context}")
-            except Exception as e:
-                logger.debug(f"   • Could not read state values: {str(e)}")
-        else:
-            logger.warning("   • ⚠️ No state management available")
-
-        # Log session management details
-        session_manager = getattr(agent, 'session_manager', None)
-        logger.info(f"💾 SESSION MANAGEMENT DETAILS:")
-        logger.info(
-            f"   • Session Manager: {'✅ Enabled' if session_manager else '❌ Not configured'}")
-        if session_manager:
-            logger.info(
-                f"   • Session Manager Type: {type(session_manager).__name__}")
-            logger.info(f"   • Storage backend: S3")
-            logger.info(f"   • Bucket: {S3_BUCKET}")
-            logger.info(f"   • Base prefix: {S3_PREFIX}")
-            logger.info(f"   • Region: {AWS_REGION}")
-
-        # Log environment and runtime configuration
-        logger.info(f"🌍 ENVIRONMENT & RUNTIME CONFIG:")
-        logger.info(
-            f"   • Environment: {os.getenv('ENVIRONMENT', 'development')}")
-        logger.info(f"   • Debug Mode: {os.getenv('DEBUG', 'false')}")
-        logger.info(f"   • Log Level: {os.getenv('LOG_LEVEL', 'INFO')}")
-        logger.info(
-            f"   • FastAPI version: {getattr(app, 'version', 'unknown')}")
-        logger.info(f"   • Python version: {os.sys.version.split()[0]}")
-
-        # Log system prompt configuration
-        logger.info(f"📝 SYSTEM PROMPT CONFIGURATION:")
-        system_prompt = getattr(agent, 'system_prompt',
-                                HEALTHCARE_SYSTEM_PROMPT)
-        prompt_length = len(system_prompt) if system_prompt else 0
-        logger.info(f"   • System prompt length: {prompt_length} characters")
-        logger.info(f"   • Language: Spanish (LATAM)")
-        logger.info(f"   • Domain: Healthcare")
-        logger.info(f"   • Patient management: ✅ Enabled")
-        logger.info(f"   • Appointment scheduling: ✅ Enabled")
-        logger.info(f"   • Document processing: ✅ Enabled")
-
-        # Log callback handler configuration
-        callback_handler = getattr(agent, 'callback_handler', None)
-        logger.info(f"🔄 CALLBACK HANDLER:")
-        logger.info(
-            f"   • Callback handler: {'✅ Configured' if callback_handler else '❌ Not configured'}")
-        if callback_handler:
-            logger.info(
-                f"   • Handler type: {type(callback_handler).__name__}")
-
-        # Test agent responsiveness with detailed logging
-        logger.info(f"🧪 AGENT HEALTH CHECK:")
-        try:
-            health_check_start = time.time()
-            test_response = agent("¿Estás funcionando correctamente?")
-            health_check_time = (time.time() - health_check_start) * 1000
-
-            response_length = len(test_response.message) if hasattr(
-                test_response, 'message') else 0
-            logger.info(f"   • Health Check: ✅ Passed")
-            logger.info(f"   • Response time: {health_check_time:.2f}ms")
-            logger.info(f"   • Response length: {response_length} characters")
-            logger.info(
-                f"   • Response preview: {test_response.message[:100] if hasattr(test_response, 'message') else 'No message'}...")
-            logger.info(
-                f"   • Agent responsiveness: {'✅ Excellent' if health_check_time < 1000 else '⚠️ Slow' if health_check_time < 5000 else '❌ Very slow'}")
-        except Exception as e:
-            logger.error(f"   • Health Check: ❌ Failed - {str(e)}")
-            logger.error(f"   • Error type: {type(e).__name__}")
-
-        # Log AWS credentials and permissions status
-        logger.info(f"🔐 AWS CREDENTIALS & PERMISSIONS:")
-        try:
-            import boto3
-            session = boto3.Session()
-            credentials = session.get_credentials()
-            if credentials:
-                logger.info(f"   • AWS Credentials: ✅ Available")
-                logger.info(
-                    f"   • Access Key ID: {credentials.access_key[:8]}***")
-                logger.info(f"   • Region: {session.region_name or 'default'}")
-            else:
-                logger.warning(f"   • AWS Credentials: ❌ Not available")
-        except Exception as e:
-            logger.error(f"   • AWS Credentials check failed: {str(e)}")
-
-        # Log memory and performance info
-        logger.info(f"⚡ PERFORMANCE & MEMORY:")
-        try:
-            import psutil
-            process = psutil.Process()
-            memory_info = process.memory_info()
-            logger.info(
-                f"   • Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-            logger.info(f"   • CPU percent: {process.cpu_percent():.2f}%")
-        except ImportError:
-            logger.info(f"   • Performance monitoring: ❌ psutil not available")
-        except Exception as e:
-            logger.debug(f"   • Performance check failed: {str(e)}")
-
-    except Exception as e:
-        logger.error(f"❌ Error analyzing agent capabilities: {str(e)}")
-        import traceback
-        logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
-
-    logger.info("🔍 === COMPREHENSIVE AGENT CAPABILITIES ANALYSIS COMPLETE ===")
-
-
-def _create_streamable_http_transport_with_iam(mcp_url: str):
-    """
-    Create HTTP transport for MCP client with IAM authentication.
-
-    The MCP Gateway handles IAM authentication at the gateway level,
-    so we just need to provide the gateway URL.
-
-    Args:
-        mcp_url: MCP Gateway URL
-
-    Returns:
-        Streamable HTTP transport
-    """
-    logger.info(f"Creating HTTP transport for MCP Gateway: {mcp_url}")
-
-    # Verify AWS credentials are available
-    try:
-        session = boto3.Session()
-        credentials = session.get_credentials()
-
-        if not credentials:
-            logger.error("No AWS credentials found for IAM authentication")
-            raise HTTPException(
-                status_code=500,
-                detail="AWS credentials required for MCP Gateway IAM authentication"
-            )
-
-        logger.info("AWS credentials found, creating MCP transport")
-
-    except Exception as e:
-        logger.error(f"Error checking AWS credentials: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to verify AWS credentials: {str(e)}"
-        )
-
-    # Create the streamable HTTP client
-    # The MCP Gateway will handle IAM authentication
-    return streamablehttp_client(mcp_url)
-
-
-def _get_full_tools_list(client: MCPClient) -> list:
-    """
-    List all tools with pagination support.
-
-    Args:
-        client: MCP client instance
-
-    Returns:
-        List of all available tools
-    """
-    logger.info("🔍 === TOOLS DISCOVERY PROCESS ===")
-
-    more_tools = True
-    tools = []
-    pagination_token = None
-    page_count = 0
-
-    while more_tools:
-        page_count += 1
-        logger.info(f"📄 Fetching tools page {page_count}...")
-
-        try:
-            tmp_tools = client.list_tools_sync(
-                pagination_token=pagination_token)
-            tools_in_page = len(tmp_tools) if tmp_tools else 0
-
-            logger.info(
-                f"   • Found {tools_in_page} tools in page {page_count}")
-
-            if tmp_tools:
-                tools.extend(tmp_tools)
-
-                # Log each tool found
-                for tool in tmp_tools:
-                    tool_name = getattr(tool, 'tool_name',
-                                        getattr(tool, 'name', 'unnamed'))
-                    logger.info(f"     - {tool_name}")
-
-            if not tmp_tools or not hasattr(tmp_tools, 'pagination_token') or tmp_tools.pagination_token is None:
-                more_tools = False
-                logger.info(f"✅ No more pages available")
-            else:
-                pagination_token = tmp_tools.pagination_token
-                logger.info(f"🔄 More pages available, continuing...")
-
-        except Exception as e:
-            logger.error(f"❌ Error fetching tools page {page_count}: {str(e)}")
-            more_tools = False
-
-    logger.info(f"📊 === TOOLS DISCOVERY COMPLETE ===")
-    logger.info(f"   • Total pages processed: {page_count}")
-    logger.info(f"   • Total tools discovered: {len(tools)}")
-
-    return tools
-
-
-def _create_agent_with_mcp_gateway(session_id: str) -> Agent:
-    """
-    Create Strands Agent with MCP Gateway tools using IAM authentication.
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        Configured Agent instance with MCP Gateway tools
-    """
-    mcp_gateway_url = os.getenv("MCP_GATEWAY_URL")
-    if not mcp_gateway_url:
-        logger.error(
-            "❌ MCP_GATEWAY_URL environment variable is required when USE_MCP_GATEWAY=true")
-        raise HTTPException(
-            status_code=500,
-            detail="MCP_GATEWAY_URL environment variable is required when USE_MCP_GATEWAY=true"
-        )
-
-    logger.info("🌐 === MCP GATEWAY CONNECTION ===")
-    logger.info(f"🔗 Gateway URL: {mcp_gateway_url}")
-    logger.info(f"🔐 Authentication: IAM")
-
-    try:
-        # Create MCP client with IAM authentication
-        logger.info("🔧 Creating MCP client...")
-        mcp_client = MCPClient(
-            lambda: _create_streamable_http_transport_with_iam(mcp_gateway_url)
-        )
-
-        # Start the MCP client session
-        logger.info("🚀 Starting MCP client session...")
-        mcp_client.start()
-        logger.info("✅ MCP client session started successfully")
-
-        # Get all available tools
-        logger.info("🔍 Discovering available tools...")
-        tools = _get_full_tools_list(mcp_client)
-
-        logger.info("🔧 === MCP TOOLS DISCOVERED ===")
-        logger.info(f"📊 Total tools found: {len(tools)}")
-
-        if tools:
-            for i, tool in enumerate(tools):
-                tool_name = getattr(tool, 'tool_name', getattr(
-                    tool, 'name', f'tool_{i}'))
-                tool_description = getattr(
-                    tool, 'description', 'No description')
-                logger.info(f"   • Tool {i+1}: {tool_name}")
-                logger.info(f"     Description: {tool_description[:100]}...")
-        else:
-            logger.warning("⚠️ No tools found from MCP Gateway!")
-
-        # Create agent with MCP tools
-        logger.info("🤖 Creating agent with MCP Gateway tools...")
-        agent = Agent(
-            system_prompt=HEALTHCARE_SYSTEM_PROMPT,
-            tools=tools,
-            callback_handler=None
-        )
-
-        logger.info(
-            f"✅ Agent created successfully with {len(tools)} MCP Gateway tools")
-        logger.info("🌐 === MCP GATEWAY CONNECTION COMPLETE ===")
-        return agent
-
-    except Exception as e:
-        logger.error("❌ === MCP GATEWAY CONNECTION FAILED ===")
-        logger.error(f"❌ Error: {str(e)}")
-        logger.error(f"❌ Error type: {type(e).__name__}")
-
-        # Log detailed error information
-        import traceback
-        logger.error(f"❌ Full traceback:\n{traceback.format_exc()}")
-
-        logger.info("🔄 Falling back to local tools...")
-
-        # Fallback to local tools if MCP Gateway fails
-        fallback_agent = Agent(
-            system_prompt=HEALTHCARE_SYSTEM_PROMPT,
-            tools=["tools/patient_lookup.py"],
-            callback_handler=None
-        )
-
-        logger.info("✅ Fallback agent created with local tools")
-        return fallback_agent
-
-
-def get_or_create_agent(session_id: str) -> Agent:
-    """
-    Get or create agent with patient lookup tools.
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        Agent: Configured agent with patient lookup capabilities
-    """
-    try:
-        logger.info("🤖 === AGENT CREATION STARTED ===")
-        logger.info(f"📝 Session ID: {session_id}")
-
-        # Check if we should use MCP Gateway or local tools
-        use_mcp_gateway = os.getenv(
-            "USE_MCP_GATEWAY", "false").lower() == "true"
-
-        logger.info("🔧 AGENT CONFIGURATION:")
-        logger.info(f"   • MCP Gateway: {use_mcp_gateway}")
-        logger.info(
-            f"   • Gateway URL: {os.getenv('MCP_GATEWAY_URL', 'not configured')}")
-        logger.info(f"   • AWS Region: {os.getenv('AWS_REGION', 'us-east-1')}")
-        logger.info(
-            f"   • Environment: {os.getenv('ENVIRONMENT', 'development')}")
-
-        if use_mcp_gateway:
-            logger.info("🌐 Using MCP Gateway for tools")
-            agent = _create_agent_with_mcp_gateway(session_id)
-        else:
-            logger.info("🔧 Using local tools")
-            # Create agent with local patient lookup tools
-            agent = Agent(
-                system_prompt=HEALTHCARE_SYSTEM_PROMPT,
-                tools=["tools/patient_lookup.py"],  # Load patient lookup tools
-                callback_handler=None
-            )
-
-        # Log agent capabilities and configuration
-        _log_agent_capabilities(agent, use_mcp_gateway)
-
-        # Initialize session state
-        agent.state.set("session_id", session_id)
-        agent.state.set("session_context", "no_patient")
-        agent.state.set("current_patient_id", None)
-        agent.state.set("current_patient_name", None)
-
-        logger.info("✅ Agent state initialized successfully")
-        logger.info("🤖 === AGENT CREATION COMPLETED ===")
-        return agent
-
-    except Exception as e:
-        logger.error(f"❌ Failed to create agent: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initialize agent: {str(e)}"
-        )
+# Load configuration
+config = get_config()
 
 
 class InvocationRequest(BaseModel):
@@ -1001,432 +51,149 @@ class InvocationRequest(BaseModel):
 
 
 class PatientContextResponse(BaseModel):
-    """Structured patient context for frontend integration."""
-    patient_id: Optional[str] = Field(None, description="Patient ID or cedula")
-    patient_name: Optional[str] = Field(None, description="Patient full name")
-    has_patient_context: bool = Field(
-        False, description="Whether patient context is available")
+    """Patient context for frontend integration."""
+    patient_id: Optional[str] = Field(None, description="Patient ID")
+    patient_name: Optional[str] = Field(None, description="Patient name")
+    has_patient_context: bool = Field(False, description="Has patient context")
     patient_found: bool = Field(
-        False, description="Whether a patient was identified in this interaction")
+        False, description="Patient found in interaction")
     patient_data: Optional[Dict[str, Any]] = Field(
-        None, description="Complete patient data for frontend")
+        None, description="Patient data")
 
 
-class AgentResponse(BaseModel):
-    """Structured agent response with patient context."""
-    message: str = Field(..., description="The agent's response message")
-    patient_context: PatientContextResponse = Field(
-        default_factory=PatientContextResponse, description="Patient context information")
+@app.on_event("startup")
+async def startup_event():
+    """FastAPI startup event."""
+    logger.info("🚀 Healthcare Assistant starting up")
+    logger.info(f"Configuration: {config.to_dict()}")
+
+    # Test agent creation
+    try:
+        test_agent = create_healthcare_agent("startup_test")
+        logger.info("✅ Agent creation test successful")
+    except ValueError as e:
+        if "MCP" in str(e):
+            logger.error(f"❌ MCP Gateway connection failed: {e}")
+            logger.error("🔧 Please check:")
+            logger.error("   - MCP_GATEWAY_URL is correctly configured")
+            logger.error("   - AWS credentials have execute-api permissions")
+            logger.error("   - AgentCore Gateway is deployed and accessible")
+            logger.error("   - Network connectivity to the gateway")
+        else:
+            logger.error(f"❌ Agent creation failed: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Agent creation test failed: {e}")
+        raise
 
 
 @app.post("/invocations")
 async def invoke_agent(request: InvocationRequest):
-    """
-    Main AgentCore invocation endpoint for healthcare assistant with session management.
-    """
-    import time
+    """Main AgentCore invocation endpoint."""
     start_time = time.time()
 
     try:
-        logger.info("🚀 === AGENT INVOCATION STARTED ===")
-        logger.info(
-            f"📝 Request: prompt_length={len(request.prompt)}, sessionId={request.sessionId}")
+        logger.info("🚀 === HEALTHCARE AGENT INVOCATION ===")
 
         user_message = request.prompt
         if not user_message:
-            logger.warning("⚠️ Received request without prompt")
-            raise HTTPException(
-                status_code=400,
-                detail="No prompt provided in request."
-            )
+            raise HTTPException(status_code=400, detail="No prompt provided")
 
-        # Extract session ID from request (use a default if not provided)
-        session_id = request.sessionId or f"healthcare_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Generate session ID if not provided
+        session_id = request.sessionId or f"healthcare_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        logger.info(f"🔑 Session ID: {session_id}")
-        logger.info(
-            f"💬 User message preview: {user_message[:100]}{'...' if len(user_message) > 100 else ''}")
+        logger.info(f"📝 Session: {session_id}")
+        logger.info(f"💬 Message: {user_message[:100]}...")
 
-        # Log environment configuration
-        use_mcp_gateway = os.getenv(
-            "USE_MCP_GATEWAY", "false").lower() == "true"
-        logger.info(
-            f"⚙️ Configuration: MCP_Gateway={use_mcp_gateway}, AWS_Region={os.getenv('AWS_REGION', 'us-east-1')}")
-
-        logger.info("🤖 Creating agent...")
-        agent_start_time = time.time()
-
-        # Get or create agent with patient lookup tools
-        agent = get_or_create_agent(session_id)
-
-        agent_creation_time = (time.time() - agent_start_time) * 1000
-        logger.info(
-            f"✅ Agent created successfully in {agent_creation_time:.2f}ms")
-
-        # Log current runtime configuration for this invocation
-        logger.info("📊 CURRENT INVOCATION CONFIG:")
-        logger.info(f"   • Session ID: {session_id}")
-        logger.info(f"   • Message length: {len(user_message)} characters")
-        logger.info(f"   • Agent creation time: {agent_creation_time:.2f}ms")
-        logger.info(
-            f"   • Tools available: {len(getattr(agent, 'tools', []))}")
-        logger.info(f"   • MCP Gateway active: {use_mcp_gateway}")
-        logger.info(f"   • Patient context detection: {might_involve_patient}")
-
-        # Log guardrails status for this invocation
-        guardrail_active = bool(os.getenv('GUARDRAIL_ID')
-                                or os.getenv('BEDROCK_GUARDRAIL_ID'))
-        logger.info(f"   • Guardrails active: {guardrail_active}")
-        if guardrail_active:
-            logger.info(f"   • Content filtering: ✅ Active")
-            logger.info(f"   • PII protection: ✅ Active")
-
-        # Analyze message for patient-related content
-        patient_keywords = ["paciente", "patient", "cédula",
-                            "cedula", "historia", "historial", "mrn-", "agenda", "cita"]
-        might_involve_patient = any(keyword in user_message.lower()
-                                    for keyword in patient_keywords)
-
-        logger.info(
-            f"🔍 Message analysis: patient_related={might_involve_patient}")
-        if might_involve_patient:
-            detected_keywords = [
-                kw for kw in patient_keywords if kw in user_message.lower()]
-            logger.debug(f"🔍 Detected keywords: {detected_keywords}")
-
-        processing_start_time = time.time()
-
-        if might_involve_patient:
-            logger.info(
-                "🏥 Processing patient-related query with structured output")
-            try:
-                structured_start_time = time.time()
-
-                structured_result = agent.structured_output(
-                    output_model=AgentResponse,
-                    prompt=user_message
+        # Create healthcare agent
+        agent_start = time.time()
+        try:
+            healthcare_agent = create_healthcare_agent(session_id)
+            agent_time = (time.time() - agent_start) * 1000
+        except ValueError as e:
+            if "MCP" in str(e):
+                logger.error(f"❌ MCP Gateway connection failed during request: {e}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Healthcare agent unavailable - MCP Gateway connection failed: {str(e)}"
                 )
+            else:
+                raise HTTPException(status_code=500, detail=f"Agent creation failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"❌ Unexpected agent creation error: {e}")
+            raise HTTPException(status_code=500, detail=f"Agent creation failed: {str(e)}")
 
-                structured_time = (time.time() - structured_start_time) * 1000
-                logger.info(
-                    f"📊 Structured output completed in {structured_time:.2f}ms")
+        logger.info(f"🤖 Agent created in {agent_time:.2f}ms")
 
-                # Extract the structured response
-                agent_message = structured_result.message
-                patient_context_data = structured_result.patient_context
+        # Process the message with structured output
+        process_start = time.time()
+        response_message, structured_context = healthcare_agent.invoke_with_structured_output(
+            user_message)
+        process_time = (time.time() - process_start) * 1000
 
-                logger.debug(
-                    f"📝 Agent message length: {len(agent_message)} characters")
-                logger.debug(
-                    f"👤 Initial patient context: has_context={patient_context_data.has_patient_context}")
+        # Get patient context (fallback to manual if structured output fails)
+        patient_context = structured_context or healthcare_agent.get_patient_context()
 
-                # Also get patient info from agent state (set by tools)
-                logger.debug("🔍 Extracting patient info from agent state...")
-                current_patient_id, current_patient_name, current_patient_data = _extract_patient_from_agent_state(
-                    agent)
+        total_time = (time.time() - start_time) * 1000
 
-                # Update structured response with agent state if available
-                if current_patient_id and current_patient_name:
-                    logger.info(
-                        f"👤 Patient found in agent state: {current_patient_name} (ID: {current_patient_id})")
+        logger.info(f"✅ Request completed in {total_time:.2f}ms")
+        logger.info(f"   • Agent creation: {agent_time:.2f}ms")
+        logger.info(f"   • Message processing: {process_time:.2f}ms")
+        logger.info(
+            f"   • Patient context: {patient_context.get('has_patient_context', False)}")
+        logger.info(
+            f"   • Session persisted: S3 bucket {config.session_bucket}/{config.session_prefix}")
 
-                    patient_context_data.patient_id = current_patient_id
-                    patient_context_data.patient_name = current_patient_name
-                    patient_context_data.has_patient_context = True
-                    patient_context_data.patient_found = True
-
-                    # Use complete patient data if available, otherwise create minimal object
-                    if current_patient_data:
-                        patient_context_data.patient_data = current_patient_data
-                        logger.debug(
-                            "📋 Using complete patient data from agent state")
-                    else:
-                        patient_context_data.patient_data = {
-                            "patient_id": current_patient_id,
-                            "full_name": current_patient_name,
-                            "date_of_birth": "",
-                            "created_at": "",
-                            "updated_at": ""
-                        }
-                        logger.debug("📋 Created minimal patient data object")
-                else:
-                    logger.debug("👤 No patient found in agent state")
-
-                logger.info(
-                    f"✅ Structured output processing complete. Patient found: {patient_context_data.patient_found}")
-
-            except Exception as e:
-                logger.warning(
-                    f"Structured output failed, falling back to regular processing: {str(e)}")
-                # Fallback to regular processing
-                result = agent(user_message)
-                agent_message = result.message
-                current_patient_id, current_patient_name, current_patient_data = _extract_patient_from_agent_state(
-                    agent)
-
-                # Create patient context manually
-                patient_context_data = PatientContextResponse()
-                if current_patient_id and current_patient_name:
-                    patient_context_data.patient_id = current_patient_id
-                    patient_context_data.patient_name = current_patient_name
-                    patient_context_data.has_patient_context = True
-                    patient_context_data.patient_found = True
-                    # Use complete patient data if available, otherwise create minimal object
-                    if current_patient_data:
-                        patient_context_data.patient_data = current_patient_data
-                    else:
-                        patient_context_data.patient_data = {
-                            "patient_id": current_patient_id,
-                            "full_name": current_patient_name,
-                            "date_of_birth": "",
-                            "created_at": "",
-                            "updated_at": ""
-                        }
-        else:
-            # Regular processing for non-patient queries
-            result = agent(user_message)
-            agent_message = result.message
-            current_patient_id, current_patient_name, current_patient_data = _extract_patient_from_agent_state(
-                agent)
-
-            # Create basic patient context
-            patient_context_data = PatientContextResponse()
-            if current_patient_id and current_patient_name:
-                patient_context_data.patient_id = current_patient_id
-                patient_context_data.patient_name = current_patient_name
-                patient_context_data.has_patient_context = True
-                # Include complete patient data if available
-                if current_patient_data:
-                    patient_context_data.patient_data = current_patient_data
-                # Not found in this interaction, but exists in session
-                patient_context_data.patient_found = False
-
-        session_context = "patient_session" if current_patient_id else "no_patient"
-
-        # Prepare response with session and patient context using consistent structure
-        if current_patient_id and session_context == "patient_session":
-            session_prefix = f"processed/{current_patient_id}_medical_notes/"
-        else:
-            session_prefix = f"processed/unknown_medical_notes/"
-
-        # Convert structured patient context to dict for response
-        patient_context_dict = patient_context_data.model_dump()
-        patient_context_dict.update({
-            "session_prefix": session_prefix,
-            "consistent_with_documents": True
-        })
-
-        # AgentCore compliant response format - must match the HTTP protocol contract
-        response = {
-            "response": agent_message,  # Primary response field as required by AgentCore
-            "status": "success",  # Status field as shown in examples
-            # Additional metadata for frontend integration
+        # Return AgentCore-compatible response
+        return {
+            "response": response_message,
+            "status": "success",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "model": "healthcare-assistant",
-            "capabilities": ["patient_lookup", "patient_info", "appointments", "knowledge_base", "documents"],
+            "model": "healthcare-assistant-strands",
             "session_id": session_id,
-            "patient_context": patient_context_dict,
-            "session_info": {
-                "bucket": S3_BUCKET,
-                "region": AWS_REGION,
-                "notes_saved": False,  # Currently disabled session management
-                "conversation_persisted": False,  # Currently disabled session management
-                "structure_pattern": "processed/{patient_id}_{data_type}/",
-                "tools_available": ["extract_and_search_patient", "get_patient_by_id", "list_recent_patients", "validate_patient_session"]
+            "patient_context": patient_context,
+            "performance": {
+                "total_time_ms": total_time,
+                "agent_creation_ms": agent_time,
+                "processing_ms": process_time
             }
         }
 
-        logger.info(
-            "Healthcare assistant request processed successfully with session management")
-        logger.debug(
-            f"Response generated: {len(response.get('message', ''))} characters")
-        logger.debug(
-            f"Session data saved to S3 with prefix: {response['patient_context']['session_prefix']}")
-
-        return response
-
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        logger.error(f"Agent processing failed: {str(e)}", exc_info=True)
+        logger.error(f"❌ Invocation failed: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Agent processing failed: {str(e)}")
+            status_code=500,
+            detail=f"Healthcare agent invocation failed: {str(e)}"
+        )
 
 
 @app.get("/ping")
 async def ping():
-    """Health check endpoint required by AgentCore Runtime."""
-    import time
-
-    # Test logging on each ping to verify it's working
-    logger.info("🏓 Ping endpoint called - logging test")
-
+    """Health check endpoint."""
+    logger.info("🏓 Health check")
     return {
         "status": "Healthy",
-        "time_of_last_update": int(time.time()),
-        "logging_test": "Check logs for ping message"
-    }
-
-
-@app.get("/test-logging")
-async def test_logging_endpoint():
-    """Test endpoint to verify logging is working and not suppressed."""
-    logger.info("🧪 Test logging endpoint called")
-
-    # Run the logging test
-    test_result = test_logging()
-
-    logger.info("✅ Logging test completed")
-
-    return {
-        "status": "success",
-        "message": "Logging test completed - check console/CloudWatch logs",
-        "test_result": test_result,
-        "log_level": os.getenv("LOG_LEVEL", "INFO"),
-        "mcp_gateway": os.getenv("USE_MCP_GATEWAY", "false")
-    }
-
-
-@app.get("/sessions/{session_id}/info")
-async def get_session_info(session_id: str):
-    """
-    Get information about a specific session.
-    """
-    try:
-        # Try to determine if this is a patient session by checking S3 structure
-        s3_client = boto3.client('s3', region_name=AWS_REGION)
-
-        # Check for patient sessions
-        patient_prefix = f"{S3_PREFIX}patients/"
-        no_patient_prefix = f"{S3_PREFIX}no-patient/"
-
-        session_info = {
-            "session_id": session_id,
-            "bucket": S3_BUCKET,
-            "region": AWS_REGION,
-            "found": False,
-            "patient_context": None,
-            "message_count": 0
+        "timestamp": int(time.time()),
+        "version": "2.0.0",
+        "config": {
+            "model": config.bedrock_model_id,
+            "knowledge_base": bool(config.bedrock_knowledge_base_id),
+            "mcp_gateway": config.use_mcp_gateway,
+            "guardrails": bool(config.bedrock_guardrail_id)
         }
-
-        # Check both patient and unknown prefixes using consistent structure
-        prefixes_to_check = [
-            # We'll search for patterns like processed/{patient_id}_medical_notes/
-            ("patient", f"processed/"),
-            ("unknown", f"processed/unknown_medical_notes/")
-        ]
-
-        for prefix_type, base_prefix in prefixes_to_check:
-            try:
-                if prefix_type == "patient":
-                    # For patient sessions, we need to search for any patient ID pattern
-                    # List all objects that match the pattern processed/*_medical_notes/session_{session_id}/
-                    response = s3_client.list_objects_v2(
-                        Bucket=S3_BUCKET,
-                        Prefix=base_prefix,
-                        MaxKeys=1000  # Increase to find patient sessions
-                    )
-
-                    # Look for session in any patient's medical notes
-                    for obj in response.get('Contents', []):
-                        key = obj['Key']
-                        if f"_medical_notes/session_{session_id}/" in key:
-                            session_info["found"] = True
-                            session_info["patient_context"] = "patient"
-
-                            # Extract patient ID from the key
-                            parts = key.split('/')
-                            if len(parts) > 0:
-                                patient_folder = parts[0].replace(
-                                    'processed/', '')
-                                if '_medical_notes' in patient_folder:
-                                    extracted_patient_id = patient_folder.replace(
-                                        '_medical_notes', '')
-                                    session_info["extracted_patient_id"] = extracted_patient_id
-
-                            # Count messages
-                            messages_response = s3_client.list_objects_v2(
-                                Bucket=S3_BUCKET,
-                                Prefix=key.split(
-                                    '/session_')[0] + f"/session_{session_id}/agents/",
-                            )
-
-                            message_count = 0
-                            for msg_obj in messages_response.get('Contents', []):
-                                if 'messages/message_' in msg_obj['Key']:
-                                    message_count += 1
-
-                            session_info["message_count"] = message_count
-                            break
-                else:
-                    # For unknown patient sessions
-                    response = s3_client.list_objects_v2(
-                        Bucket=S3_BUCKET,
-                        Prefix=f"{base_prefix}session_{session_id}/",
-                        MaxKeys=1
-                    )
-
-                    if response.get('Contents'):
-                        session_info["found"] = True
-                        session_info["patient_context"] = "unknown"
-
-                        # Count messages
-                        messages_response = s3_client.list_objects_v2(
-                            Bucket=S3_BUCKET,
-                            Prefix=f"{base_prefix}session_{session_id}/agents/",
-                        )
-
-                        message_count = 0
-                        for obj in messages_response.get('Contents', []):
-                            if 'messages/message_' in obj['Key']:
-                                message_count += 1
-
-                        session_info["message_count"] = message_count
-                        break
-
-                if session_info["found"]:
-                    break
-
-            except Exception as e:
-                logger.debug(f"Error checking prefix {base_prefix}: {str(e)}")
-                continue
-
-        return session_info
-
-    except Exception as e:
-        logger.error(f"Failed to get session info: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get session info: {str(e)}")
-
-
-@app.on_event("startup")
-async def agentcore_startup_event():
-    """Additional startup event handler for AgentCore Runtime specific logging."""
-    logger.info("🏥 === HEALTHCARE ASSISTANT AGENTCORE STARTUP ===")
-    logger.info(
-        "🏥 Healthcare Assistant Agent starting up for AgentCore Runtime...")
-    logger.info(f"🏥 S3 Bucket: {S3_BUCKET}")
-    logger.info(f"🏥 S3 Prefix: {S3_PREFIX}")
-    logger.info(f"🏥 AWS Region: {AWS_REGION}")
-    logger.info("🏥 Agent ready for AgentCore Runtime deployment")
-    logger.info("🏥 === HEALTHCARE ASSISTANT READY ===")
-
-    # Final configuration summary for CloudWatch
-    logger.info("FINAL_CONFIG_SUMMARY: " +
-                f"MCP_GATEWAY={os.getenv('USE_MCP_GATEWAY', 'false')}, " +
-                f"GUARDRAILS={'ENABLED' if os.getenv('GUARDRAIL_ID') or os.getenv('BEDROCK_GUARDRAIL_ID') else 'DISABLED'}, " +
-                f"KNOWLEDGE_BASE={'ENABLED' if os.getenv('BEDROCK_KNOWLEDGE_BASE_ID') else 'DISABLED'}, " +
-                f"MODEL={os.getenv('BEDROCK_MODEL_ID', 'claude-3-5-sonnet')}, " +
-                f"REGION={AWS_REGION}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Shutdown event handler for AgentCore Runtime."""
-    logger.info("Healthcare Assistant Agent shutting down...")
+    }
 
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080, log_level="debug")
+
+    logger.info("🚀 Starting Healthcare Assistant Agent")
+    logger.info(f"Configuration: {config.to_dict()}")
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8080,
+        log_level="DEBUG"
+    )

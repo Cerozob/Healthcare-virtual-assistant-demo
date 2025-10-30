@@ -1,5 +1,5 @@
-import { defineBackend, secret } from '@aws-amplify/backend';
-import { Effect, Policy, PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { defineBackend } from '@aws-amplify/backend';
+import { Effect, ManagedPolicy, Policy, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
 import { auth } from './auth/resource';
 import { storage } from './storage/resource';
@@ -20,72 +20,61 @@ const { cfnUserPool } = backend.auth.resources.cfnResources;
 cfnUserPool.usernameAttributes = ['email'];
 cfnUserPool.autoVerifiedAttributes = ['email'];
 
-// Get CDK resource values from Amplify secrets
-const apiGatewayEndpoint = secret('CDK_API_GATEWAY_ENDPOINT');
-const s3BucketName = secret('CDK_S3_BUCKET_NAME');
-const awsRegion = secret('AWS_REGION');
-
 // Create a custom stack for additional S3 bucket configuration
 const customBucketStack = backend.createStack('custom-s3-bucket-stack');
 
-// Import your existing CDK bucket
-const existingBucket = Bucket.fromBucketName(
-  customBucketStack, 
-  'ExistingHealthcareBucket', 
+// Import your existing CDK buckets using environment variables
+const existingRawBucket = Bucket.fromBucketName(
+  customBucketStack,
+  'ExistingHealthcareRawBucket',
   'ab2-cerozob-rawdata-us-east-1'
 );
+
+const existingProcessedBucket = Bucket.fromBucketName(
+  customBucketStack,
+  'ExistingHealthcareProcessedBucket',
+  'ab2-cerozob-processeddata-us-east-1'
+);
+
 
 cfnUserPool.policies = {
   passwordPolicy:
   {
-    minimumLength:8,
-    requireLowercase:true,
-    requireNumbers:true,
-    requireSymbols:false,
-    requireUppercase:true
+    minimumLength: 8,
+    requireLowercase: true,
+    requireNumbers: true,
+    requireSymbols: false,
+    requireUppercase: true
   }
 }
 
-// Define IAM policy for authenticated users to access your existing S3 bucket
+// Define IAM policy for authenticated users to access your existing S3 buckets
 const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Policy', {
   statements: [
-    // Allow file operations on patient files in your existing bucket
+    // Allow file operations on patient files in your existing raw bucket
     // Updated to support document workflow path structure: {patient_id}/{category}/{timestamp}/{fileId}/{filename}
     new PolicyStatement({
       effect: Effect.ALLOW,
       actions: [
         's3:GetObject',
-        's3:PutObject', 
-        's3:DeleteObject'
+        's3:PutObject',
+        's3:DeleteObject',
+        's3:ListBucket'
       ],
       resources: [
-        `${existingBucket.bucketArn}/*`, // Allow all paths for authenticated users
+        `${existingRawBucket.bucketArn}/*`, // Allow all paths for authenticated users
+        existingRawBucket.bucketArn,
+        existingProcessedBucket.bucketArn,
+        `${existingProcessedBucket.bucketArn}/*`,
       ],
-    }),
-    // Allow listing bucket contents
-    new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['s3:ListBucket'],
-      resources: [existingBucket.bucketArn],
     }),
   ],
 });
 
-// Note: AgentCore access is handled through API Gateway Lambda functions
+
 // No direct AgentCore permissions needed for frontend users
 
 // Attach the S3 policy to both authenticated and unauthenticated user roles
 backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(customBucketPolicy);
 backend.auth.resources.unauthenticatedUserIamRole.attachInlinePolicy(customBucketPolicy);
-
-// Add custom outputs for your existing bucket
-backend.addOutput({
-  custom: {
-    api_endpoint: apiGatewayEndpoint,
-    s3_bucket_name: s3BucketName,
-    aws_region: awsRegion,
-    // Add your existing bucket info
-    existing_bucket_name: 'ab2-cerozob-rawdata-us-east-1',
-    existing_bucket_region: 'us-east-1',
-  },
-});
+backend.auth.resources.authenticatedUserIamRole.addManagedPolicy(ManagedPolicy.fromAwsManagedPolicyName("BedrockAgentCoreFullAccess"));

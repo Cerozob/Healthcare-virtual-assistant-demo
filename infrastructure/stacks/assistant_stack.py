@@ -2,6 +2,9 @@
 Assistant Stack for Healthcare Workflow System.
 """
 
+from ..constructs.bedrock_knowledge_base_construct import BedrockKnowledgeBaseConstruct
+from ..constructs.bedrock_guardrail_construct import BedrockGuardrailConstruct
+from ..schemas.lambda_tool_schemas import get_all_tool_schemas
 from aws_cdk import Stack, CfnOutput, RemovalPolicy, CustomResource, Duration
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_bedrockagentcore as agentcore
@@ -10,6 +13,8 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_rds as rds
+from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_apigateway as apigateway
 
 from aws_cdk import aws_ecr_assets as ecr_assets
 
@@ -21,9 +26,7 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-from ..schemas.lambda_tool_schemas import get_all_tool_schemas
-from ..constructs.bedrock_guardrail_construct import BedrockGuardrailConstruct
-from ..constructs.bedrock_knowledge_base_construct import BedrockKnowledgeBaseConstruct
+# Removed Cognito OAuth construct - using IAM-based authorization instead
 
 
 class AssistantStack(Stack):
@@ -51,7 +54,7 @@ class AssistantStack(Stack):
         self.db_init_resource = db_init_resource
         self.bedrock_user_secret = bedrock_user_secret
         self.lambda_functions = lambda_functions or {}
-        
+
         # Note: We no longer directly modify the extraction lambda to avoid cyclic dependencies
         # Instead, we use SSM parameters for configuration
 
@@ -70,8 +73,8 @@ class AssistantStack(Stack):
             self,
             "Guardrail"
         )
-        
 
+        # Using IAM-based authorization for AgentCore Gateway (simpler and more appropriate)
 
         # Note: AgentCore manages its own logging automatically
         # No need to create a separate CloudWatch log group
@@ -97,8 +100,55 @@ class AssistantStack(Stack):
             ]
         )
 
+        # Enhanced Gateway Role permissions for Lambda invocation
+        agentcore_gateway_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "lambda:InvokeFunction",
+                    "lambda:GetFunction"
+                ],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:healthcare-*",
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:PatientLookupFunction"
+                ]
+            )
+        )
+
+        # Enhanced Gateway Role permissions for credential management
+        agentcore_gateway_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "agent-credential-provider:*",
+                    "iam:PassRole"
+                ],
+                resources=["*"]
+            )
+        )
+
+        # Additional Gateway permissions for comprehensive functionality
+        agentcore_gateway_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:*",
+                    "secretsmanager:GetSecretValue",
+                    "ssm:GetParameter",
+                    "ssm:GetParameters"
+                ],
+                resources=["*"]
+            )
+        )
+
+        # Create AgentCore Gateway with IAM-based authorization (simpler and more secure)
         self.agentcore_gateway = agentcore.CfnGateway(
-            self, "Agentcoregateway", authorizer_type="AWS_IAM", name="agentcoregateway", protocol_type="MCP", role_arn=agentcore_gateway_role.role_arn
+            self,
+            "Agentcoregateway",
+            authorizer_type="AWS_IAM",
+            name="agentcoregateway",
+            protocol_type="MCP",
+            role_arn=agentcore_gateway_role.role_arn
         )
 
         # Create AgentCore Runtime
@@ -107,25 +157,34 @@ class AssistantStack(Stack):
         # Create single lambda target gateway with all tool schemas
         self.lambda_gateway_target = self._create_unified_lambda_gateway_target()
 
-        # Create AgentCore Runtime using alpha library
+        # Get environment variables and log them for debugging
+        env_vars = self.get_agent_environment_variables()
+        logger.info(
+            f"Setting AgentCore environment variables: {list(env_vars.keys())}")
+
+        # Log critical variables for debugging
+        critical_vars = ["BEDROCK_MODEL_ID", "BEDROCK_KNOWLEDGE_BASE_ID",
+                         "USE_MCP_GATEWAY", "MCP_GATEWAY_URL"]
+        for var in critical_vars:
+            if var in env_vars:
+                logger.info(f"  {var}: {env_vars[var]}")
+            else:
+                logger.warning(f"  {var}: NOT SET")
+
+        # Create AgentCore Runtime using alpha library with IAM authorization
         self.agent_runtime = agentcore_alpha.Runtime(
             self,
             "HealthcareAssistantRuntime",
             runtime_name="healthcare_assistant",
             agent_runtime_artifact=self.agent_runtime_artifact,
+            # Use IAM-based authorization (simpler and more appropriate)
             authorizer_configuration=agentcore_alpha.RuntimeAuthorizerConfiguration.using_iam(),
             execution_role=agent_runtime_role,
-            environment_variables=self.get_agent_environment_variables(),
+            environment_variables=env_vars,
             # Network configuration defaults to PUBLIC
             # Guardrails will be configured via environment variables
             protocol_configuration=agentcore_alpha.ProtocolType.HTTP
         )
-
-        self.endpoint = agentcore_alpha.RuntimeEndpoint(self,
-                                                        "AgentcoreEndpoint",
-                                                        agent_runtime_id=self.agent_runtime.agent_runtime_id,
-                                                        endpoint_name="AgentEndpoint",
-                                                        )
 
         # Add dependency on knowledge base and guardrails
         self.agent_runtime.node.add_dependency(
@@ -133,7 +192,7 @@ class AssistantStack(Stack):
         self.agent_runtime.node.add_dependency(self.agentcore_gateway)
         self.agent_runtime.node.add_dependency(
             self.guardrail_construct.guardrails)
-        
+
         # Store Knowledge Base configuration in SSM for extraction lambda to use
         self.knowledge_base_id_param = ssm.StringParameter(
             self,
@@ -142,19 +201,22 @@ class AssistantStack(Stack):
             string_value=self.knowledge_base_construct.knowledge_base_id,
             description="Bedrock Knowledge Base ID for document processing",
         )
-        
+
         self.knowledge_base_data_source_param = ssm.StringParameter(
             self,
-            "KnowledgeBaseDataSourceParameter", 
+            "KnowledgeBaseDataSourceParameter",
             parameter_name="/healthcare/knowledge-base/data-source-id",
             string_value=self.knowledge_base_construct.data_source.attr_data_source_id,
             description="Bedrock Knowledge Base Data Source ID for document processing",
         )
-        
-        logger.info(f"Stored Knowledge Base ID in SSM: {self.knowledge_base_construct.knowledge_base_id}")
-        logger.info(f"Stored Data Source ID in SSM: {self.knowledge_base_construct.data_source.attr_data_source_id}")
 
-        # Store AgentCore endpoint in SSM Parameter Store
+        logger.info(
+            f"Stored Knowledge Base ID in SSM: {self.knowledge_base_construct.knowledge_base_id}")
+        logger.info(
+            f"Stored Data Source ID in SSM: {self.knowledge_base_construct.data_source.attr_data_source_id}")
+
+        # No OAuth Lambda needed with IAM-based authorization
+
         self._create_ssm_parameters()
 
         # Create CloudFormation outputs
@@ -200,7 +262,14 @@ class AssistantStack(Stack):
 
     def create_agent_runtime_role(self):
         """
-        Create IAM role for AgentCore Runtime with necessary permissions.
+        Create IAM role for AgentCore Runtime with enhanced permissions.
+
+        This role includes broad permissions following AWS best practices for AgentCore:
+        - Full bedrock-agentcore:* access for gateway operations
+        - Full bedrock:* access for model and service interactions  
+        - agent-credential-provider:* for credential management
+        - iam:PassRole for cross-service operations
+        - Enhanced Lambda permissions for healthcare functions
         """
         agent_runtime_role = iam.Role(
             self,
@@ -211,21 +280,22 @@ class AssistantStack(Stack):
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonBedrockFullAccess"),
                 iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "CloudWatchFullAccess")
+                    "CloudWatchFullAccess"),
+                # Add BedrockAgentCoreFullAccess for comprehensive gateway access
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "BedrockAgentCoreFullAccess")
             ]
         )
 
-        # Bedrock model invocation permissions
+        # Bedrock permissions - Enhanced with broader access for full AgentCore functionality
         agent_runtime_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "bedrock:InvokeModel",
-                    "bedrock:InvokeModelWithResponseStream"
+                    "bedrock:*"  # Broader permissions for comprehensive Bedrock access
                 ],
-                resources=[
-                    f"arn:aws:bedrock:{self.region}::foundation-model/*"
-                ]
+                # Allow access to all Bedrock resources including cross-region models
+                resources=["*"]
             )
         )
 
@@ -329,6 +399,31 @@ class AssistantStack(Stack):
                 )
             )
 
+        # ECR permissions for AgentCore container access
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer"
+                ],
+                resources=[
+                    f"arn:aws:ecr:{self.region}:{self.account}:repository/*"
+                ]
+            )
+        )
+
+        # ECR token access (global permission)
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ecr:GetAuthorizationToken"
+                ],
+                resources=["*"]
+            )
+        )
+
         # CloudWatch Logs permissions - AgentCore needs to create log groups and streams
         # Pattern matches: /aws/bedrock-agentcore/runtimes/{runtime_name}-{random_suffix}-{variant}
         agent_runtime_role.add_to_policy(
@@ -348,123 +443,230 @@ class AssistantStack(Stack):
             )
         )
 
-        # CloudWatch Metrics permissions
+        # CloudWatch Metrics permissions - Enhanced for comprehensive monitoring
         agent_runtime_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
-                    "cloudwatch:PutMetricData"
-                ],
-                resources=["*"],
-                conditions={
-                    "StringEquals": {
-                        "cloudwatch:namespace": "Healthcare/Agents"
-                    }
-                }
-            )
-        )
-
-        # X-Ray tracing permissions for observability
-        agent_runtime_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "xray:PutTraceSegments",
-                    "xray:PutTelemetryRecords"
+                    "cloudwatch:PutMetricData",
+                    "cloudwatch:GetMetricStatistics",
+                    "cloudwatch:ListMetrics"
                 ],
                 resources=["*"]
             )
         )
 
-        # AgentCore Gateway permissions
+        # X-Ray tracing permissions for observability - Enhanced for AgentCore
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "xray:PutTraceSegments",
+                    "xray:PutTelemetryRecords",
+                    "xray:GetSamplingRules",
+                    "xray:GetSamplingTargets",
+                    "xray:GetTraceGraph",
+                    "xray:GetTraceSummaries"
+                ],
+                resources=["*"]
+            )
+        )
+
+        # Additional system permissions for comprehensive AgentCore functionality
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "ssm:GetParameter",
+                    "ssm:GetParameters",
+                    "ssm:GetParametersByPath",
+                    "kms:Decrypt",
+                    "kms:DescribeKey"
+                ],
+                resources=["*"]
+            )
+        )
+
+        # AgentCore Gateway permissions - Enhanced with broader access
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:*"  # Broader permissions for full gateway functionality
+                ],
+                resources=["*"]  # Allow access to all AgentCore resources
+            )
+        )
+
+        # Agent Credential Provider permissions - Required for credential management
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "agent-credential-provider:*"
+                ],
+                resources=["*"]
+            )
+        )
+
+        # IAM PassRole permissions - Required for cross-service operations
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "iam:PassRole"
+                ],
+                resources=[
+                    f"arn:aws:iam::{self.account}:role/*bedrock*",
+                    f"arn:aws:iam::{self.account}:role/*agentcore*",
+                    f"arn:aws:iam::{self.account}:role/*healthcare*"
+                ],
+                conditions={
+                    "StringEquals": {
+                        "iam:PassedToService": [
+                            "bedrock.amazonaws.com",
+                            "bedrock-agentcore.amazonaws.com"
+                        ]
+                    }
+                }
+            )
+        )
+
+        # AgentCore Workload Access Token permissions - Critical for runtime operation
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:GetWorkloadAccessToken",
+                    "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+                    "bedrock-agentcore:GetWorkloadAccessTokenForUserId"
+                ],
+                resources=[
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:workload-identity-directory/default",
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:workload-identity-directory/default/workload-identity/healthcare_assistant-*"
+                ]
+            )
+        )
+
+        # Lambda invoke permissions for gateway targets - Enhanced for flexibility
+        agent_runtime_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "lambda:InvokeFunction",
+                    "lambda:GetFunction",
+                    "lambda:ListFunctions"
+                ],
+                resources=[
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:healthcare-*",
+                    f"arn:aws:lambda:{self.region}:{self.account}:function:PatientLookupFunction"
+                ]
+            )
+        )
+
+        # Add specific permission to invoke the gateway (IAM-based authorization)
         agent_runtime_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
                     "bedrock-agentcore:InvokeGateway",
-                    "bedrock-agentcore:ListGatewayTargets"
+                    "bedrock-agentcore:InvokeAgentRuntime"  # Add runtime invocation permission
                 ],
                 resources=[
-                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:gateway/{self.agentcore_gateway.attr_gateway_identifier}",
-                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:gateway/{self.agentcore_gateway.attr_gateway_identifier}/*"
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:gateway/*",
+                    f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:agent-runtime/*"
                 ]
             )
         )
-
-        # Lambda invoke permissions for gateway targets
-        if self.lambda_functions:
-            lambda_arns = [
-                func.function_arn for func in self.lambda_functions.values()]
-            agent_runtime_role.add_to_policy(
-                iam.PolicyStatement(
-                    effect=iam.Effect.ALLOW,
-                    actions=["lambda:InvokeFunction"],
-                    resources=lambda_arns
-                )
-            )
 
         return agent_runtime_role
 
     def _create_ssm_parameters(self) -> None:
         """Store AgentCore configuration in SSM Parameter Store."""
 
-        # Store the AgentCore runtime ARN
-        self.agentcore_endpoint_parameter = ssm.StringParameter(
+        self.agentcore_runtime_id_parameter = ssm.StringParameter(
             self,
-            "AgentCoreEndpointParameter",
-            parameter_name="/healthcare/agentcore/endpoint-url",
-            string_value=self.agent_runtime.agent_runtime_arn,
-            description="AgentCore Runtime ARN",
+            "AgentCoreRuntimeIdParameter",
+            parameter_name="/healthcare/agentcore/runtime-id",
+            string_value=self.agent_runtime.agent_runtime_id,
+            description="AgentCore Runtime ID for direct invocation",
+            tier=ssm.ParameterTier.STANDARD
+        )
+
+        # Store Gateway ID for IAM-based access
+        self.gateway_id_parameter = ssm.StringParameter(
+            self,
+            "GatewayIdParameter",
+            parameter_name="/healthcare/agentcore/gateway-id",
+            string_value=self.agentcore_gateway.attr_gateway_identifier,
+            description="AgentCore Gateway ID for IAM-based access",
             tier=ssm.ParameterTier.STANDARD
         )
 
     def get_agent_environment_variables(self) -> dict:
         """
         Return environment variables for agent runtime configuration.
+        These match exactly what the agent code expects based on main.py analysis.
         """
-        return {
-            # Model Configuration - Using global inference profile
-            "MODEL_ID": self.inference_profile,
+        env_vars = {
+            # Agent Configuration
+            "DEBUG": "false",
+            "LOG_LEVEL": "INFO",
+
+            # Model Configuration - agent expects BEDROCK_MODEL_ID
+            "BEDROCK_MODEL_ID": self.inference_profile,
             "MODEL_TEMPERATURE": "0.1",
             "MODEL_MAX_TOKENS": "4096",
             "MODEL_TOP_P": "0.9",
 
-            # Knowledge Base Configuration - Populated by CDK
-            "KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
+            # Knowledge Base Configuration - agent expects BEDROCK_KNOWLEDGE_BASE_ID
+            "BEDROCK_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
             "SUPPLEMENTAL_DATA_BUCKET": self.knowledge_base_construct.supplemental_data_bucket_name,
 
 
-            # Database Configuration - Populated by CDK
-            "DATABASE_CLUSTER_ARN": self.database_cluster.cluster_arn,
-            "DATABASE_SECRET_ARN": self.database_cluster.secret.secret_arn,
 
-            # Agent Configuration - LATAM healthcare settings
-            "DEFAULT_LANGUAGE": "es-LATAM",
-            "STREAMING_ENABLED": "true",
-            "SESSION_TIMEOUT_MINUTES": "30",
-
-            # Guardrails Configuration - Using created guardrail
+            # Guardrails Configuration - agent checks both GUARDRAIL_ID and BEDROCK_GUARDRAIL_ID
             "GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
             "GUARDRAIL_VERSION": self.guardrail_construct.guardrail_version_id,
             "BEDROCK_GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
             "BEDROCK_GUARDRAIL_VERSION": self.guardrail_construct.guardrail_version_id,
 
-
-            # Agentcore gateway
-            "GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
+            # MCP Gateway Configuration - always enabled
+            "MCP_GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
             "GATEWAY_ID": self.agentcore_gateway.attr_gateway_identifier,
 
-            # Session Management Configuration - S3 storage for medical notes
-            # Uses consistent structure with document processing: processed/{patient_id}_{data_type}/
-            "SESSION_BUCKET": self.processed_bucket.bucket_name if self.processed_bucket else "",
-            # Base prefix, actual structure: processed/{patient_id}_{data_type}/
-            "SESSION_PREFIX": "processed/",
-            "ENABLE_SESSION_MANAGEMENT": "true",
+            # Session Management Configuration - always required
+            "SESSION_BUCKET": self.processed_bucket.bucket_name,
+
+            # Runtime Configuration
+            "PORT": "8000",
+            "HOST": "0.0.0.0",
+            "WORKERS": "1",
+            "TIMEOUT": "300",
+            "UVICORN_LOG_LEVEL": "info",
+
+            # AWS Configuration - ensure region is set
+            "AWS_REGION": self.region,
+            "AWS_DEFAULT_REGION": self.region,
 
             # Observability Configuration - CloudWatch logging enabled
             "ENABLE_TRACING": "true",
             "METRICS_NAMESPACE": "Healthcare/Agents",
         }
+
+        # Log environment variables being set for debugging
+        logger.info("=== CDK ENVIRONMENT VARIABLES CONFIGURATION ===")
+        for key, value in env_vars.items():
+            # Mask sensitive values
+            if any(sensitive in key.upper() for sensitive in ["SECRET", "KEY", "TOKEN", "PASSWORD"]):
+                masked_value = f"{str(value)[:8]}***" if len(
+                    str(value)) > 8 else "***"
+                logger.info(f"  {key}: {masked_value}")
+            else:
+                logger.info(f"  {key}: {value}")
+        logger.info("=== END ENVIRONMENT VARIABLES ===")
+
+        return env_vars
 
     def create_outputs(self):
         """
@@ -497,15 +699,25 @@ class AssistantStack(Stack):
         )
 
         CfnOutput(
-            self,
-            "AgentCoreEndpointUrl",
-            value=self.endpoint.endpoint_id,
-            description="AgentCore Runtime endpoint URL"
+            self, "AgentCoreGatewayUrl", value=self.agentcore_gateway.attr_gateway_url,
+            description="AgentCore Gateway URL for MCP tools"
+        )
+
+        CfnOutput(
+            self, "AgentCoreGatewayId", value=self.agentcore_gateway.attr_gateway_identifier,
+            description="AgentCore Gateway Identifier"
         )
 
         CfnOutput(
             self,
-            "AgentCoreApiGatewayPath",
-            value="/v1/agentcore/chat",
-            description="AgentCore chat endpoint path in API Gateway"
+            "AgentCoreDirectAccess",
+            value="Use AWS SDK BedrockAgentCore client for direct access with IAM authentication",
+            description="AgentCore is accessed directly with IAM authentication"
+        )
+
+        CfnOutput(
+            self,
+            "GatewayInvokePermission",
+            value="bedrock-agentcore:InvokeGateway",
+            description="IAM permission needed to invoke the AgentCore Gateway"
         )

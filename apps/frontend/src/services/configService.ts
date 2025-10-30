@@ -6,6 +6,7 @@
 interface RuntimeConfig {
   apiBaseUrl: string;
   s3BucketName: string;
+  processedBucketName: string;
   region: string;
 }
 
@@ -26,7 +27,9 @@ class ConfigService {
     const config: RuntimeConfig = {
       apiBaseUrl: import.meta.env.VITE_API_BASE_URL,
       s3BucketName: import.meta.env.VITE_S3_BUCKET_NAME,
+      processedBucketName: import.meta.env.VITE_S3_PROCESSED_BUCKET_NAME,
       region: import.meta.env.VITE_AWS_REGION
+
     };
 
     this.config = config;
@@ -47,7 +50,7 @@ class ConfigService {
    */
   isConfigured(): boolean {
     const config = this.getConfig();
-    return !!(config.apiBaseUrl && config.s3BucketName);
+    return !!(config.apiBaseUrl && config.s3BucketName && config.processedBucketName);
   }
 }
 

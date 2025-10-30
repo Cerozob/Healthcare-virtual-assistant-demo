@@ -36,20 +36,10 @@ def lambda_handler(event, context):
         s3 = boto3.client('s3')
         ssm = boto3.client('ssm')
         
-        # Check if we should update existing patients
-        # Priority: event parameter > environment variable > default (true)
-        update_existing = True  # Default for cedula repopulation
-        if 'UPDATE_EXISTING_PATIENTS' in event:
-            update_existing = str(event['UPDATE_EXISTING_PATIENTS']).lower() == 'true'
-        elif 'UPDATE_EXISTING_PATIENTS' in os.environ:
-            update_existing = os.environ.get('UPDATE_EXISTING_PATIENTS', 'true').lower() == 'true'
-        
-        logger.info(f"Update existing patients: {update_existing}")
-        
-        # Load and process sample data (JSON profiles only)
+        # Load and process sample data (JSON profiles only) using UPSERT
         patients_loaded = load_and_process_sample_data(
             s3, rds_data, sample_bucket, 
-            cluster_arn, secret_arn, database_name, update_existing
+            cluster_arn, secret_arn, database_name
         )
         
         logger.info(f"Data loading completed successfully. Processed {patients_loaded} patients.")
@@ -73,7 +63,7 @@ def lambda_handler(event, context):
 
 
 def load_and_process_sample_data(s3, rds_data, sample_bucket: str, 
-                               cluster_arn: str, secret_arn: str, database_name: str, update_existing: bool = True) -> int:
+                               cluster_arn: str, secret_arn: str, database_name: str) -> int:
     """Load sample patient profiles from S3 and insert into database."""
     
     logger.info(f"Loading sample data from bucket: {sample_bucket}")
@@ -115,9 +105,9 @@ def load_and_process_sample_data(s3, rds_data, sample_bucket: str,
             if not profile_data:
                 continue
             
-            # Insert or update patient in database
-            insert_patient_to_database(
-                rds_data, cluster_arn, secret_arn, database_name, profile_data, update_existing
+            # Upsert patient in database
+            upsert_patient_to_database(
+                rds_data, cluster_arn, secret_arn, database_name, profile_data
             )
             
             patients_processed += 1
@@ -152,97 +142,38 @@ def load_patient_profile(s3, bucket: str, key: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def insert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str, 
-                             database_name: str, profile: Dict[str, Any], update_existing: bool = True):
-    """Insert or update patient data in the database."""
+def upsert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str, 
+                             database_name: str, profile: Dict[str, Any]):
+    """Upsert patient data using PostgreSQL's INSERT ... ON CONFLICT ... DO UPDATE."""
     
     patient_data = convert_patient_profile_to_db_format(profile)
     
-    # Check if patient already exists
-    check_response = rds_data.execute_statement(
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        database=database_name,
-        sql="SELECT patient_id FROM patients WHERE patient_id = :patient_id OR email = :email",
-        parameters=[
-            {'name': 'patient_id', 'value': {'stringValue': patient_data['patient_id']}},
-            {'name': 'email', 'value': {'stringValue': patient_data.get('email', '')}}
-        ]
-    )
-    
-    existing_records = check_response.get('records', [])
-    
-    if existing_records:
-        if update_existing:
-            # Patient exists - update with new data including cedula
-            existing_patient_id = existing_records[0][0].get('stringValue')
-            logger.info(f"Patient exists, updating with cedula: {patient_data.get('full_name', 'Unknown')}")
-            update_patient_in_database(rds_data, cluster_arn, secret_arn, database_name, existing_patient_id, patient_data)
-        else:
-            logger.info(f"Patient exists, skipping (update_existing=False): {patient_data.get('full_name', 'Unknown')}")
-        return
-    
-    # Insert patient (updated to match current schema)
-    insert_sql = """
+    # Use PostgreSQL UPSERT with ON CONFLICT
+    upsert_sql = """
     INSERT INTO patients (
         patient_id, full_name, email, cedula, date_of_birth, phone,
-        address, medical_history, lab_results, source_scan
+        address, medical_history, lab_results, source_scan, created_at, updated_at
     ) VALUES (
         :patient_id, :full_name, :email, :cedula, :date_of_birth::date, :phone,
-        :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan
+        :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan,
+        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
-    """
-    
-    parameters = []
-    for key, value in patient_data.items():
-        if value is None:
-            param_value = {'isNull': True}
-        elif key == 'date_of_birth' and value is not None:
-            param_value = {'stringValue': str(value)}
-        else:
-            param_value = {'stringValue': str(value) if value is not None else None}
-        
-        parameters.append({'name': key, 'value': param_value})
-    
-    rds_data.execute_statement(
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        database=database_name,
-        sql=insert_sql,
-        parameters=parameters
-    )
-    
-    logger.info(f"Inserted patient: {patient_data['full_name']}")
-
-
-def update_patient_in_database(rds_data, cluster_arn: str, secret_arn: str, 
-                             database_name: str, patient_id: str, patient_data: Dict[str, Any]):
-    """Update existing patient with new data including cedula."""
-    
-    update_sql = """
-    UPDATE patients SET
-        full_name = :full_name,
-        email = :email,
-        cedula = :cedula,
-        date_of_birth = :date_of_birth::date,
-        phone = :phone,
-        address = :address::jsonb,
-        medical_history = :medical_history::jsonb,
-        lab_results = :lab_results::jsonb,
-        source_scan = :source_scan,
+    ON CONFLICT (patient_id) 
+    DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        email = EXCLUDED.email,
+        cedula = COALESCE(EXCLUDED.cedula, patients.cedula), -- Keep existing cedula if new one is null
+        date_of_birth = EXCLUDED.date_of_birth,
+        phone = EXCLUDED.phone,
+        address = EXCLUDED.address,
+        medical_history = EXCLUDED.medical_history,
+        lab_results = EXCLUDED.lab_results,
+        source_scan = EXCLUDED.source_scan,
         updated_at = CURRENT_TIMESTAMP
-    WHERE patient_id = :patient_id
     """
     
     parameters = []
-    # Add patient_id for WHERE clause
-    parameters.append({'name': 'patient_id', 'value': {'stringValue': patient_id}})
-    
-    # Add all other fields
     for key, value in patient_data.items():
-        if key == 'patient_id':
-            continue  # Already added above
-            
         if value is None:
             param_value = {'isNull': True}
         elif key == 'date_of_birth' and value is not None:
@@ -252,15 +183,62 @@ def update_patient_in_database(rds_data, cluster_arn: str, secret_arn: str,
         
         parameters.append({'name': key, 'value': param_value})
     
-    rds_data.execute_statement(
-        resourceArn=cluster_arn,
-        secretArn=secret_arn,
-        database=database_name,
-        sql=update_sql,
-        parameters=parameters
-    )
-    
-    logger.info(f"Updated patient: {patient_data['full_name']} (ID: {patient_id})")
+    try:
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql=upsert_sql,
+            parameters=parameters
+        )
+        
+        cedula_info = f" (cedula: {patient_data.get('cedula', 'None')})" if patient_data.get('cedula') else " (no cedula)"
+        logger.info(f"Upserted patient: {patient_data['full_name']}{cedula_info}")
+        
+    except Exception as e:
+        if "duplicate key value violates unique constraint" in str(e).lower():
+            if "cedula" in str(e).lower():
+                logger.warning(f"Cedula conflict for patient {patient_data['full_name']}: {patient_data.get('cedula', 'None')} - trying without cedula")
+                # Retry without cedula
+                upsert_sql_no_cedula = """
+                INSERT INTO patients (
+                    patient_id, full_name, email, date_of_birth, phone,
+                    address, medical_history, lab_results, source_scan, created_at, updated_at
+                ) VALUES (
+                    :patient_id, :full_name, :email, :date_of_birth::date, :phone,
+                    :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT (patient_id) 
+                DO UPDATE SET
+                    full_name = EXCLUDED.full_name,
+                    email = EXCLUDED.email,
+                    date_of_birth = EXCLUDED.date_of_birth,
+                    phone = EXCLUDED.phone,
+                    address = EXCLUDED.address,
+                    medical_history = EXCLUDED.medical_history,
+                    lab_results = EXCLUDED.lab_results,
+                    source_scan = EXCLUDED.source_scan,
+                    updated_at = CURRENT_TIMESTAMP
+                """
+                
+                # Remove cedula from parameters
+                params_no_cedula = [p for p in parameters if p['name'] != 'cedula']
+                
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql=upsert_sql_no_cedula,
+                    parameters=params_no_cedula
+                )
+                
+                logger.info(f"Upserted patient without cedula: {patient_data['full_name']}")
+            else:
+                logger.warning(f"Duplicate key conflict for patient {patient_data['full_name']} - {e}")
+        else:
+            logger.error(f"Failed to upsert patient {patient_data['full_name']}: {e}")
+            raise
 
 
 def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, Any]:
@@ -287,11 +265,17 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
     
     # Extract cedula from document number if document type is cedula/ID
     cedula = None
-    document_type = personal_info.get('tipo_documento', '').lower()
-    document_number = personal_info.get('numero_documento', '')
+    document_type = personal_info.get('tipo_documento', '').lower().strip()
+    document_number = personal_info.get('numero_documento', '').strip()
     
-    if document_type in ['cedula', 'cédula', 'id', 'dni', 'cc'] and document_number:
-        cedula = document_number
+    # Map various document types to cedula
+    cedula_types = ['cedula', 'cédula', 'id', 'dni', 'cc', 'ci', 'rut', 'curp', 'dui']
+    
+    if document_type in cedula_types and document_number:
+        # Clean the document number (remove any non-alphanumeric characters except hyphens)
+        import re
+        cedula = re.sub(r'[^\w\-]', '', document_number)
+        logger.info(f"Extracted cedula: {cedula} from document type: {document_type}")
     
     # Build enhanced medical history with additional patient info
     enhanced_medical_history = profile.get('medical_history', {})
@@ -356,30 +340,23 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
 
     for medic in sample_medics:
         try:
-            # Check if medic already exists
-            check_response = rds_data.execute_statement(
-                resourceArn=cluster_arn,
-                secretArn=secret_arn,
-                database=database_name,
-                sql="SELECT COUNT(*) as count FROM medics WHERE email = :email",
-                parameters=[{'name': 'email', 'value': {
-                    'stringValue': medic['email']}}]
-            )
-
-            if check_response['records'][0][0].get('longValue', 0) > 0:
-                logger.info(
-                    f"Medic already exists, skipping: {medic['email']}")
-                continue
-
-            # Insert medic (updated to match current schema)
-            insert_sql = """
+            # Use UPSERT for medics
+            upsert_sql = """
             INSERT INTO medics (
                 medic_id, full_name, email, phone,
-                specialization, license_number, department
+                specialization, license_number, department, created_at, updated_at
             ) VALUES (
                 :medic_id, :full_name, :email, :phone,
-                :specialization, :license_number, :department
+                :specialization, :license_number, :department, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
+            ON CONFLICT (email) 
+            DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                phone = EXCLUDED.phone,
+                specialization = EXCLUDED.specialization,
+                license_number = EXCLUDED.license_number,
+                department = EXCLUDED.department,
+                updated_at = CURRENT_TIMESTAMP
             """
 
             parameters = []
@@ -391,11 +368,11 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
                 resourceArn=cluster_arn,
                 secretArn=secret_arn,
                 database=database_name,
-                sql=insert_sql,
+                sql=upsert_sql,
                 parameters=parameters
             )
 
-            logger.info(f"Inserted medic: {medic['full_name']}")
+            logger.info(f"Upserted medic: {medic['full_name']}")
 
         except Exception as e:
             logger.error(f"Failed to insert medic {medic['full_name']}: {e}")
@@ -441,28 +418,20 @@ def insert_sample_exams(rds_data, cluster_arn: str, secret_arn: str, database_na
 
     for exam in sample_exams:
         try:
-            # Check if exam already exists
-            check_response = rds_data.execute_statement(
-                resourceArn=cluster_arn,
-                secretArn=secret_arn,
-                database=database_name,
-                sql="SELECT COUNT(*) as count FROM exams WHERE exam_name = :exam_name",
-                parameters=[{'name': 'exam_name', 'value': {
-                    'stringValue': exam['exam_name']}}]
-            )
-
-            if check_response['records'][0][0].get('longValue', 0) > 0:
-                logger.info(
-                    f"Exam already exists, skipping: {exam['exam_name']}")
-                continue
-
-            # Insert exam
-            insert_sql = """
+            # Use UPSERT for exams
+            upsert_sql = """
             INSERT INTO exams (
-                exam_id, exam_name, exam_type, description, duration_minutes, preparation_instructions
+                exam_id, exam_name, exam_type, description, duration_minutes, preparation_instructions, created_at, updated_at
             ) VALUES (
-                :exam_id, :exam_name, :exam_type, :description, :duration_minutes, :preparation_instructions
+                :exam_id, :exam_name, :exam_type, :description, :duration_minutes, :preparation_instructions, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
+            ON CONFLICT (exam_name) 
+            DO UPDATE SET
+                exam_type = EXCLUDED.exam_type,
+                description = EXCLUDED.description,
+                duration_minutes = EXCLUDED.duration_minutes,
+                preparation_instructions = EXCLUDED.preparation_instructions,
+                updated_at = CURRENT_TIMESTAMP
             """
 
             parameters = []
@@ -478,11 +447,11 @@ def insert_sample_exams(rds_data, cluster_arn: str, secret_arn: str, database_na
                 resourceArn=cluster_arn,
                 secretArn=secret_arn,
                 database=database_name,
-                sql=insert_sql,
+                sql=upsert_sql,
                 parameters=parameters
             )
 
-            logger.info(f"Inserted exam: {exam['exam_name']}")
+            logger.info(f"Upserted exam: {exam['exam_name']}")
 
         except Exception as e:
             logger.error(f"Failed to insert exam {exam['exam_name']}: {e}")

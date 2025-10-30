@@ -6,23 +6,9 @@ Main coordinator agent that interfaces with frontend and manages specialized age
 from typing import Dict, Any, Optional, List, AsyncGenerator
 from datetime import datetime
 import base64
+from strands import Agent
+from strands.models import BedrockModel
 
-# Strands Agents imports
-try:
-    from strands import Agent
-    from strands.models import BedrockModel
-except ImportError:
-    # Placeholder for development
-    class Agent:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        async def stream_async(self, *args, **kwargs):
-            yield {"type": "text", "content": "Placeholder response"}
-
-    class BedrockModel:
-        def __init__(self, *args, **kwargs):
-            pass
 
 from ..shared.config import get_agent_config, get_model_config
 from ..shared.utils import get_logger, extract_patient_context

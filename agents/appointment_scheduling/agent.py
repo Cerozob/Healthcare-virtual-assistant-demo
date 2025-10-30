@@ -5,26 +5,8 @@ Specialized agent for managing appointment-related operations.
 
 from typing import Dict, Any, Optional
 
-# Strands Agents imports
-try:
-    from strands import Agent, tool
-    from strands.models import BedrockModel
-except ImportError:
-    # Placeholder for development
-    def tool(func):
-        return func
-    
-    class Agent:
-        def __init__(self, *args, **kwargs):
-            pass
-        
-        def __call__(self, *args, **kwargs):
-            return "Placeholder response"
-    
-    class BedrockModel:
-        def __init__(self, *args, **kwargs):
-            pass
-
+from strands import Agent, tool
+from strands.models import BedrockModel
 from ..shared.config import get_agent_config, get_model_config
 from ..shared.utils import get_logger
 from ..shared.prompts import get_prompt

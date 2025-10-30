@@ -12,7 +12,6 @@ import json
 import sys
 import os
 import time
-import argparse
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -22,52 +21,64 @@ def get_data_loader_function_name() -> str:
     try:
         cf = boto3.client('cloudformation')
 
-        # Try to find the backend stack
+        # Try to find the backend stack - look for AWSomeBuilder2-BackendStack pattern
         stacks = cf.list_stacks(
             StackStatusFilter=['CREATE_COMPLETE', 'UPDATE_COMPLETE'])
         backend_stack_name = None
 
         for stack in stacks['StackSummaries']:
-            if 'backend' in stack['StackName'].lower() or 'healthcare' in stack['StackName'].lower():
-                backend_stack_name = stack['StackName']
+            stack_name = stack['StackName']
+            if ('backend' in stack_name.lower() and 'awsomebuilder' in stack_name.lower()) or \
+               stack_name == 'AWSomeBuilder2-BackendStack':
+                backend_stack_name = stack_name
                 break
 
         if not backend_stack_name:
-            raise Exception("Could not find backend stack")
+            # Try alternative patterns
+            for stack in stacks['StackSummaries']:
+                if 'backend' in stack['StackName'].lower():
+                    backend_stack_name = stack['StackName']
+                    break
+
+        if not backend_stack_name:
+            raise Exception("Could not find backend stack. Available stacks: " + 
+                          ", ".join([s['StackName'] for s in stacks['StackSummaries']]))
+
+        print(f"Found backend stack: {backend_stack_name}")
 
         # Get stack outputs
         response = cf.describe_stacks(StackName=backend_stack_name)
         stack = response['Stacks'][0]
 
+        # Look for the correct output key
         for output in stack.get('Outputs', []):
             if output['OutputKey'] == 'DataLoaderFunctionName':
                 return output['OutputValue']
 
-        raise Exception("DataLoaderFunctionName output not found in stack")
+        # List available outputs for debugging
+        available_outputs = [output['OutputKey'] for output in stack.get('Outputs', [])]
+        raise Exception(f"DataLoaderFunctionName output not found in stack. Available outputs: {available_outputs}")
 
     except Exception as e:
         print(f"Error getting function name from CloudFormation: {e}")
         print("Trying fallback function name...")
-        return "healthcare-data-loader"  # Fallback
+        # Try the function name pattern from the CDK stack
+        return "AWSomeBuilder2-BackendStack-DataLoaderFunction"
 
 
-def invoke_data_loader(function_name: str, force_update: bool = False) -> Dict[str, Any]:
+def invoke_data_loader(function_name: str) -> Dict[str, Any]:
     """Invoke the data loader Lambda function."""
     lambda_client = boto3.client('lambda')
 
     print(f"Invoking data loader function: {function_name}")
-    if force_update:
-        print("🔄 Force update mode: Will update existing patients with new cedula data")
+    print("🔄 Using UPSERT mode: Will insert new patients or update existing ones")
 
     try:
-        payload = {
-            'UPDATE_EXISTING_PATIENTS': 'true' if force_update else 'false'
-        }
-
+        # No payload needed - UPSERT is the default behavior
         response = lambda_client.invoke(
             FunctionName=function_name,
             InvocationType='RequestResponse',  # Synchronous invocation
-            Payload=json.dumps(payload)
+            Payload=json.dumps({})
         )
 
         # Parse response
@@ -136,7 +147,7 @@ def find_sample_documents() -> List[Dict[str, str]]:
                             'local_path': str(file_path),
                             'patient_id': patient_id,
                             'filename': filename,
-                            's3_key': f"patients/{patient_id}/{filename}"
+                            's3_key': f"{patient_id}/{filename}"
                         })
 
     return documents
@@ -231,16 +242,6 @@ def check_prerequisites():
 
 def main():
     """Main function."""
-    parser = argparse.ArgumentParser(
-        description='Load sample healthcare data and documents')
-    parser.add_argument('--skip-documents', action='store_true',
-                        help='Skip document upload (only load database data)')
-    parser.add_argument('--documents-only', action='store_true',
-                        help='Only upload documents (skip database loading)')
-    parser.add_argument('--force-update', action='store_true',
-                        help='Update existing patients with new data (useful for cedula repopulation)')
-    args = parser.parse_args()
-
     print("🚀 Healthcare Sample Data & Document Loader")
     print("=" * 55)
 
@@ -251,76 +252,62 @@ def main():
         print("3. You're running this from the project root directory")
         sys.exit(1)
 
-    # Step 1: Load patient data via Lambda (unless documents-only)
-    if not args.documents_only:
-        print("\n📊 Step 1: Loading patient data into database...")
+    # Step 1: Load patient data via Lambda
+    print("\n📊 Step 1: Loading patient data into database...")
 
-        try:
-            function_name = get_data_loader_function_name()
-            print(f"📋 Found data loader function: {function_name}")
-        except Exception as e:
-            print(f"❌ Could not find data loader function: {e}")
-            sys.exit(1)
+    try:
+        function_name = get_data_loader_function_name()
+        print(f"📋 Found data loader function: {function_name}")
+    except Exception as e:
+        print(f"❌ Could not find data loader function: {e}")
+        sys.exit(1)
 
-        # Invoke the Lambda function
-        result = invoke_data_loader(function_name, args.force_update)
+    # Invoke the Lambda function
+    result = invoke_data_loader(function_name)
 
-        if 'error' in result:
-            print(f"\n❌ Data loading failed: {result['error']}")
-            sys.exit(1)
+    if 'error' in result:
+        print(f"\n❌ Data loading failed: {result['error']}")
+        sys.exit(1)
 
-        print("✅ Patient data loaded successfully!")
+    print("✅ Patient data loaded successfully!")
 
-    # Step 2: Upload documents to raw bucket (unless skip-documents)
-    if not args.skip_documents:
-        print("\n📄 Step 2: Uploading sample documents...")
+    # Step 2: Upload documents to raw bucket
+    print("\n📄 Step 2: Uploading sample documents...")
 
-        documents = find_sample_documents()
-        if not documents:
-            print("⚠️  No sample documents found to upload")
-            print("   This is optional - you can upload documents manually later")
-        else:
-            try:
-                raw_bucket = get_raw_bucket_name()
-                uploaded_count = upload_documents_to_s3(raw_bucket, documents)
-
-                if uploaded_count > 0:
-                    print(
-                        f"✅ Successfully uploaded {uploaded_count}/{len(documents)} documents")
-                else:
-                    print("❌ No documents were uploaded successfully")
-
-            except Exception as e:
-                print(f"❌ Document upload failed: {e}")
-                print("   You can upload documents manually using the upload script")
+    documents = find_sample_documents()
+    if not documents:
+        print("⚠️  No sample documents found to upload")
+        print("   This is optional - you can upload documents manually later")
     else:
-        print("\n📄 Step 2: Skipping document upload (--skip-documents flag)")
-        documents = []
+        try:
+            raw_bucket = get_raw_bucket_name()
+            uploaded_count = upload_documents_to_s3(raw_bucket, documents)
+
+            if uploaded_count > 0:
+                print(
+                    f"✅ Successfully uploaded {uploaded_count}/{len(documents)} documents")
+            else:
+                print("❌ No documents were uploaded successfully")
+
+        except Exception as e:
+            print(f"❌ Document upload failed: {e}")
+            print("   You can upload documents manually using the upload script")
 
     print("\n🎉 Sample data loading completed!")
     print("\n📋 Summary:")
-    if not args.documents_only:
-        print("✅ Patient profiles loaded into database")
-        print("✅ Sample medics and exams loaded")
-    if not args.skip_documents and documents:
+    print("✅ Patient profiles upserted into database")
+    print("✅ Sample medics and exams upserted")
+    if documents:
         print("✅ Sample documents uploaded to raw bucket")
         print("🔄 Document workflow will automatically process uploaded files")
 
     print("\n🚀 Next steps:")
-    if not args.documents_only:
-        print("1. Check the database for loaded patient data")
-        print("2. Test the API endpoints with the sample data")
-        print("3. Use the frontend to interact with the loaded data")
-    if not args.skip_documents and documents:
+    print("1. Check the database for loaded patient data")
+    print("2. Test the API endpoints with the sample data")
+    print("3. Use the frontend to interact with the loaded data")
+    if documents:
         print("4. Monitor document processing in CloudWatch logs")
         print("5. Check the processed bucket for extracted document data")
-
-    if args.skip_documents:
-        print("\n💡 Useful commands:")
-        print("   # Upload documents only:")
-        print("   python scripts/load_sample_data.py --documents-only")
-        print("   # Force update existing patients (for cedula repopulation):")
-        print("   python scripts/load_sample_data.py --force-update")
 
 
 if __name__ == "__main__":

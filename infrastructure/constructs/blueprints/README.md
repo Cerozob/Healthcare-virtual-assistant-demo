@@ -8,10 +8,15 @@ This directory contains JSON blueprint definitions for AWS Bedrock Data Automati
 **Purpose**: Extract structured data from medical records (PDFs, Word documents)
 
 **Key Fields**:
-- Patient information (name, DOB, MRN, contact info)
-- Diagnoses with ICD codes
-- Medications and dosages
-- Allergies and vital signs
+- **Enhanced PII/PHI Detection**: Comprehensive extraction of personally identifiable and protected health information
+  - Patient demographics (name, DOB, age, gender)
+  - Government IDs (passport, national ID, social security number)
+  - Contact information (phone, email, address, emergency contacts)
+  - Medical identifiers (MRN, insurance numbers)
+  - Employment information
+  - Fallback field for unclassified PII/PHI
+- Medical information (diagnoses with ICD codes, medications, allergies)
+- Vital signs and physical measurements
 - Symptoms and treatment plans
 
 **Document Types**: PDF, DOC, DOCX
@@ -20,11 +25,14 @@ This directory contains JSON blueprint definitions for AWS Bedrock Data Automati
 **Purpose**: Extract information from medical images
 
 **Key Fields**:
-- Image type (X-ray, MRI, CT, etc.)
-- Body part and anatomical view
+- **Enhanced PII/PHI Detection**: Extraction of personal information visible in medical images
+  - Patient demographics (name, DOB, age, gender)
+  - Contact information (phone, address)
+  - Medical identifiers and facility information
+  - Fallback field for unclassified PII/PHI
+- Image analysis (type, body part, anatomical view)
 - Medical findings and abnormalities
 - Measurements and quality assessment
-- Patient identifiers (anonymized)
 
 **Document Types**: JPEG, PNG, TIFF, DICOM
 
@@ -32,8 +40,13 @@ This directory contains JSON blueprint definitions for AWS Bedrock Data Automati
 **Purpose**: Transcribe and extract data from medical audio recordings
 
 **Key Fields**:
-- Full transcript with speaker identification
-- Chief complaint and symptoms
+- **Enhanced PII/PHI Detection**: Extraction of personal information from audio content
+  - Patient demographics (name, DOB, age, gender)
+  - Contact information (phone, address)
+  - Government and medical identifiers
+  - Insurance information
+  - Fallback field for unclassified PII/PHI
+- Medical content (transcript summary, chief complaint, symptoms)
 - Physical examination findings
 - Assessment and treatment plan
 - Medications discussed
@@ -49,10 +62,14 @@ This directory contains JSON blueprint definitions for AWS Bedrock Data Automati
 **Purpose**: Extract information from medical videos
 
 **Key Fields**:
-- Video type (procedure, consultation, etc.)
-- Key frames with timestamps
-- Visual observations
-- Audio transcription
+- **Enhanced PII/PHI Detection**: Extraction of personal information from video content
+  - Patient demographics (name, DOB, age, gender)
+  - Contact information (phone, address)
+  - Medical identifiers and healthcare provider names
+  - Fallback field for unclassified PII/PHI
+- Video analysis (type, procedure classification)
+- Visual observations and key frames
+- Audio transcription and medical content
 - Procedure steps and outcomes
 
 **Document Types**: MP4, AVI, MOV, WMV
@@ -117,6 +134,47 @@ all_arns = bda_blueprints.get_all_blueprint_arns()
 project_arn = bda_blueprints.get_project_arn()
 profile_arn = bda_blueprints.get_profile_arn()
 ```
+
+## Enhanced PII/PHI Detection
+
+All blueprints have been enhanced with comprehensive PII/PHI detection capabilities to ensure HIPAA compliance and data privacy protection.
+
+### Detected PII/PHI Categories
+
+**Personal Identifiers:**
+- Full names (patient, healthcare providers, emergency contacts)
+- Date of birth (multiple formats supported)
+- Age and gender/sex
+- Government identification numbers (passport, national ID, social security)
+- Contact information (phone numbers with country codes, email addresses, physical addresses)
+
+**Medical Identifiers:**
+- Medical record numbers (MRN)
+- Patient identifiers and account numbers
+- Health insurance numbers and policy information
+- Healthcare facility information
+
+**Employment & Financial:**
+- Employer information
+- Bank account numbers
+- Credit card numbers (if present in medical billing contexts)
+
+**Biometric & Technical:**
+- Biometric identifiers (fingerprints, facial recognition data, genetic information)
+- Device identifiers and serial numbers
+- IP addresses and geolocation data
+- Web URLs containing personal information
+
+**Fallback Detection:**
+Each blueprint includes an `other_pii_phi` field with the instruction: "Look for any other Unclassified PIIs/PHIs not captured in the above fields" to ensure comprehensive coverage of any PII/PHI that doesn't fit standard categories.
+
+### Multi-Language Support
+
+The enhanced detection works across multiple languages and formats, including:
+- Spanish medical documents (as shown in sample: "Ana Isabel Castillo Jiménez", "Femenino", etc.)
+- Various date formats (DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD)
+- International phone number formats with country codes
+- Different naming conventions for government IDs across countries
 
 ## Customization
 

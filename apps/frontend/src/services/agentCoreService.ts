@@ -1,6 +1,7 @@
 /**
  * AgentCore Streaming Service
  * Direct integration with AWS Bedrock AgentCore for streaming responses
+ * Uses IAM-based authentication through Amplify Auth credentials
  */
 
 import {
@@ -16,19 +17,11 @@ import {
   type GetAgentRuntimeCommandOutput
 } from '@aws-sdk/client-bedrock-agentcore-control';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { v4 as uuidv4 } from 'uuid';
 
 // Environment variables
 const AGENTCORE_RUNTIME_ID = import.meta.env.VITE_AGENTCORE_RUNTIME_ID;
 const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-1';
-
-export interface StreamingChatMessage {
-  id: string;
-  content: string;
-  type: 'user' | 'agent' | 'system';
-  timestamp: string;
-  isStreaming?: boolean;
-  metadata?: Record<string, unknown>;
-}
 
 export interface StreamingChatResponse {
   sessionId: string;
@@ -36,6 +29,17 @@ export interface StreamingChatResponse {
   isComplete: boolean;
   content: string;
   metadata?: Record<string, unknown>;
+}
+
+// Interface for AgentCore response with streaming properties
+interface AgentCoreStreamingResponse {
+  response?: {
+    transformToString(): Promise<string>;
+    transformToByteArray(): Promise<Uint8Array>;
+  };
+  statusCode?: number;
+  runtimeSessionId?: string;
+  contentType?: string;
 }
 
 export class AgentCoreStreamingService {
@@ -54,7 +58,7 @@ export class AgentCoreStreamingService {
   private async getAgentCoreClient(): Promise<BedrockAgentCoreClient> {
     if (!this.agentCoreClient) {
       const credentials = await this.getCredentials();
-      
+
       this.agentCoreClient = new BedrockAgentCoreClient({
         region: AWS_REGION,
         credentials
@@ -72,7 +76,7 @@ export class AgentCoreStreamingService {
   private async getControlClient(): Promise<BedrockAgentCoreControlClient> {
     if (!this.controlClient) {
       const credentials = await this.getCredentials();
-      
+
       this.controlClient = new BedrockAgentCoreControlClient({
         region: AWS_REGION,
         credentials
@@ -117,7 +121,7 @@ export class AgentCoreStreamingService {
 
     try {
       const controlClient = await this.getControlClient();
-      
+
       const input: GetAgentRuntimeCommandInput = {
         agentRuntimeId: this.agentRuntimeId
       };
@@ -131,7 +135,7 @@ export class AgentCoreStreamingService {
 
       this.agentRuntimeArn = response.agentRuntimeArn;
       console.log('🎯 AgentCore Runtime ARN:', this.agentRuntimeArn);
-      
+
       return this.agentRuntimeArn;
     } catch (error) {
       console.error('❌ Error getting AgentCore runtime ARN:', error);
@@ -144,6 +148,17 @@ export class AgentCoreStreamingService {
    */
   private isConfigured(): boolean {
     return !!this.agentRuntimeId;
+  }
+
+  /**
+   * Generate a valid AgentCore session ID (minimum 33 characters)
+   */
+  private generateSessionId(): string {
+    // Use UUID v4 for session ID - this ensures uniqueness and meets length requirement
+    const sessionId = `agentcore_session_${uuidv4()}`;
+
+    console.log(`Generated session ID: ${sessionId} (length: ${sessionId.length})`);
+    return sessionId;
   }
 
   /**
@@ -166,25 +181,50 @@ export class AgentCoreStreamingService {
         throw new Error('AgentCore runtime ID not configured. Please set VITE_AGENTCORE_RUNTIME_ID environment variable.');
       }
 
-      // Get the AgentCore client and runtime ARN
+      // Get the AgentCore client
       const client = await this.getAgentCoreClient();
+
+      // Generate valid session ID if not provided
+      const validSessionId = sessionId || this.generateSessionId();
+      console.log('🔑 Using session ID:', validSessionId, `(length: ${validSessionId.length})`);
+
+      // Get the AgentCore runtime ARN
       const runtimeArn = await this.getAgentRuntimeArn();
 
-      // Prepare the request based on SDK documentation
+      // Prepare the request based on AgentCore SDK documentation
       const input: InvokeAgentRuntimeCommandInput = {
-        agentRuntimeArn: runtimeArn,
-        mcpSessionId: sessionId || `session_${Date.now()}`,
+        agentRuntimeArn: runtimeArn,                    // Required: ARN not ID
+        runtimeSessionId: validSessionId,               // Required: runtimeSessionId not sessionId
         payload: new TextEncoder().encode(JSON.stringify({
-          inputText: message,
+          prompt: message,
           timestamp: new Date().toISOString()
-        }))
+        }))                                             // Required: payload not inputText
       };
 
       console.log('📦 AgentCore request:', input);
       console.groupEnd();
 
       const command = new InvokeAgentRuntimeCommand(input);
-      const response: InvokeAgentRuntimeCommandOutput = await client.send(command);
+
+      let response: InvokeAgentRuntimeCommandOutput;
+      try {
+        response = await client.send(command);
+        console.log('✅ Command sent successfully');
+      } catch (error: any) {
+        // Enhanced error logging for debugging
+        console.error('❌ AgentCore command failed:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        console.error('Error code:', error.$metadata?.httpStatusCode);
+
+        // Check for common parameter issues
+        if (error.message?.includes('ValidationException') || error.message?.includes('InvalidParameter')) {
+          console.error('🔍 Possible parameter issue. Input was:', input);
+          throw new Error(`AgentCore parameter validation failed: ${error.message}`);
+        }
+
+        throw error;
+      }
 
       console.group('📥 AGENTCORE STREAMING RESPONSE');
       console.log('✅ Response received:', response);
@@ -192,62 +232,62 @@ export class AgentCoreStreamingService {
       // Handle response
       let fullContent = '';
       const messageId = `agent_${Date.now()}`;
-      const responseSessionId = response.mcpSessionId || input.mcpSessionId || `session_${Date.now()}`;
+      const responseSessionId = response.runtimeSessionId || input.runtimeSessionId || this.generateSessionId();
 
-      // Handle response - use type assertion for SDK properties that may not be fully typed
-      const responseAny = response as any;
-      
-      // Check for streaming response
-      if (responseAny.completion) {
-        // Handle streaming completion
+      // Type the response properly
+      const streamingResponse = response as AgentCoreStreamingResponse;
+
+      // Handle streaming response based on SDK documentation
+      if (streamingResponse.response) {
         try {
-          for await (const chunk of responseAny.completion) {
-            if (chunk.chunk?.bytes) {
-              const chunkText = new TextDecoder().decode(chunk.chunk.bytes);
-              fullContent += chunkText;
+          // The response is a stream - convert to string
+          const responseText = await streamingResponse.response.transformToString();
+          fullContent = responseText;
 
-              // Call chunk callback
-              if (onChunk) {
-                const chunkResponse: StreamingChatResponse = {
-                  sessionId: responseSessionId,
-                  messageId,
-                  isComplete: false,
-                  content: fullContent,
-                  metadata: {
-                    chunk: chunkText,
-                    agentCoreSDK: true
-                  }
-                };
-                onChunk(chunkResponse);
+          // Call chunk callback for streaming simulation
+          if (onChunk) {
+            const chunkResponse: StreamingChatResponse = {
+              sessionId: responseSessionId,
+              messageId,
+              isComplete: false,
+              content: fullContent,
+              metadata: {
+                agentCoreSDK: true,
+                statusCode: streamingResponse.statusCode
               }
-            }
+            };
+            onChunk(chunkResponse);
           }
         } catch (streamError) {
-          console.warn('Streaming failed, using fallback:', streamError);
-          fullContent = responseAny.outputText || 
-                       responseAny.response || 
-                       `AgentCore processed: "${message}"`;
+          console.error('Stream processing failed:', streamError);
+          throw streamError;
         }
       } else {
-        // Handle non-streaming response
-        fullContent = responseAny.outputText || 
-                     responseAny.response || 
-                     responseAny.message ||
-                     `AgentCore processed: "${message}"`;
+        // Fallback: log response structure for debugging
+        console.log('Response structure for debugging:', Object.keys(response));
+        console.log('Full response:', response);
 
-        // Simulate chunk callback for immediate response
-        if (onChunk) {
-          const chunkResponse: StreamingChatResponse = {
-            sessionId: responseSessionId,
-            messageId,
-            isComplete: false,
-            content: fullContent,
-            metadata: {
-              agentCoreSDK: true
-            }
-          };
-          onChunk(chunkResponse);
+        // Try to extract any text content from the response
+        const responseStr = JSON.stringify(response);
+        if (responseStr.length > 50) {
+          fullContent = `Response received but format unclear. Keys: ${Object.keys(response).join(', ')}`;
+        } else {
+          throw new Error('No content received from AgentCore');
         }
+      }
+
+      // Call chunk callback for immediate response
+      if (onChunk) {
+        const chunkResponse: StreamingChatResponse = {
+          sessionId: responseSessionId,
+          messageId,
+          isComplete: false,
+          content: fullContent,
+          metadata: {
+            agentCoreSDK: true
+          }
+        };
+        onChunk(chunkResponse);
       }
 
       // Final response
@@ -255,7 +295,7 @@ export class AgentCoreStreamingService {
         sessionId: responseSessionId,
         messageId,
         isComplete: true,
-        content: fullContent || 'No response received',
+        content: fullContent,
         metadata: {
           sessionId: responseSessionId,
           agentCoreResponse: response,
@@ -282,9 +322,9 @@ export class AgentCoreStreamingService {
         onError(new Error(errorMessage));
       }
 
-      // Return error response
+      // Return error response with valid session ID
       return {
-        sessionId: sessionId || `error_session_${Date.now()}`,
+        sessionId: sessionId || this.generateSessionId(),
         messageId: `error_${Date.now()}`,
         isComplete: true,
         content: `Error: ${errorMessage}`,

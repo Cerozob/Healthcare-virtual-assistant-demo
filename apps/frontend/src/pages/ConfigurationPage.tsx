@@ -18,6 +18,7 @@ import {
   MedicForm,
   type PatientFile,
   PatientForm,
+
   ReservationForm,
 } from '../components/config';
 import { MainLayout } from '../components/layout';
@@ -29,6 +30,7 @@ import { medicService } from '../services/medicService';
 import { patientService } from '../services/patientService';
 import { reservationService } from '../services/reservationService';
 import { storageService } from '../services/storageService';
+
 import type {
   CreateExamRequest,
   CreateMedicRequest,
@@ -87,27 +89,51 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
   const [files, setFiles] = useState<PatientFile[]>([]);
   const [selectedPatientForFiles, setSelectedPatientForFiles] = useState<string>('');
 
+
+
   const loadFiles = useCallback(async (patientId?: string) => {
     try {
-      console.log(`Loading files from S3 with metadata${patientId ? ` for patient: ${patientId}` : ' (all patients)'}...`);
+      // If no patient is selected, don't load any files
+      if (!patientId) {
+        console.log('No patient selected, not loading any files');
+        setFiles([]);
+        return;
+      }
 
-      // Use patient ID as prefix if provided to filter files
-      const prefix = patientId ? `${patientId}/` : undefined;
+      console.log(`Loading files from S3 with metadata for patient: ${patientId}...`);
+
+      // Use patient ID as prefix to filter files
+      const prefix = `${patientId}/`;
       const s3Files = await storageService.listFiles(prefix, { includeMetadata: true });
 
       // Convert S3 file items to PatientFile format
       const patientFiles: PatientFile[] = s3Files.map((s3File) => {
         // Extract patient ID and other metadata from the file key
         // Assuming file keys follow a pattern like: patients/{patientId}/{fileId}/{filename}
+        console.log(JSON.stringify(s3File))
         const keyParts = s3File.key.split('/');
         const fileName = keyParts[keyParts.length - 1] || s3File.key;
 
         // Extract classification from S3 metadata
+        // Handle both with and without x-amz-meta- prefix
         const metadata = s3File.metadata || {};
-        const category = metadata['document-category'] || metadata.documentcategory || 'other';
-        const confidence = parseFloat(metadata['classification-confidence'] || metadata.classificationconfidence || '0');
-        const autoClassified = metadata['auto-classified'] === 'true' || metadata.autoclassified === 'true';
-        const originalClassification = metadata['original-classification'] || metadata.originalclassification;
+        const category = metadata['document-category'] || 
+                        metadata['x-amz-meta-document-category'] || 
+                        metadata.documentcategory || 'other';
+        const confidence = parseFloat(
+          metadata['classification-confidence'] || 
+          metadata['x-amz-meta-classification-confidence'] || 
+          metadata.classificationconfidence || '0'
+        );
+        const autoClassified = (
+          metadata['auto-classified'] === 'true' || 
+          metadata['x-amz-meta-auto-classified'] === 'true' ||
+          metadata['x-amz-meta-auto-classified'] === 'True' ||
+          metadata.autoclassified === 'true'
+        );
+        const originalClassification = metadata['original-classification'] || 
+                                     metadata['x-amz-meta-original-classification'] ||
+                                     metadata.originalclassification;
 
         console.log(`File ${fileName} metadata:`, {
           category,
@@ -118,7 +144,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
         });
 
         return {
-          id: s3File.key,
+          id: s3File.key, // S3 key should be unique
           name: fileName,
           type: fileName.split('.').pop()?.toUpperCase() || 'UNKNOWN',
           size: s3File.size || 0,
@@ -132,12 +158,14 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
       });
 
       setFiles(patientFiles);
-      console.log(`Loaded ${patientFiles.length} files from S3 with classification metadata${patientId ? ` for patient: ${patientId}` : ' (all patients)'}`);
+      console.log(`Loaded ${patientFiles.length} files from S3 with classification metadata for patient: ${patientId}`);
     } catch (err) {
       console.error('Failed to load files from S3:', err);
       setError(err instanceof Error ? err.message : 'Failed to load files');
     }
   }, []);
+
+
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -170,6 +198,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
           await loadFiles(selectedPatientForFiles || undefined);
           break;
         }
+
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t.errors.generic);
@@ -490,12 +519,72 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
     }
   };
 
+
+
+  // Helper functions for patient display
+  const formatAddress = (address: any) => {
+    if (!address) return 'N/A';
+    try {
+      const addr = typeof address === 'string' ? JSON.parse(address) : address;
+      const parts = [];
+      if (addr.street || addr.calle) parts.push(addr.street || addr.calle);
+      if (addr.city || addr.ciudad) parts.push(addr.city || addr.ciudad);
+      return parts.length > 0 ? parts.join(', ') : 'N/A';
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const getGenderDisplay = (gender?: string) => {
+    if (!gender) return 'N/A';
+    return gender === 'M' ? 'Masculino' : gender === 'F' ? 'Femenino' : gender;
+  };
+
+  const getSourceDocumentDisplay = (sourceScan?: string) => {
+    return sourceScan && sourceScan.trim() !== '' ? 'Sí' : 'No';
+  };
+
+  const getMedicalConditionsCount = (medicalHistory: any) => {
+    if (!medicalHistory) return 0;
+    try {
+      const history = typeof medicalHistory === 'string' ? JSON.parse(medicalHistory) : medicalHistory;
+      return history?.conditions?.length || 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const getLabResultsCount = (labResults: any) => {
+    if (!labResults) return 0;
+    try {
+      const results = typeof labResults === 'string' ? JSON.parse(labResults) : labResults;
+      return Array.isArray(results) ? results.length : 0;
+    } catch {
+      return 0;
+    }
+  };
+
   // Column definitions
   const patientColumns: EntityColumn<Patient>[] = [
-    { id: 'patient_id', header: 'ID', cell: (item) => item.patient_id, width: 150 },
-    { id: 'full_name', header: 'Nombre completo', cell: (item) => item.full_name, sortingField: 'full_name' },
-    { id: 'date_of_birth', header: 'Fecha de nacimiento', cell: (item) => item.date_of_birth },
-    { id: 'created_at', header: 'Fecha de creación', cell: (item) => new Date(item.created_at).toLocaleDateString('es-MX') },
+    { id: 'patient_id', header: 'ID', cell: (item) => item.patient_id, width: 120 },
+    { id: 'full_name', header: 'Nombre completo', cell: (item) => item.full_name, sortingField: 'full_name', width: 200 },
+    { id: 'email', header: 'Email', cell: (item) => item.email || 'N/A', width: 180 },
+    { id: 'phone', header: 'Teléfono', cell: (item) => item.phone || 'N/A', width: 140 },
+    { id: 'date_of_birth', header: 'Fecha de nacimiento', cell: (item) => item.date_of_birth, width: 130 },
+    { id: 'age', header: 'Edad', cell: (item) => item.age ? `${item.age} años` : 'N/A', width: 80 },
+    { id: 'gender', header: 'Género', cell: (item) => getGenderDisplay(item.gender), width: 100 },
+    { id: 'document', header: 'Documento', cell: (item) => item.document_type && item.document_number ? `${item.document_type}: ${item.document_number}` : 'N/A', width: 150 },
+    { id: 'address', header: 'Dirección', cell: (item) => formatAddress(item.address), width: 200 },
+    { id: 'medical_conditions', header: 'Condiciones médicas', cell: (item) => {
+      const count = getMedicalConditionsCount(item.medical_history);
+      return count > 0 ? `${count} condiciones` : 'Sin condiciones';
+    }, width: 140 },
+    { id: 'lab_results', header: 'Resultados lab', cell: (item) => {
+      const count = getLabResultsCount(item.lab_results);
+      return count > 0 ? `${count} resultados` : 'Sin resultados';
+    }, width: 130 },
+    { id: 'source_scan', header: 'Doc. fuente', cell: (item) => getSourceDocumentDisplay(item.source_scan), width: 100 },
+    { id: 'created_at', header: 'Fecha de creación', cell: (item) => new Date(item.created_at).toLocaleDateString('es-MX'), width: 130 },
   ];
 
   const medicColumns: EntityColumn<Medic>[] = [
@@ -657,6 +746,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                 />
               ),
             },
+
             {
               id: 'settings',
               label: t.config.settings,

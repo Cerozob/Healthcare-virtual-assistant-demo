@@ -91,8 +91,9 @@ class ApiStack(Stack):
             print(f"Function {func_name}: {func_obj}")
 
         # Validate that all required Lambda functions are provided
+        # Note: agent_integration is optional since AgentCore is accessed directly
         required_functions = ["patients", "medics", "exams",
-                              "reservations", "files", "agent_integration"]
+                              "reservations", "files"]
         missing_functions = []
         for func_name in required_functions:
             if not self.lambda_functions.get(func_name):
@@ -113,10 +114,6 @@ class ApiStack(Stack):
             "ReservationsIntegration", self.lambda_functions["reservations"])
         files_integration = HttpLambdaIntegration(
             "FilesIntegration", self.lambda_functions["files"])
-
-        # chat_integration removed - using AgentCore instead
-        agent_integration = HttpLambdaIntegration(
-            "AgentIntegration", self.lambda_functions["agent_integration"])
 
         # Helper function to create CRUD routes with throttling
         def create_crud_routes(path: str, integration: HttpLambdaIntegration, throttle_settings=None):
@@ -173,18 +170,8 @@ class ApiStack(Stack):
             integration=files_integration
         )
 
-        # AgentCore routes only
-        self.api.add_routes(
-            path="/agentcore/chat",
-            methods=[apigwv2.HttpMethod.POST],
-            integration=agent_integration
-        )
-
-        self.api.add_routes(
-            path="/agentcore/health",
-            methods=[apigwv2.HttpMethod.GET],
-            integration=agent_integration
-        )
+        # Note: AgentCore endpoints (/invocations, /ping) are handled directly by AgentCore runtime
+        # They should not be routed through API Gateway
 
         # Create a production stage with throttling
         self.stage = apigwv2.HttpStage(

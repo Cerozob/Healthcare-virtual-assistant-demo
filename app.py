@@ -171,9 +171,21 @@ lambda_functions = {
     "exams": backend_stack.exams_function,
     "reservations": backend_stack.reservations_function,
     "files": backend_stack.files_function,
-    "agent_integration": backend_stack.agent_integration_function
-    # Note: extraction_lambda removed to avoid cyclic dependencies
 }
+
+# Create the assistant stack first (provides OAuth Lambda)
+assistant_stack = AssistantStack(
+    app,
+    "genaistack",
+    bedrock_user_secret=backend_stack.bedrock_user_secret,
+    processed_bucket=document_workflow_stack.processed_bucket,
+    database_cluster=backend_stack.db_cluster,
+    db_init_resource=backend_stack.db_init_resource,
+    lambda_functions=lambda_functions,
+    env=env,
+    stack_name="AWSomeBuilder2-VirtualAssistantStack",
+    description="Asistente virtual con GenAI",
+)
 
 # Create the API stack with Lambda functions from backend
 api_stack = ApiStack(
@@ -185,19 +197,7 @@ api_stack = ApiStack(
     description="API Gateway for healthcare system",
 )
 
-assistant_stack = AssistantStack(
-    app,
-    "genaistack",
-    bedrock_user_secret=backend_stack.bedrock_user_secret,
-    processed_bucket=document_workflow_stack.processed_bucket,
-    database_cluster=backend_stack.db_cluster,
-    db_init_resource=backend_stack.db_init_resource,
-    lambda_functions=lambda_functions,
 
-    env=env,
-    stack_name="AWSomeBuilder2-VirtualAssistantStack",
-    description="Asistente virtual con GenAI",
-)
 
 # Add stack dependencies - API stack now depends on backend and assistant stacks
 logger.info("Configuring stack dependencies...")
@@ -212,4 +212,3 @@ logger.info("CDK synthesis completed successfully")
 
 logger.warning(
     "⚠️ Heads up! the frontend need to be deployed separeately using Amplify!")
-

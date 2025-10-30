@@ -26,10 +26,78 @@ export interface ApiResponse<T> {
 
 
 // Patient types
+export interface Address {
+  street?: string;
+  city?: string;
+  province?: string;
+  country?: string;
+  postal_code?: string;
+  numero?: string;
+  calle?: string;
+  ciudad?: string;
+  pais?: string;
+  codigo_postal?: string;
+}
+
+export interface MedicalCondition {
+  codigo?: string;
+  estado: string;
+  descripcion: string;
+  fecha_diagnostico: string;
+}
+
+export interface MedicalProcedure {
+  fecha: string;
+  nombre: string;
+  notas?: string;
+}
+
+export interface Medication {
+  nombre: string;
+  dosis: string;
+  frecuencia: string;
+  fecha_inicio: string;
+  activo: boolean;
+}
+
+export interface MedicalHistory {
+  conditions: MedicalCondition[];
+  procedures?: MedicalProcedure[];
+  medications: Medication[];
+  age?: number;
+  gender?: string;
+  document?: {
+    type: string;
+    number: string;
+  };
+}
+
+export interface LabResult {
+  fecha: string;
+  nombre_prueba: string;
+  valor: string;
+  unidad: string;
+  estado: 'normal' | 'anormal';
+  rango_referencia: string;
+}
+
 export interface Patient {
   patient_id: string;
+  first_name?: string;
+  last_name?: string;
   full_name: string;
+  email?: string;
+  phone?: string;
   date_of_birth: string;
+  age?: number;
+  gender?: 'M' | 'F' | string;
+  document_type?: string;
+  document_number?: string;
+  address?: Address;
+  medical_history?: MedicalHistory;
+  lab_results?: LabResult[];
+  source_scan?: string;
+  cedula?: string;
   created_at: string;
   updated_at: string;
 }

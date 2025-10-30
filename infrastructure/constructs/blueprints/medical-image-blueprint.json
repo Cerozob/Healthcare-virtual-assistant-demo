@@ -35,10 +35,40 @@
       "inferenceType": "explicit",
       "instruction": "Any measurements taken from the image with values and units"
     },
+    "patient_name": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient name visible on the image"
+    },
     "patient_identifier": {
       "type": "string",
       "inferenceType": "explicit",
-      "instruction": "Extract any patient identifier visible on the image"
+      "instruction": "Extract any patient identifier, MRN, or ID number visible on the image"
+    },
+    "date_of_birth": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient date of birth visible on the image"
+    },
+    "age": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient age visible on the image"
+    },
+    "gender": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract patient gender or sex visible on the image"
+    },
+    "phone_number": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any phone number visible on the image"
+    },
+    "address": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Extract any address information visible on the image"
     },
     "image_date": {
       "type": "string",
@@ -84,6 +114,11 @@
       "type": "number",
       "inferenceType": "inferred",
       "instruction": "Provide confidence score (0-100) for the document type classification. Consider image quality, presence of medical imaging markers, DICOM metadata, and clarity of medical imaging content."
+    },
+    "other_pii_phi": {
+      "type": "string",
+      "inferenceType": "explicit",
+      "instruction": "Look for any other Unclassified PIIs/PHIs not captured in the above fields visible in the image. This includes but is not limited to: social security numbers, passport numbers, driver's license numbers, insurance numbers, account numbers, biometric identifiers visible in the image, device serial numbers, IP addresses, geolocation data, or any other personally identifiable or protected health information that doesn't fit the specific categories above."
     }
   }
 }
