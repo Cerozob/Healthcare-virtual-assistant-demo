@@ -6,8 +6,10 @@ Uses LLM to extract patient information. Database queries are handled by MCP Gat
 import logging
 from typing import Optional, Dict, Any
 from strands import tool, Agent
+from strands.models import BedrockModel
 from pydantic import BaseModel, Field
 from shared.prompts import get_prompt
+from shared.config import get_model_config
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +22,15 @@ class PatientInfo(BaseModel):
     medical_record_number: Optional[str] = Field(None, description="Medical record number")
     has_patient_info: bool = Field(False, description="True if patient info found in message")
 
-# Create extraction agent
+# Get model configuration
+model_config = get_model_config()
+
+# Create extraction agent (no guardrails - only orchestrator has them)
 extraction_agent = Agent(
     system_prompt=get_prompt("patient_extraction"),
-    callback_handler=None
+    model=BedrockModel(
+        model_id=model_config.model_id
+    )
 )
 
 @tool(

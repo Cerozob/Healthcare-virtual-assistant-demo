@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-from config import get_config
+from shared.config import get_agent_config
 from healthcare_agent import create_healthcare_agent
 from shared.utils import get_logger
 from shared.models import PatientInfoResponse, SessionContext
@@ -42,12 +42,13 @@ log_environment_variables()
 app = FastAPI(title="Healthcare Assistant Agent", version="2.0.0")
 
 # Load configuration
-config = get_config()
+config = get_agent_config()
 
 
 class InvocationRequest(BaseModel):
     prompt: str
-    sessionId: Optional[str] = None
+    # AgentCore only sends 'prompt' field according to HTTP contract
+    # sessionId will be generated if not provided
 
 
 class PatientContextResponse(BaseModel):
@@ -65,7 +66,27 @@ class PatientContextResponse(BaseModel):
 async def startup_event():
     """FastAPI startup event."""
     logger.info("🚀 Healthcare Assistant starting up")
-    logger.info(f"Configuration: {config.to_dict()}")
+    logger.info(f"Configuration: {config.model_dump()}")
+
+    # Test gateway connection and tool discovery first
+    logger.info("🔍 Testing AgentCore Gateway connection and tool discovery...")
+    try:
+        from shared.mcp_client import test_agentcore_gateway
+        
+        test_results = test_agentcore_gateway(
+            config.mcp_gateway_url,
+            config.aws_region
+        )
+        
+        if test_results["connection_successful"]:
+            logger.info(f"✅ Gateway connection successful - {test_results['tools_discovered']} tools available")
+            if test_results["tool_names"]:
+                logger.info(f"🔧 Available tools: {', '.join(test_results['tool_names'])}")
+        else:
+            logger.error(f"❌ Gateway connection failed: {test_results.get('error_message', 'Unknown error')}")
+            
+    except Exception as gateway_error:
+        logger.warning(f"⚠️ Gateway test failed: {gateway_error}")
 
     # Test agent creation
     try:
@@ -99,8 +120,8 @@ async def invoke_agent(request: InvocationRequest):
         if not user_message:
             raise HTTPException(status_code=400, detail="No prompt provided")
 
-        # Generate session ID if not provided
-        session_id = request.sessionId or f"healthcare_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Generate session ID (AgentCore doesn't provide sessionId in request)
+        session_id = f"healthcare_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         logger.info(f"📝 Session: {session_id}")
         logger.info(f"💬 Message: {user_message[:100]}...")
@@ -112,16 +133,19 @@ async def invoke_agent(request: InvocationRequest):
             agent_time = (time.time() - agent_start) * 1000
         except ValueError as e:
             if "MCP" in str(e):
-                logger.error(f"❌ MCP Gateway connection failed during request: {e}")
+                logger.error(
+                    f"❌ MCP Gateway connection failed during request: {e}")
                 raise HTTPException(
                     status_code=503,
                     detail=f"Healthcare agent unavailable - MCP Gateway connection failed: {str(e)}"
                 )
             else:
-                raise HTTPException(status_code=500, detail=f"Agent creation failed: {str(e)}")
+                raise HTTPException(
+                    status_code=500, detail=f"Agent creation failed: {str(e)}")
         except Exception as e:
             logger.error(f"❌ Unexpected agent creation error: {e}")
-            raise HTTPException(status_code=500, detail=f"Agent creation failed: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Agent creation failed: {str(e)}")
 
         logger.info(f"🤖 Agent created in {agent_time:.2f}ms")
 
@@ -142,7 +166,7 @@ async def invoke_agent(request: InvocationRequest):
         logger.info(
             f"   • Patient context: {patient_context.get('has_patient_context', False)}")
         logger.info(
-            f"   • Session persisted: S3 bucket {config.session_bucket}/{config.session_prefix}")
+            f"   • Session persisted: S3 bucket {config.session_bucket}/chats/ (always persisted)")
 
         # Return AgentCore-compatible response
         return {
@@ -178,10 +202,10 @@ async def ping():
         "timestamp": int(time.time()),
         "version": "2.0.0",
         "config": {
-            "model": config.bedrock_model_id,
-            "knowledge_base": bool(config.bedrock_knowledge_base_id),
-            "mcp_gateway": config.use_mcp_gateway,
-            "guardrails": bool(config.bedrock_guardrail_id)
+            "model": config.model_id,
+            "knowledge_base": bool(config.knowledge_base_id),
+            "mcp_gateway": bool(config.mcp_gateway_url),
+            "guardrails": bool(config.guardrail_id)
         }
     }
 
@@ -189,11 +213,11 @@ async def ping():
 if __name__ == "__main__":
 
     logger.info("🚀 Starting Healthcare Assistant Agent")
-    logger.info(f"Configuration: {config.to_dict()}")
+    logger.info(f"Configuration: {config.model_dump()}")
 
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=8080,
-        log_level="DEBUG"
+        log_level="debug"
     )

@@ -23,34 +23,33 @@ class AgentConfig(BaseSettings):
     """
     
     # Model Configuration
-    model_id: str = Field(description="Bedrock model ID")
-    model_temperature: float = Field(default=0.1, description="Model temperature")
-    model_max_tokens: int = Field(default=4096, description="Maximum tokens")
-    model_top_p: float = Field(default=0.9, description="Top-p sampling")
+    model_id: str = Field(alias="BEDROCK_MODEL_ID", description="Bedrock model ID")
+    model_temperature: float = Field(default=0.1, alias="MODEL_TEMPERATURE", description="Model temperature")
+    model_max_tokens: int = Field(default=4096, alias="MODEL_MAX_TOKENS", description="Maximum tokens")
+    model_top_p: float = Field(default=0.9, alias="MODEL_TOP_P", description="Top-p sampling")
     
     # Managed Services Configuration
-    knowledge_base_id: str = Field(description="Bedrock Knowledge Base ID")
-    guardrail_id: Optional[str] = Field(default=None, description="Bedrock Guardrail ID")
-    guardrail_version: Optional[str] = Field(default="DRAFT", description="Guardrail version")
-    
-    # Healthcare API Configuration
-    database_cluster_arn: str = Field(description="Aurora cluster ARN")
-    database_secret_arn: str = Field(description="Database secret ARN")
+    knowledge_base_id: str = Field(alias="BEDROCK_KNOWLEDGE_BASE_ID", description="Bedrock Knowledge Base ID")
+    guardrail_id: Optional[str] = Field(default=None, alias="BEDROCK_GUARDRAIL_ID", description="Bedrock Guardrail ID")
+    guardrail_version: Optional[str] = Field(default="DRAFT", alias="BEDROCK_GUARDRAIL_VERSION", description="Guardrail version")
     
     # AgentCore Gateway Configuration
-    gateway_url: Optional[str] = Field(default=None, description="AgentCore Gateway URL")
-    gateway_id: Optional[str] = Field(default=None, description="AgentCore Gateway ID")
+    mcp_gateway_url: str = Field(alias="MCP_GATEWAY_URL", description="AgentCore Gateway URL")
+    gateway_id: str = Field(alias="GATEWAY_ID", description="AgentCore Gateway ID")
+    aws_region: str = Field(alias="AWS_REGION", description="AWS region")
+    
+    # Session Management Configuration (always S3, always persisted)
+    session_bucket: str = Field(alias="SESSION_BUCKET", description="S3 bucket for session storage")
     
     # Agent Configuration
     default_language: str = Field(default="es-LATAM", description="Default language")
-    streaming_enabled: bool = Field(default=True, description="Enable streaming responses")
     
     # Observability Configuration
-    enable_tracing: bool = Field(default=True, description="Enable OpenTelemetry tracing")
-    log_level: str = Field(default="INFO", description="Logging level")
+    enable_tracing: bool = Field(default=True, alias="ENABLE_TRACING", description="Enable OpenTelemetry tracing")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL", description="Logging level")
     
     class Config:
-        env_file = None  # Configuration from deployment only
+        env_file = ".env"  # Load from .env file for local development
         case_sensitive = False
         env_prefix = ""
 

@@ -514,11 +514,11 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
-    { name = "aws-requests-auth" },
     { name = "boto3" },
     { name = "botocore" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "httpx-auth-awssigv4" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dateutil" },
@@ -542,13 +542,13 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiofiles", specifier = ">=23.0.0" },
-    { name = "aws-requests-auth", specifier = ">=0.4.3" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "boto3", specifier = ">=1.40.52" },
     { name = "boto3", specifier = ">=1.40.62" },
     { name = "botocore", specifier = ">=1.35.0" },
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "httpx", specifier = ">=0.25.0" },
+    { name = "httpx-auth-awssigv4", specifier = ">=0.1.4" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
@@ -627,6 +627,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
+]
+
+[[package]]
+name = "httpx-auth-awssigv4"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/5b/b5e80ff26240182b9d0dad19702676b3bb66cd3840ff2a2e3a5c3c10ee67/httpx-auth-awssigv4-0.1.4.tar.gz", hash = "sha256:6e8c87c9367896db6eea28a2195cb85a61ddf374cffab2070b2d044c3343625d", size = 8436, upload-time = "2022-04-04T02:41:52.651Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/11/fdfd64af9ba9806e27e4290bd7e8d39eede24c5c15b4ed946bfd0846a895/httpx_auth_awssigv4-0.1.4-py3-none-any.whl", hash = "sha256:e58ea5abf976cf4d6ef7643088e8e8002a557ca0520b076c56a9b9a14141bfae", size = 6320, upload-time = "2022-04-04T02:41:51.441Z" },
 ]
 
 [[package]]

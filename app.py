@@ -198,7 +198,6 @@ api_stack = ApiStack(
 )
 
 
-
 # Add stack dependencies - API stack now depends on backend and assistant stacks
 logger.info("Configuring stack dependencies...")
 api_stack.add_dependency(backend_stack)

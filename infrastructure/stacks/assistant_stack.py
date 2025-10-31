@@ -127,6 +127,17 @@ class AssistantStack(Stack):
             )
         )
 
+        # Required permission for semantic search gateway creation
+        agentcore_gateway_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock-agentcore:SynchronizeGatewayTargets"
+                ],
+                resources=["*"]
+            )
+        )
+
         # Additional Gateway permissions for comprehensive functionality
         agentcore_gateway_role.add_to_policy(
             iam.PolicyStatement(
@@ -141,21 +152,30 @@ class AssistantStack(Stack):
             )
         )
 
-        # Create AgentCore Gateway with IAM-based authorization (simpler and more secure)
+        # Create AgentCore Gateway with IAM-based authorization and semantic search
+        # IMPORTANT: Semantic search can only be enabled when creating a gateway, not updated later
+        # The gateway role must have bedrock-agentcore:SynchronizeGatewayTargets permission
         self.agentcore_gateway = agentcore.CfnGateway(
             self,
             "Agentcoregateway",
             authorizer_type="AWS_IAM",
             name="agentcoregateway",
             protocol_type="MCP",
-            role_arn=agentcore_gateway_role.role_arn
+            role_arn=agentcore_gateway_role.role_arn,
+            exception_level='DEBUG',
+            protocol_configuration=agentcore.CfnGateway.GatewayProtocolConfigurationProperty(
+                mcp=agentcore.CfnGateway.MCPGatewayConfigurationProperty(
+
+                    search_type="SEMANTIC"
+                )
+            )
         )
 
         # Create AgentCore Runtime
         agent_runtime_role = self.create_agent_runtime_role()
 
-        # Create single lambda target gateway with all tool schemas
-        self.lambda_gateway_target = self._create_unified_lambda_gateway_target()
+        # Create separate gateway targets for each Lambda function (supports semantic search)
+        self.lambda_gateway_targets = self._create_individual_lambda_gateway_targets()
 
         # Get environment variables and log them for debugging
         env_vars = self.get_agent_environment_variables()
@@ -222,43 +242,77 @@ class AssistantStack(Stack):
         # Create CloudFormation outputs
         self.create_outputs()
 
-    def _create_unified_lambda_gateway_target(self) -> agentcore.CfnGatewayTarget:
+    def _create_individual_lambda_gateway_targets(self) -> Dict[str, agentcore.CfnGatewayTarget]:
         """
-        Create a single AgentCore gateway target with all Lambda function tools.
-        This simplified approach uses one gateway target with multiple tool definitions.
+        Create separate AgentCore gateway targets for each Lambda function.
+        
+        This approach provides:
+        - Better observability and monitoring per healthcare domain
+        - Granular permissions and separation of concerns
+        - Individual tool schemas for each Lambda function
+        - Support for semantic search (when gateway is created with semantic search enabled)
         """
         if not self.lambda_functions:
-            return None
+            return {}
 
-        # Get all tool schemas from the separate schemas file
-        all_tool_schemas = get_all_tool_schemas()
+        # Import individual tool schema functions
+        from ..schemas.lambda_tool_schemas import (
+            get_patients_tool_schema,
+            get_medics_tool_schema,
+            get_exams_tool_schema,
+            get_reservations_tool_schema,
+            get_files_tool_schema
+        )
 
-        # Create a mapping of tool names to Lambda ARNs for the MCP configuration
-        # Since we have multiple tools but they all route to different Lambdas,
-        # we'll use the first Lambda as the primary target and handle routing in the Lambda
-        primary_lambda = list(self.lambda_functions.values())[0]
+        # Mapping of Lambda function names to their tool schemas
+        lambda_tool_mapping = {
+            "patients": get_patients_tool_schema(),
+            "medics": get_medics_tool_schema(),
+            "exams": get_exams_tool_schema(),
+            "reservations": get_reservations_tool_schema(),
+            "files": get_files_tool_schema()
+        }
 
-        return agentcore.CfnGatewayTarget(
-            self,
-            "UnifiedLambdaGatewayTarget",
-            name="healthcare-lambda-tools",
-            credential_provider_configurations=[
-                agentcore.CfnGatewayTarget.CredentialProviderConfigurationProperty(
-                    credential_provider_type="GATEWAY_IAM_ROLE"
-                )
-            ],
-            target_configuration=agentcore.CfnGatewayTarget.TargetConfigurationProperty(
-                mcp=agentcore.CfnGatewayTarget.McpTargetConfigurationProperty(
-                    lambda_=agentcore.CfnGatewayTarget.McpLambdaTargetConfigurationProperty(
-                        lambda_arn=primary_lambda.function_arn,
-                        tool_schema=agentcore.CfnGatewayTarget.ToolSchemaProperty(
-                            inline_payload=all_tool_schemas
+        gateway_targets = {}
+
+        for lambda_name, lambda_function in self.lambda_functions.items():
+            # Skip if we don't have a tool schema for this Lambda
+            if lambda_name not in lambda_tool_mapping:
+                logger.warning(
+                    f"No tool schema found for Lambda function: {lambda_name}")
+                continue
+
+            tool_schema = lambda_tool_mapping[lambda_name]
+
+            # Create individual gateway target for this Lambda
+            gateway_target = agentcore.CfnGatewayTarget(
+                self,
+                f"{lambda_name.title()}GatewayTarget",
+                name=f"healthcare-{lambda_name}-api",
+                credential_provider_configurations=[
+                    agentcore.CfnGatewayTarget.CredentialProviderConfigurationProperty(
+                        credential_provider_type="GATEWAY_IAM_ROLE"
+                    )
+                ],
+                target_configuration=agentcore.CfnGatewayTarget.TargetConfigurationProperty(
+                    mcp=agentcore.CfnGatewayTarget.McpTargetConfigurationProperty(
+                        lambda_=agentcore.CfnGatewayTarget.McpLambdaTargetConfigurationProperty(
+                            lambda_arn=lambda_function.function_arn,
+                            tool_schema=agentcore.CfnGatewayTarget.ToolSchemaProperty(
+                                inline_payload=[tool_schema]  # Single tool schema per target
+                            )
                         )
                     )
-                )
-            ),
-            gateway_identifier=self.agentcore_gateway.attr_gateway_identifier
-        )
+                ),
+                gateway_identifier=self.agentcore_gateway.attr_gateway_identifier
+            )
+
+            gateway_targets[lambda_name] = gateway_target
+
+            logger.info(
+                f"Created gateway target for {lambda_name}: healthcare-{lambda_name}-api")
+
+        return gateway_targets
 
     def create_agent_runtime_role(self):
         """
@@ -621,6 +675,8 @@ class AssistantStack(Stack):
 
             # Knowledge Base Configuration - agent expects BEDROCK_KNOWLEDGE_BASE_ID
             "BEDROCK_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
+            # Used by Strands memory tool
+            "STRANDS_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
             "SUPPLEMENTAL_DATA_BUCKET": self.knowledge_base_construct.supplemental_data_bucket_name,
 
 
@@ -637,6 +693,9 @@ class AssistantStack(Stack):
 
             # Session Management Configuration - always required
             "SESSION_BUCKET": self.processed_bucket.bucket_name,
+
+            # Agent Configuration - matches agents/shared/config.py
+            "DEFAULT_LANGUAGE": "es-LATAM",
 
             # Runtime Configuration
             "PORT": "8000",
@@ -688,6 +747,20 @@ class AssistantStack(Stack):
 
         CfnOutput(
             self,
+            "GuardrailId",
+            value=self.guardrail_construct.guardrail_id,
+            description="Bedrock Guardrail ID for healthcare content filtering"
+        )
+
+        CfnOutput(
+            self,
+            "GuardrailVersion",
+            value=self.guardrail_construct.guardrail_version_id,
+            description="Bedrock Guardrail Version ID"
+        )
+
+        CfnOutput(
+            self,
             "AgentRuntimeArn",
             value=self.agent_runtime.agent_runtime_arn,
             description="Healthcare Assistant AgentCore Runtime ARN"
@@ -707,6 +780,19 @@ class AssistantStack(Stack):
             self, "AgentCoreGatewayId", value=self.agentcore_gateway.attr_gateway_identifier,
             description="AgentCore Gateway Identifier"
         )
+
+        # Output individual gateway target information
+        if hasattr(self, 'lambda_gateway_targets') and self.lambda_gateway_targets:
+            gateway_targets_info = {}
+            for lambda_name, target in self.lambda_gateway_targets.items():
+                gateway_targets_info[lambda_name] = f"healthcare-{lambda_name}-api"
+
+            CfnOutput(
+                self,
+                "GatewayTargets",
+                value=json.dumps(gateway_targets_info),
+                description="Individual gateway targets for each Lambda function with semantic search support"
+            )
 
         CfnOutput(
             self,

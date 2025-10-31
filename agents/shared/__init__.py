@@ -2,41 +2,20 @@
 Simplified shared utilities for agent communication.
 """
 
-from .config import AgentConfig, get_agent_config
-from .models import (
-    PatientInfoResponse,
-    AppointmentResponse,
-    SessionContext,
-    ErrorResponse,
-)
-from .context import SimpleContextManager, get_context_manager
-from .utils import get_logger, format_response, sanitize_for_logging
-
-from .knowledge_base_tools import (
-    BedrockKnowledgeBaseManager,
-    get_knowledge_base_manager,
-    search_medical_knowledge,
-    search_patient_info
-)
-from .prompts import get_prompt, load_prompt
+from .config import AgentConfig, get_agent_config, get_model_config
+from .models import PatientInfoResponse, SessionContext, ErrorType
+from .utils import get_logger, sanitize_for_logging, extract_patient_context
+from .prompts import get_prompt
 
 __all__ = [
     "AgentConfig",
     "get_agent_config",
+    "get_model_config",
     "PatientInfoResponse",
-    "AppointmentResponse", 
     "SessionContext",
-    "ErrorResponse",
-    "SimpleContextManager",
-    "get_context_manager",
+    "ErrorType",
     "get_logger",
-    "format_response",
     "sanitize_for_logging",
-
-    "BedrockKnowledgeBaseManager",
-    "get_knowledge_base_manager",
-    "search_medical_knowledge",
-    "search_patient_info",
+    "extract_patient_context",
     "get_prompt",
-    "load_prompt",
 ]

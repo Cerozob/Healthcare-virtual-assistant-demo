@@ -619,7 +619,6 @@ class BackendStack(Stack):
 
         # AgentCore permissions removed - using AgentCore SDK directly from frontend
 
-
         # Patient Lookup Function
         self.patient_lookup_function = lambda_.Function(
             self,

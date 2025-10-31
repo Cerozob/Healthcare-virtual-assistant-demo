@@ -28,7 +28,7 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "typing-extensions>=4.8.0",
     "boto3>=1.40.62",
-    "aws-requests-auth>=0.4.3"
+    "httpx-auth-awssigv4>=0.1.4"
 ]
 
 [project.optional-dependencies]
