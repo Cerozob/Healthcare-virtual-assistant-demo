@@ -41,8 +41,8 @@ def get_data_loader_function_name() -> str:
                     break
 
         if not backend_stack_name:
-            raise Exception("Could not find backend stack. Available stacks: " + 
-                          ", ".join([s['StackName'] for s in stacks['StackSummaries']]))
+            raise Exception("Could not find backend stack. Available stacks: " +
+                            ", ".join([s['StackName'] for s in stacks['StackSummaries']]))
 
         print(f"Found backend stack: {backend_stack_name}")
 
@@ -56,8 +56,10 @@ def get_data_loader_function_name() -> str:
                 return output['OutputValue']
 
         # List available outputs for debugging
-        available_outputs = [output['OutputKey'] for output in stack.get('Outputs', [])]
-        raise Exception(f"DataLoaderFunctionName output not found in stack. Available outputs: {available_outputs}")
+        available_outputs = [output['OutputKey']
+                             for output in stack.get('Outputs', [])]
+        raise Exception(
+            f"DataLoaderFunctionName output not found in stack. Available outputs: {available_outputs}")
 
     except Exception as e:
         print(f"Error getting function name from CloudFormation: {e}")
@@ -119,7 +121,7 @@ def get_raw_bucket_name() -> str:
 
 
 def find_sample_documents() -> List[Dict[str, str]]:
-    """Find all sample documents in the local directory."""
+    """Find sample documents for SINGLE PATIENT ONLY (debugging mode)."""
     sample_dir = Path("apps/SampleFileGeneration/output")
 
     if not sample_dir.exists():
@@ -128,27 +130,39 @@ def find_sample_documents() -> List[Dict[str, str]]:
 
     documents = []
 
-    # Find all PDF and image files
-    for patient_dir in sample_dir.iterdir():
-        if patient_dir.is_dir() and patient_dir.name != '.intermediate':
-            patient_id = patient_dir.name
+    # DEBUG MODE: Find only the FIRST patient's documents
+    patient_dirs = [d for d in sample_dir.iterdir() if d.is_dir() and d.name != '.intermediate']
+    
+    if not patient_dirs:
+        print("⚠️  No patient directories found")
+        return []
+    
+    # Take only the first patient directory
+    first_patient_dir = patient_dirs[0]
+    patient_id = first_patient_dir.name
+    
+    print(f"🔍 DEBUG MODE: Processing documents only for patient: {patient_id}")
 
-            for file_path in patient_dir.iterdir():
-                if file_path.is_file():
-                    filename = file_path.name
+    for file_path in first_patient_dir.iterdir():
+        if file_path.is_file():
+            filename = file_path.name
 
-                    # Skip profile JSON files (handled by Lambda)
-                    if filename.endswith('_profile.json'):
-                        continue
+            # Skip profile JSON files (handled by Lambda)
+            if filename.endswith('_profile.json'):
+                continue
 
-                    # Include PDFs and images
-                    if filename.endswith(('.pdf', '.png', '.jpg', '.jpeg')):
-                        documents.append({
-                            'local_path': str(file_path),
-                            'patient_id': patient_id,
-                            'filename': filename,
-                            's3_key': f"{patient_id}/{filename}"
-                        })
+            # Include PDFs and images
+            if filename.endswith(('.pdf', '.png', '.jpg', '.jpeg', '.md', '.txt')):
+                documents.append({
+                    'local_path': str(file_path),
+                    'patient_id': patient_id,
+                    'filename': filename,
+                    's3_key': f"{patient_id}/{filename}"
+                })
+
+    print(f"📄 Found {len(documents)} documents for patient {patient_id}")
+    for doc in documents:
+        print(f"   - {doc['filename']}")
 
     return documents
 
@@ -294,20 +308,21 @@ def main():
             print("   You can upload documents manually using the upload script")
 
     print("\n🎉 Sample data loading completed!")
-    print("\n📋 Summary:")
-    print("✅ Patient profiles upserted into database")
+    print("\n📋 Summary (DEBUG MODE - Single Patient Only):")
+    print("✅ Single patient profile loaded into database")
     print("✅ Sample medics and exams upserted")
     if documents:
-        print("✅ Sample documents uploaded to raw bucket")
+        print(f"✅ {len(documents)} documents uploaded for single patient")
         print("🔄 Document workflow will automatically process uploaded files")
 
     print("\n🚀 Next steps:")
-    print("1. Check the database for loaded patient data")
+    print("1. Check the database for the single loaded patient")
     print("2. Test the API endpoints with the sample data")
     print("3. Use the frontend to interact with the loaded data")
     if documents:
         print("4. Monitor document processing in CloudWatch logs")
         print("5. Check the processed bucket for extracted document data")
+        print("6. Debug any issues with single patient before loading all patients")
 
 
 if __name__ == "__main__":

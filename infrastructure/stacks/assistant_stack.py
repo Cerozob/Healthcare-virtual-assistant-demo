@@ -245,7 +245,7 @@ class AssistantStack(Stack):
     def _create_individual_lambda_gateway_targets(self) -> Dict[str, agentcore.CfnGatewayTarget]:
         """
         Create separate AgentCore gateway targets for each Lambda function.
-        
+
         This approach provides:
         - Better observability and monitoring per healthcare domain
         - Granular permissions and separation of concerns
@@ -299,7 +299,8 @@ class AssistantStack(Stack):
                         lambda_=agentcore.CfnGatewayTarget.McpLambdaTargetConfigurationProperty(
                             lambda_arn=lambda_function.function_arn,
                             tool_schema=agentcore.CfnGatewayTarget.ToolSchemaProperty(
-                                inline_payload=[tool_schema]  # Single tool schema per target
+                                # Single tool schema per target
+                                inline_payload=[tool_schema]
                             )
                         )
                     )

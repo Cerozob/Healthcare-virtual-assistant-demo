@@ -145,11 +145,27 @@ def setup_agentcore_logging(log_level: Optional[str] = None) -> logging.Logger:
     root_logger = configure_root_logger(log_level)
     configure_framework_loggers(log_level)
     
+    # Suppress verbose Strands framework logging during streaming
+    strands_loggers = [
+        "strands.agent",
+        "strands.agent.agent", 
+        "strands.telemetry",
+        "strands.telemetry.metrics",
+        "strands.session",
+        "strands.models"
+    ]
+    
+    for logger_name in strands_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.WARNING)  # Only show warnings and errors
+        logger.propagate = True
+    
     # Log configuration info
     root_logger.info("🔧 AgentCore logging configuration complete")
     root_logger.info(f"   • Log Level: {log_level}")
     root_logger.info(f"   • Output: stdout (AgentCore compatible)")
     root_logger.info(f"   • Unbuffered: {os.getenv('PYTHONUNBUFFERED', 'not set')}")
+    root_logger.info(f"   • Strands framework logging: WARNING level (reduced verbosity)")
     
     # Test the configuration
     test_logging_configuration()

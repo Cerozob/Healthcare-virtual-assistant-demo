@@ -101,14 +101,37 @@ export function ProcessedFileManager({
     return categoryMap[category || 'other'] || 'Sin categoría';
   };
 
+  // Get badge color based on category and status
+  const getCategoryBadgeColor = (category?: string, isAutoClassified?: boolean) => {
+    if (category === 'not-identified') {
+      return 'red'; // Red for unidentified
+    }
+
+    switch (category) {
+      case 'medical-history':
+        return 'blue'; // Blue for medical history
+      case 'exam-results':
+        return 'green'; // Green for exam results
+      case 'medical-images':
+        return 'severity-low'; // Yellow for medical images
+      case 'prescriptions':
+        return 'severity-high'; // Salmon for prescriptions
+      case 'insurance':
+        return 'severity-neutral'; // Grey for insurance
+      case 'other':
+        return isAutoClassified ? 'blue' : 'grey'; // Blue if auto-classified, grey otherwise
+      default:
+        return 'grey'; // Default grey
+    }
+  };
+
   const renderCategoryCell = (item: ProcessedFile) => {
     const isAutoClassified = item.autoClassified;
-    const isNotIdentified = item.category === 'not-identified';
 
     return (
       <Box>
         <Badge
-          color={isNotIdentified ? 'red' : isAutoClassified ? 'blue' : 'grey'}
+          color={getCategoryBadgeColor(item.category, isAutoClassified)}
         >
           {getCategoryLabel(item.category)}
         </Badge>

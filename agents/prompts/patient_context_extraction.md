@@ -12,6 +12,14 @@ A patient context exists when:
 - Appointment scheduling involves a specific patient
 - Medical history or test results are referenced for someone
 - A family member asks about a patient's condition
+- **FILES OR DOCUMENTS are shared that belong to a patient** (CRITICAL for file security)
+
+## CRITICAL: File Upload Security
+When files, images, or documents are shared in the conversation:
+- **ALWAYS identify the patient_id** before any file processing
+- Files MUST be associated with a specific patient for security
+- If patient context is unclear, extraction should request clarification
+- Patient identification is MANDATORY for all medical file operations
 
 ## Information to Extract
 - **patient_id**: Any unique identifier (cedula, medical record number, etc.)

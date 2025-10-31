@@ -25,6 +25,7 @@
     "@cloudscape-design/chat-components": "^1.0.69",
     "@cloudscape-design/components": "^3.0.1116",
     "@cloudscape-design/design-tokens": "^3.0.62",
+    "@cloudscape-design/code-view": "^3.0.62",
     "@cloudscape-design/global-styles": "^1.0.47",
     "aws-amplify": "^6.15.7",
     "core-js": "3.46.0",

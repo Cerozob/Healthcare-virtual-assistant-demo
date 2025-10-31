@@ -1,5 +1,6 @@
 import {
   Alert,
+  Badge,
   Box,
   Container,
   FormField,
@@ -25,7 +26,9 @@ import { MainLayout } from '../components/layout';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { apiClient } from '../services/apiClient';
+
 import { examService } from '../services/examService';
+
 import { medicService } from '../services/medicService';
 import { patientService } from '../services/patientService';
 import { reservationService } from '../services/reservationService';
@@ -88,6 +91,8 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
   // Files state
   const [files, setFiles] = useState<PatientFile[]>([]);
   const [selectedPatientForFiles, setSelectedPatientForFiles] = useState<string>('');
+
+
 
 
 
@@ -742,6 +747,7 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                   onClassificationOverride={handleClassificationOverride}
                   onPatientChange={handlePatientChangeForFiles}
                   enableAutoClassification={true}
+
                   patients={(patients || []).map((p) => ({ patient_id: p.patient_id, full_name: p.full_name }))}
                 />
               ),
@@ -787,6 +793,28 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
                           <div><strong>Versión:</strong> 1.0.0</div>
                           <div><strong>Última actualización:</strong> {new Date().toLocaleDateString('es-MX')}</div>
                           <div><strong>Región:</strong> us-east-1</div>
+                        </SpaceBetween>
+                      </Box>
+                    </FormField>
+
+                    <FormField
+                      label="Funcionalidades habilitadas"
+                      description="Estado de las funcionalidades del sistema"
+                    >
+                      <Box>
+                        <SpaceBetween size="xs">
+                          <div>
+                            <strong>Vista previa de archivos:</strong>{' '}
+                            <Badge color="green">
+                              Habilitada
+                            </Badge>
+                          </div>
+                          <div>
+                            <strong>Vista unificada de archivos:</strong>{' '}
+                            <Badge color="green">
+                              Habilitada
+                            </Badge>
+                          </div>
                         </SpaceBetween>
                       </Box>
                     </FormField>

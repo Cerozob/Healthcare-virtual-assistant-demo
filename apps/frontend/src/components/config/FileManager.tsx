@@ -1,6 +1,7 @@
 /**
  * FileManager Component
  * Interface for managing patient files with upload and download capabilities
+ * Enhanced with unified file display and preview functionality
  */
 
 import {
@@ -22,7 +23,13 @@ import {
 import { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { processedFileService } from '../../services/processedFileService';
+import { FilePreviewModal } from './FilePreviewModal';
 import type { ProcessedFile } from './ProcessedFileManager';
+import type { UnifiedFile } from '../../types/unifiedFile';
+import { ErrorHandler } from '../../utils/errorHandler';
+import { useFileOperationNotifications } from '../common/NotificationSystem';
+import { FileOperationErrorBoundary } from '../common/ErrorBoundary';
+
 
 export interface PatientFile {
   id: string;
@@ -75,6 +82,7 @@ export function FileManager({
   enableAutoClassification = true,
 }: FileManagerProps) {
   const { t } = useLanguage();
+  const notifications = useFileOperationNotifications();
   const [selectedPatient, setSelectedPatient] = useState<string>(patientId || '');
   const [selectedCategory, setSelectedCategory] = useState<SelectProps.Option | null>(fileCategoryOptions[0]); // Default to "auto"
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -93,6 +101,12 @@ export function FileManager({
   const [processedFiles, setProcessedFiles] = useState<ProcessedFile[]>([]);
   const [loadingProcessedFiles, setLoadingProcessedFiles] = useState(false);
   const [processedFilesError, setProcessedFilesError] = useState<string>('');
+
+
+
+  // Preview modal state
+  const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [previewFile, setPreviewFile] = useState<UnifiedFile | null>(null);
 
   const patientOptions: SelectProps.Option[] = patients.map((p) => ({
     label: `${p.full_name} (${p.patient_id})`,
@@ -118,15 +132,28 @@ export function FileManager({
 
     try {
       const patientData = patients.find(p => p.patient_id === selectedPatient);
+      const patientName = patientData?.full_name || selectedPatient;
 
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
         setCurrentUploadFile(file.name);
 
-        console.log(`Uploading file ${file.name} for patient ${patientData?.full_name || selectedPatient} following document workflow guidelines`);
+        console.log(`Uploading file ${file.name} for patient ${patientName} following document workflow guidelines`);
 
-        // Call the upload handler with patient context
-        await onUpload(file, selectedCategory?.value || 'auto', selectedPatient);
+        try {
+          // Call the upload handler with patient context
+          await onUpload(file, selectedCategory?.value || 'auto', selectedPatient);
+
+          // Show individual file success notification
+          notifications.notifyFileUploadSuccess(file.name, patientName);
+
+        } catch (fileError) {
+          const errorDetails = ErrorHandler.getErrorDetails(fileError, `Subida de ${file.name}`);
+          notifications.notifyFileUploadError(file.name, errorDetails.userMessage);
+          
+          // Continue with other files but log the error
+          console.error(`Failed to upload ${file.name}:`, errorDetails);
+        }
 
         // Update overall progress
         const overallProgress = ((i + 1) / selectedFiles.length) * 100;
@@ -137,14 +164,20 @@ export function FileManager({
       setUploadProgress(0);
       setCurrentUploadFile('');
 
-      // Show success message with workflow information
-      setSuccessMessage(`Archivos subidos exitosamente para ${patientData?.full_name || selectedPatient}. Los documentos han sido almacenados en S3 y serán procesados automáticamente según las pautas del flujo de trabajo de documentos.`);
+      // Show overall success message
+      const message = selectedFiles.length === 1 
+        ? `Archivo subido exitosamente para ${patientName}.`
+        : `${selectedFiles.length} archivos procesados para ${patientName}.`;
+      
+      setSuccessMessage(`${message} Los documentos han sido almacenados en S3 y serán procesados automáticamente según las pautas del flujo de trabajo de documentos.`);
 
       // Clear success message after 5 seconds
       setTimeout(() => setSuccessMessage(''), 5000);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al subir archivo');
+      const errorDetails = ErrorHandler.getErrorDetails(err, 'Subida de archivos');
+      setError(errorDetails.userMessage);
+      notifications.notifyFileUploadError('archivos seleccionados', errorDetails.userMessage);
     } finally {
       setUploading(false);
     }
@@ -162,31 +195,52 @@ export function FileManager({
     setError('');
     setSuccessMessage('');
 
+
+    let deletedFiles: string[] = [];
+    let failedFiles: string[] = [];
+
     try {
       console.log(`Deleting ${selectedTableItems.length} files...`);
 
       for (const file of selectedTableItems) {
-        console.log(`Deleting file: ${file.name} (ID: ${file.id})`);
-        await onDelete(file.id);
+        try {
+          console.log(`Deleting file: ${file.name} (ID: ${file.id})`);
+          await onDelete(file.id);
+          deletedFiles.push(file.name);
+        } catch (fileError) {
+          const errorDetails = ErrorHandler.getErrorDetails(fileError, `Eliminación de ${file.name}`);
+          failedFiles.push(file.name);
+          console.error(`Failed to delete ${file.name}:`, errorDetails);
+        }
       }
 
       setSelectedTableItems([]);
       setShowDeleteConfirmation(false);
 
-      // Show success message
-      const fileCount = selectedTableItems.length;
-      const message = fileCount === 1
-        ? `Archivo "${selectedTableItems[0].name}" eliminado exitosamente`
-        : `${fileCount} archivos eliminados exitosamente`;
+      // Show appropriate notifications
+      if (deletedFiles.length > 0) {
+        notifications.notifyFileDeleteSuccess(deletedFiles);
+        
+        const message = deletedFiles.length === 1
+          ? `Archivo "${deletedFiles[0]}" eliminado exitosamente`
+          : `${deletedFiles.length} archivos eliminados exitosamente`;
+        setSuccessMessage(message);
+        setTimeout(() => setSuccessMessage(''), 5000);
+      }
 
-      setSuccessMessage(message);
-
-      // Clear success message after 5 seconds
-      setTimeout(() => setSuccessMessage(''), 5000);
+      if (failedFiles.length > 0) {
+        const errorMessage = failedFiles.length === 1
+          ? `No se pudo eliminar el archivo "${failedFiles[0]}"`
+          : `No se pudieron eliminar ${failedFiles.length} archivos: ${failedFiles.join(', ')}`;
+        
+        notifications.notifyFileDeleteError(errorMessage);
+        setError(errorMessage);
+      }
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Error al eliminar archivo(s)';
-      setError(errorMessage);
+      const errorDetails = ErrorHandler.getErrorDetails(err, 'Eliminación de archivos');
+      setError(errorDetails.userMessage);
+      notifications.notifyFileDeleteError(errorDetails.userMessage);
       console.error('File deletion error:', err);
     } finally {
       setDeletingFiles(false);
@@ -241,23 +295,95 @@ export function FileManager({
   // Handle processed file download
   const handleProcessedFileDownload = async (processedFile: ProcessedFile) => {
     try {
+      console.log(`Starting download for processed file: ${processedFile.name}`);
+      
       const blob = await processedFileService.downloadProcessedFile(processedFile);
+      console.log(`Blob received, size: ${blob.size} bytes, type: ${blob.type}`);
 
-      // Create download link
+      // Create and trigger download - simplified approach
       const url = URL.createObjectURL(blob);
+      
+      // Create a temporary link element
       const link = document.createElement('a');
       link.href = url;
       link.download = processedFile.name;
+      
+      // Add to DOM, click, and remove
       document.body.appendChild(link);
+      console.log('Processed file: Link created and added to DOM, triggering click...');
       link.click();
+      console.log('Processed file: Click triggered, removing link...');
       document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      
+      // Clean up the blob URL after a delay
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 1000);
 
-      console.log(`Downloaded processed file: ${processedFile.name}`);
+      notifications.notifyFileDownloadSuccess(processedFile.name);
+      console.log(`Download completed for processed file: ${processedFile.name}`);
     } catch (error) {
       console.error('Error downloading processed file:', error);
-      setError(error instanceof Error ? error.message : 'Error downloading processed file');
+      const errorDetails = ErrorHandler.getErrorDetails(error, 'Descarga de archivo procesado');
+      setError(errorDetails.userMessage);
+      notifications.notifyFileDownloadError(processedFile.name, errorDetails.userMessage);
     }
+  };
+
+  // Handle unified file download
+  const handleUnifiedFileDownload = async (unifiedFile: UnifiedFile) => {
+    try {
+      console.log(`Starting download for: ${unifiedFile.name}`);
+      
+      const blob = await processedFileService.downloadUnifiedFile(unifiedFile);
+      console.log(`Blob received, size: ${blob.size} bytes, type: ${blob.type}`);
+
+      // Create and trigger download - simplified approach
+      const url = URL.createObjectURL(blob);
+      console.log('Unified file: Blob URL created:', url);
+      
+      // Create a temporary link element
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = unifiedFile.name;
+      console.log('Unified file: Link configured with href:', link.href, 'download:', link.download);
+      
+      // Add to DOM, click, and remove
+      document.body.appendChild(link);
+      console.log('Unified file: Link created and added to DOM, triggering click...');
+      link.click();
+      console.log('Unified file: Click triggered, removing link...');
+      document.body.removeChild(link);
+      
+      // Clean up the blob URL after a delay
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 1000);
+
+      notifications.notifyFileDownloadSuccess(unifiedFile.name);
+      console.log(`Download completed for: ${unifiedFile.name} from ${unifiedFile.source} bucket`);
+    } catch (error) {
+      console.error('Error downloading unified file:', error);
+      const errorDetails = ErrorHandler.getErrorDetails(error, 'Descarga de archivo');
+      setError(errorDetails.userMessage);
+      notifications.notifyFileDownloadError(unifiedFile.name, errorDetails.userMessage);
+    }
+  };
+
+  // Handle preview modal
+  const handlePreviewFile = (file: UnifiedFile) => {
+    if (!file.preview.previewSupported) {
+      notifications.notifyUnsupportedFileType(file.name, file.type, () => handleUnifiedFileDownload(file));
+      return;
+    }
+    
+    setPreviewFile(file);
+    setPreviewModalVisible(true);
+  };
+
+  const handlePreviewModalClose = () => {
+    setPreviewModalVisible(false);
+    setPreviewFile(null);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -298,6 +424,34 @@ export function FileManager({
     }
   };
 
+  // Get badge color based on category and status
+  const getCategoryBadgeColor = (category?: string, isProcessing?: boolean, isAutoClassified?: boolean) => {
+    if (isProcessing || category === 'auto') {
+      return 'severity-medium'; // Orange for processing
+    }
+    
+    if (category === 'not-identified') {
+      return 'red'; // Red for unidentified
+    }
+    
+    switch (category) {
+      case 'medical-history':
+        return 'blue'; // Blue for medical history
+      case 'exam-results':
+        return 'green'; // Green for exam results
+      case 'medical-images':
+        return 'severity-low'; // Yellow for medical images
+      case 'prescriptions':
+        return 'severity-high'; // Salmon for prescriptions
+      case 'insurance':
+        return 'severity-neutral'; // Grey for insurance
+      case 'other':
+        return isAutoClassified ? 'blue' : 'grey'; // Blue if auto-classified, grey otherwise
+      default:
+        return 'grey'; // Default grey
+    }
+  };
+
   const renderCategoryCell = (item: PatientFile) => {
     const isProcessing = classificationProcessing.has(item.id);
     const isEditing = editingClassification === item.id;
@@ -325,7 +479,7 @@ export function FileManager({
     return (
       <Box>
         <Badge
-          color={isPending ? 'grey' : isNotIdentified ? 'red' : isAutoClassified ? 'blue' : 'grey'}
+          color={getCategoryBadgeColor(item.category, isProcessing || isPending, isAutoClassified)}
         >
           {getCategoryLabel(item.category)}
         </Badge>
@@ -349,7 +503,7 @@ export function FileManager({
   };
 
   return (
-
+    <FileOperationErrorBoundary>
     <SpaceBetween size="l">
       {error && (
         <Alert type="error" dismissible onDismiss={() => setError('')}>
@@ -468,23 +622,37 @@ export function FileManager({
           {
             id: 'actions',
             header: 'Acciones',
-            cell: (item) => (
-              <SpaceBetween direction="horizontal" size="xs">
-                <Button iconName="download" variant="inline-icon" onClick={() => onDownload(item)}>
-                  Descargar
-                </Button>
-                {onClassificationOverride && (
-                  <Button
-                    iconName="edit"
-                    variant="inline-icon"
-                    onClick={() => setEditingClassification(item.id)}
-                    disabled={classificationProcessing.has(item.id)}
-                  >
-                    Editar categoría
+            cell: (item) => {
+              // Convert PatientFile to UnifiedFile for preview
+              const unifiedFile = processedFileService.convertPatientFilesToUnified([item], selectedPatient)[0];
+              
+              return (
+                <SpaceBetween direction="horizontal" size="xs">
+                  {unifiedFile?.preview.previewSupported && (
+                    <Button
+                      iconName="search"
+                      variant="inline-icon"
+                      onClick={() => handlePreviewFile(unifiedFile)}
+                    >
+                      Vista previa
+                    </Button>
+                  )}
+                  <Button iconName="download" variant="inline-icon" onClick={() => onDownload(item)}>
+                    Descargar
                   </Button>
-                )}
-              </SpaceBetween>
-            ),
+                  {onClassificationOverride && (
+                    <Button
+                      iconName="edit"
+                      variant="inline-icon"
+                      onClick={() => setEditingClassification(item.id)}
+                      disabled={classificationProcessing.has(item.id)}
+                    >
+                      Editar categoría
+                    </Button>
+                  )}
+                </SpaceBetween>
+              );
+            },
           },
         ]}
         items={files}
@@ -552,7 +720,7 @@ export function FileManager({
             id: 'category',
             header: 'Categoría detectada',
             cell: (item) => (
-              <Badge color={item.category === 'not-identified' ? 'red' : 'blue'}>
+              <Badge color={getCategoryBadgeColor(item.category, false, item.autoClassified)}>
                 {item.category === 'medical-history' ? 'Historia clínica' :
                   item.category === 'exam-results' ? 'Resultados de exámenes' :
                     item.category === 'medical-images' ? 'Imágenes médicas' :
@@ -576,15 +744,31 @@ export function FileManager({
           {
             id: 'actions',
             header: 'Acciones',
-            cell: (item) => (
-              <Button
-                iconName="download"
-                variant="inline-icon"
-                onClick={() => handleProcessedFileDownload(item)}
-              >
-                Descargar
-              </Button>
-            ),
+            cell: (item) => {
+              // Convert ProcessedFile to UnifiedFile for preview
+              const unifiedFile = processedFileService.convertProcessedFilesToUnified([item])[0];
+              
+              return (
+                <SpaceBetween direction="horizontal" size="xs">
+                  {unifiedFile?.preview.previewSupported && (
+                    <Button
+                      iconName="search"
+                      variant="inline-icon"
+                      onClick={() => handlePreviewFile(unifiedFile)}
+                    >
+                      Vista previa
+                    </Button>
+                  )}
+                  <Button
+                    iconName="download"
+                    variant="inline-icon"
+                    onClick={() => handleProcessedFileDownload(item)}
+                  >
+                    Descargar
+                  </Button>
+                </SpaceBetween>
+              );
+            },
           },
         ]}
         items={processedFiles}
@@ -618,6 +802,16 @@ export function FileManager({
             Archivos procesados por IA
           </Header>
         }
+      />
+
+
+
+      {/* File Preview Modal */}
+      <FilePreviewModal
+        visible={previewModalVisible}
+        file={previewFile}
+        onDismiss={handlePreviewModalClose}
+        onDownload={handleUnifiedFileDownload}
       />
 
       {/* Delete Confirmation Modal */}
@@ -667,5 +861,6 @@ export function FileManager({
         </SpaceBetween>
       </Modal>
     </SpaceBetween>
+    </FileOperationErrorBoundary>
   );
 }

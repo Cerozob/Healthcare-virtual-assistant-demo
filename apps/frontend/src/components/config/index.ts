@@ -23,3 +23,9 @@ export type { FileManagerProps, PatientFile } from './FileManager';
 
 export { ProcessedFileManager } from './ProcessedFileManager';
 export type { ProcessedFileManagerProps, ProcessedFile } from './ProcessedFileManager';
+
+export { FilePreviewModal } from './FilePreviewModal';
+export type { FilePreviewModalProps } from './FilePreviewModal';
+
+export { FileSizeWarning } from './FileSizeWarning';
+export type { FileSizeWarningProps } from './FileSizeWarning';

@@ -12,10 +12,46 @@ from mcp.client.streamable_http import streamablehttp_client
 from urllib.parse import urlparse
 import asyncio
 import json
+import time
+import random
+from threading import Lock
 
 from .utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class RateLimiter:
+    """
+    Simple rate limiter for AgentCore Gateway (5 TPS limit).
+    """
+    
+    def __init__(self, max_calls_per_second: float = 2.0):  # Use 2 TPS to be very conservative
+        self.max_calls_per_second = max_calls_per_second
+        self.min_interval = 1.0 / max_calls_per_second
+        self.last_call_time = 0.0
+        self.lock = Lock()
+    
+    def wait_if_needed(self):
+        """Wait if necessary to respect rate limits with jitter."""
+        with self.lock:
+            current_time = time.time()
+            time_since_last_call = current_time - self.last_call_time
+            
+            if time_since_last_call < self.min_interval:
+                sleep_time = self.min_interval - time_since_last_call
+                # Add jitter to prevent thundering herd
+                jitter = random.uniform(0, 0.1)  # 0-100ms jitter
+                total_sleep = sleep_time + jitter
+                logger.debug(f"⏳ Rate limiting: waiting {total_sleep:.2f}s (base: {sleep_time:.2f}s, jitter: {jitter:.2f}s)")
+                time.sleep(total_sleep)
+            
+            self.last_call_time = time.time()
+
+
+# Global rate limiter instance
+_rate_limiter = RateLimiter(max_calls_per_second=2.0)
+
 
 class AgentCoreMCPClient:
     """
@@ -85,6 +121,9 @@ class AgentCoreMCPClient:
         if self._mcp_client is None:
             try:
                 logger.info("🔗 Creating MCP client for AgentCore Gateway")
+                
+                # Add rate limiting before client creation
+                _rate_limiter.wait_if_needed()
 
                 # Create MCP client with AgentCore Gateway
                 # The gateway will expose tools from all targets with proper naming:
@@ -128,6 +167,7 @@ class AgentCoreMCPClient:
             # This helps the gateway understand the context for better tool selection
             with mcp_client:
                 try:
+                    _rate_limiter.wait_if_needed()  # Rate limit before semantic search
                     search_result = mcp_client.call_tool_sync(
                         tool_use_id=f"semantic-search-{hash(search_query)}",
                         name="x_amz_bedrock_agentcore_search",
@@ -138,6 +178,9 @@ class AgentCoreMCPClient:
                 except Exception as search_error:
                     logger.warning(
                         f"⚠️ Semantic search failed: {search_error}")
+                    # Check if it's a rate limit error
+                    if "429" in str(search_error) or "Too Many Requests" in str(search_error):
+                        logger.warning("⚠️ Rate limit hit during semantic search - continuing without search")
                     logger.info("🔄 Continuing with standard tool discovery")
 
             # Return the MCP client - AgentCore Gateway handles the actual tool filtering
@@ -171,6 +214,9 @@ class AgentCoreMCPClient:
         
         try:
             while more_tools:
+                # Rate limit each pagination request
+                _rate_limiter.wait_if_needed()
+                
                 tmp_tools = client.list_tools_sync(pagination_token=pagination_token)
                 tools.extend(tmp_tools)
                 
@@ -191,8 +237,14 @@ class AgentCoreMCPClient:
             return tools
             
         except Exception as e:
-            logger.error(f"❌ Failed to list tools: {e}")
-            return []
+            # Check for rate limiting errors
+            if "429" in str(e) or "Too Many Requests" in str(e):
+                logger.warning(f"⚠️ Rate limit hit during tool discovery: {e}")
+                logger.info("🔄 This is expected under heavy load - tools will be discovered on demand")
+                return []
+            else:
+                logger.error(f"❌ Failed to list tools: {e}")
+                return []
 
     def test_gateway_connection(self) -> Dict[str, Any]:
         """
@@ -236,9 +288,10 @@ class AgentCoreMCPClient:
                         tool_info["input_schema"] = getattr(tool, 'input_schema', None)
                     test_results["tool_details"].append(tool_info)
                 
-                # Test semantic search capability
+                # Test semantic search capability (with rate limiting)
                 logger.info("🔍 Testing semantic search capability...")
                 try:
+                    _rate_limiter.wait_if_needed()  # Rate limit before semantic search
                     search_result = mcp_client.call_tool_sync(
                         tool_use_id="test-semantic-search",
                         name="x_amz_bedrock_agentcore_search",
@@ -248,6 +301,10 @@ class AgentCoreMCPClient:
                     logger.info("✅ Semantic search is available")
                 except Exception as search_error:
                     logger.warning(f"⚠️ Semantic search not available: {search_error}")
+                    # Check if it's a rate limit error
+                    if "429" in str(search_error) or "Too Many Requests" in str(search_error):
+                        logger.warning("⚠️ Rate limit hit during semantic search test - this is expected under load")
+                        test_results["semantic_search_available"] = True  # Assume it works, just rate limited
                     test_results["semantic_search_available"] = False
                 
                 # Test a sample healthcare tool if available

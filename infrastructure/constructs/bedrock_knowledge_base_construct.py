@@ -37,7 +37,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
             self,
             "SupplementalDataStorage",
             bucket_name=f"ab2-cerozob-supplemental-data-{self.region}",
-            versioned=True,
+            versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,

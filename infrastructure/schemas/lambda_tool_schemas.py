@@ -424,7 +424,7 @@ def get_files_tool_schema() -> agentcore.CfnGatewayTarget.ToolDefinitionProperty
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "get", "upload", "delete", "classify", "search"],
+                    "enum": ["list", "upload", "delete", "classify"],
                     "description": "The action to perform on file records"
                 },
                 "file_id": {
@@ -439,19 +439,18 @@ def get_files_tool_schema() -> agentcore.CfnGatewayTarget.ToolDefinitionProperty
                     "type": "string",
                     "description": "File type filter (e.g., lab_result, x_ray, prescription)"
                 },
-                "search_query": {
+
+                "file_name": {
                     "type": "string",
-                    "description": "Search query for knowledge base search operations"
+                    "description": "Original filename (required for upload)"
                 },
-                "file_data": {
-                    "type": "object",
-                    "properties": {
-                        "filename": {"type": "string", "description": "Original filename"},
-                        "content_type": {"type": "string", "description": "MIME type of the file"},
-                        "file_content": {"type": "string", "description": "Base64 encoded file content"},
-                        "metadata": {"type": "object", "description": "Additional file metadata"}
-                    },
-                    "description": "File data for upload operations"
+                "category": {
+                    "type": "string",
+                    "description": "Document category (optional, defaults to 'other')"
+                },
+                "size": {
+                    "type": "integer",
+                    "description": "File size in bytes (optional)"
                 },
                 "pagination": {
                     "type": "object",
@@ -504,18 +503,7 @@ def get_files_tool_schema() -> agentcore.CfnGatewayTarget.ToolDefinitionProperty
                                 "updated_at": {"type": "string"}
                             }
                         },
-                        "search_results": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "content": {"type": "string"},
-                                    "source": {"type": "string"},
-                                    "score": {"type": "number"},
-                                    "metadata": {"type": "object"}
-                                }
-                            }
-                        },
+
                         "classification_result": {
                             "type": "object",
                             "properties": {

@@ -151,6 +151,21 @@ def get_patient_id_from_metadata(bucket: str, key: str) -> Optional[str]:
         return None
 
 
+def is_binary_file(key: str) -> bool:
+    """Check if a file is binary based on its extension."""
+    binary_extensions = {
+        '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif',
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        '.zip', '.tar', '.gz', '.rar', '.7z',
+        '.mp3', '.mp4', '.avi', '.mov', '.wav', '.flac',
+        '.exe', '.dll', '.so', '.dylib'
+    }
+    
+    # Get file extension
+    file_extension = '.' + key.split('.')[-1].lower() if '.' in key else ''
+    return file_extension in binary_extensions
+
+
 def download_and_process_bda_output(bda_output_uri: str) -> Dict[str, Any]:
     """Download and process BDA output files."""
     try:
@@ -169,33 +184,62 @@ def download_and_process_bda_output(bda_output_uri: str) -> Dict[str, Any]:
         result_data = {}
         job_metadata = None
 
+        # Log all files found in BDA output for debugging
+        all_files = [obj['Key'] for obj in response['Contents']]
+        logger.info(f"Found {len(all_files)} files in BDA output: {all_files}")
+
         for obj in response['Contents']:
             key = obj['Key']
+            logger.info(f"Processing BDA output file: {key} (size: {obj['Size']})")
+            
             if obj['Size'] == 0 or '.s3_access_check' in key:
+                logger.info(f"Skipping empty or access check file: {key}")
                 continue
 
             try:
+                # Skip binary files that we don't need to process
+                if is_binary_file(key):
+                    logger.info(f"Skipping binary file: {key}")
+                    continue
+
+                logger.info(f"Reading content from file: {key}")
                 # Get the file content
                 file_response = s3_client.get_object(Bucket=bucket, Key=key)
                 content = file_response['Body'].read().decode('utf-8')
 
                 # Process different file types
                 if key.endswith('job_metadata.json'):
+                    logger.info(f"Processing job metadata: {key}")
                     job_metadata = json.loads(content)
                 elif key.endswith('/result.json'):
                     if '/custom_output/' in key:
+                        logger.info(f"Processing custom result: {key}")
                         result_data['custom_result'] = json.loads(content)
                     elif '/standard_output/' in key:
+                        logger.info(f"Processing standard result: {key}")
                         result_data['standard_result'] = json.loads(content)
                 elif key.endswith('.html'):
+                    logger.info(f"Processing HTML file: {key}")
                     result_data['html_result'] = content
                 elif key.endswith('.md'):
+                    logger.info(f"Processing markdown file: {key} (content length: {len(content)})")
                     result_data['markdown_result'] = content
                 elif key.endswith('.txt'):
+                    logger.info(f"Processing text file: {key}")
                     result_data['text_result'] = content
+                else:
+                    logger.info(f"Unrecognized file type, skipping: {key}")
 
             except Exception as e:
                 logger.warning(f"Error processing file {key}: {e}")
+
+        # Log what result files were collected
+        logger.info(f"Collected result files: {list(result_data.keys())}")
+        for file_type, content in result_data.items():
+            if isinstance(content, str):
+                logger.info(f"  {file_type}: {len(content)} characters")
+            else:
+                logger.info(f"  {file_type}: {type(content)} object")
 
         return {
             'job_metadata': job_metadata,

@@ -33,39 +33,83 @@ s3_client = boto3.client('s3')
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main handler for files API endpoints.
+    Supports both HTTP API Gateway and AgentCore Gateway routing.
     """
     try:
-        # Handle both API Gateway v1 and v2 event formats
-        method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
-        path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+        # Parse request body once
+        body = parse_event_body(event)
         
-        logger.info(f"Processing {method} request to {path}")
-        
-        if method == 'GET' and '/files' in path:
-            return handle_get_files(event)
-        elif method == 'POST' and '/files/upload' in path:
-            return handle_upload_file(event)
-        elif method == 'PUT' and '/files/' in path and '/classification' in path:
-            return handle_update_classification(event)
-        elif method == 'DELETE' and '/files/' in path:
-            return handle_delete_file(event)
+        # Determine routing type and dispatch
+        if body and body.get('action'):
+            # AgentCore Gateway: action-based routing
+            return handle_action_request(body)
         else:
-            return create_response(404, {'error': 'Endpoint not found'})
+            # HTTP API Gateway: method/path-based routing  
+            return handle_http_request(event)
             
     except Exception as e:
         logger.error(f"Unhandled error in files API: {str(e)}")
         return create_response(500, {'error': 'Internal server error'})
 
 
-def handle_get_files(event: Dict[str, Any]) -> Dict[str, Any]:
+def handle_action_request(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle AgentCore Gateway action-based requests."""
+    action = body['action']
+    logger.info(f"Processing AgentCore action: {action}")
+    
+    action_handlers = {
+        'list': lambda: handle_list_files(body.get('patient_id'), body.get('file_type')),
+        'upload': lambda: handle_file_upload(body),
+        'classify': lambda: handle_classification_update(body.get('file_id'), body.get('category')),
+        'delete': lambda: handle_file_deletion(body.get('file_id'))
+    }
+    
+    handler = action_handlers.get(action)
+    if not handler:
+        return create_response(400, {'error': f'Unsupported action: {action}'})
+    
+    return handler()
+
+
+def handle_http_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Handle HTTP API Gateway method/path-based requests."""
+    method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+    path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+    
+    logger.info(f"Processing {method} request to {path}")
+    
+    if method == 'GET' and '/files' in path:
+        query_params = event.get('queryStringParameters') or {}
+        return handle_list_files(query_params.get('patient_id'), query_params.get('category'))
+    elif method == 'POST' and '/files/upload' in path:
+        body = parse_event_body(event)
+        return handle_file_upload(body)
+    elif method == 'PUT' and '/files/' in path and '/classification' in path:
+        file_id = extract_file_id_from_path(path)
+        body = parse_event_body(event)
+        return handle_classification_update(file_id, body.get('category'))
+    elif method == 'DELETE' and '/files/' in path:
+        file_id = extract_file_id_from_path(path)
+        return handle_file_deletion(file_id)
+    else:
+        return create_response(404, {'error': 'Endpoint not found'})
+
+
+def extract_file_id_from_path(path: str) -> Optional[str]:
+    """Extract file ID from URL path."""
+    path_parts = path.split('/')
+    for i, part in enumerate(path_parts):
+        if part == 'files' and i + 1 < len(path_parts):
+            return path_parts[i + 1]
+    return None
+
+
+def handle_list_files(patient_id: Optional[str] = None, category: Optional[str] = None) -> Dict[str, Any]:
     """
     Get files for a patient using Knowledge Base metadata queries.
+    Unified handler for both HTTP and AgentCore Gateway requests.
     """
     try:
-        query_params = event.get('queryStringParameters') or {}
-        patient_id = query_params.get('patient_id')
-        category = query_params.get('category')
-        
         # Query Knowledge Base using metadata filters
         files = query_knowledge_base_documents(patient_id, category)
         
@@ -76,14 +120,12 @@ def handle_get_files(event: Dict[str, Any]) -> Dict[str, Any]:
         return create_response(500, {'error': 'Failed to get files'})
 
 
-def handle_upload_file(event: Dict[str, Any]) -> Dict[str, Any]:
+def handle_file_upload(body: Dict[str, Any]) -> Dict[str, Any]:
     """
     Handle file upload - files will be processed by BDA and stored in Knowledge Base.
-    Follows document workflow guidelines for patient data association.
+    Unified handler for both HTTP and AgentCore Gateway requests.
     """
     try:
-        body = json.loads(event.get('body', '{}'))
-        
         # Validate required fields
         required_fields = ['patient_id', 'file_name', 'file_type']
         missing_fields = [field for field in required_fields if field not in body]
@@ -140,27 +182,17 @@ def handle_upload_file(event: Dict[str, Any]) -> Dict[str, Any]:
         return create_response(500, {'error': 'Failed to initiate file upload'})
 
 
-def handle_update_classification(event: Dict[str, Any]) -> Dict[str, Any]:
+def handle_classification_update(file_id: Optional[str], new_category: Optional[str]) -> Dict[str, Any]:
     """
     Update file classification (manual override) - updates Knowledge Base metadata.
+    Unified handler for both HTTP and AgentCore Gateway requests.
     """
     try:
-        # Extract document ID from path
-        path_parts = event.get('path', '').split('/')
-        document_id = None
-        for i, part in enumerate(path_parts):
-            if part == 'files' and i + 1 < len(path_parts):
-                document_id = path_parts[i + 1]
-                break
-        
-        if not document_id:
-            return create_response(400, {'error': 'Document ID not found in path'})
-        
-        body = json.loads(event.get('body', '{}'))
-        new_category = body.get('category')
+        if not file_id:
+            return create_response(400, {'error': 'file_id is required'})
         
         if not new_category:
-            return create_response(400, {'error': 'Category is required'})
+            return create_response(400, {'error': 'category is required'})
         
         # Validate category
         valid_categories = ['medical-history', 'exam-results', 'medical-images', 'identification', 'other', 'not-identified']
@@ -173,7 +205,7 @@ def handle_update_classification(event: Dict[str, Any]) -> Dict[str, Any]:
         
         return create_response(200, {
             'message': 'Classification override acknowledged - Knowledge Base will be updated on next ingestion',
-            'document_id': document_id,
+            'file_id': file_id,
             'new_category': new_category,
             'note': 'Manual classification overrides are handled through Knowledge Base metadata updates'
         })
@@ -183,21 +215,14 @@ def handle_update_classification(event: Dict[str, Any]) -> Dict[str, Any]:
         return create_response(500, {'error': 'Failed to update classification'})
 
 
-def handle_delete_file(event: Dict[str, Any]) -> Dict[str, Any]:
+def handle_file_deletion(file_id: Optional[str]) -> Dict[str, Any]:
     """
     Delete a document from Knowledge Base (not implemented - requires Knowledge Base management).
+    Unified handler for both HTTP and AgentCore Gateway requests.
     """
     try:
-        # Extract document ID from path
-        path_parts = event.get('path', '').split('/')
-        document_id = None
-        for i, part in enumerate(path_parts):
-            if part == 'files' and i + 1 < len(path_parts):
-                document_id = path_parts[i + 1]
-                break
-        
-        if not document_id:
-            return create_response(400, {'error': 'Document ID not found in path'})
+        if not file_id:
+            return create_response(400, {'error': 'file_id is required'})
         
         # Note: Deleting documents from Knowledge Base requires more complex operations
         # involving data source management and re-ingestion
@@ -205,7 +230,7 @@ def handle_delete_file(event: Dict[str, Any]) -> Dict[str, Any]:
         
         return create_response(501, {
             'message': 'Document deletion from Knowledge Base not implemented',
-            'document_id': document_id,
+            'file_id': file_id,
             'note': 'Knowledge Base document deletion requires data source management operations'
         })
         
@@ -446,3 +471,6 @@ def is_classification_service_available() -> bool:
     except Exception as e:
         logger.warning(f"Error checking classification service availability: {e}")
         return False
+
+
+

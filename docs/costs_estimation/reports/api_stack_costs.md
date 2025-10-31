@@ -22,6 +22,7 @@ The API Stack provides the HTTP API layer for the AWSomeBuilder2 healthcare mana
 **Service**: Amazon API Gateway (HTTP API)  
 **Purpose**: RESTful API endpoints for CRUD operations  
 **Configuration**:
+
 - API Type: HTTP API (cost-optimized)
 - Authorization: JWT via Cognito
 - CORS: Enabled
@@ -29,6 +30,7 @@ The API Stack provides the HTTP API layer for the AWSomeBuilder2 healthcare mana
 - Custom Domain: Not configured
 
 **Endpoints**:
+
 - `/patients` - Patient management
 - `/medics` - Medical staff management
 - `/exams` - Medical exam operations
@@ -37,12 +39,12 @@ The API Stack provides the HTTP API layer for the AWSomeBuilder2 healthcare mana
 - `/agent` - Virtual assistant integration
 - `/patient-lookup` - Patient search
 
-
 ## Production Usage Analysis (10K MAU)
 
 ### Usage Calculation Methodology
 
 **Base Assumptions**:
+
 - Monthly Active Users (MAU): 10,000
 - Sessions per user per month: 20
 - API calls per session: 30
@@ -50,6 +52,7 @@ The API Stack provides the HTTP API layer for the AWSomeBuilder2 healthcare mana
 - Business hours: 12 hours/day, 5 days/week
 
 **Request Volume Calculation**:
+
 ```
 Total API Requests = MAU × Sessions × API Calls per Session
 Total API Requests = 10,000 × 20 × 30
@@ -57,6 +60,7 @@ Total API Requests = 6,000,000 requests/month
 ```
 
 **Peak Load Analysis**:
+
 ```
 Peak RPM = 30,000 requests per minute
 Peak RPS = 500 requests per second
@@ -66,11 +70,13 @@ Average RPS (business hours) = 333 requests per second
 ### Data Transfer Analysis
 
 **Request/Response Sizing**:
+
 - Average request payload: 2 KB (JSON data)
 - Average response payload: 8 KB (JSON data)
 - Average total per API call: 10 KB
 
 **Data Transfer Calculation**:
+
 ```
 Data Transfer OUT = Total Requests × Average Response Size
 Data Transfer OUT = 6,000,000 × 8 KB
@@ -79,7 +85,6 @@ Data Transfer OUT = 48 GB/month
 ```
 
 **Note**: Request data (inbound) is free. Only response data (outbound) is charged.
-
 
 ## Cost Breakdown
 
@@ -130,7 +135,6 @@ Data Transfer IN = 6M requests × 2 KB = 12 GB
 Cost = $0.00 (Free)
 ```
 
-
 ## Cost Summary
 
 ### Monthly Costs
@@ -159,7 +163,6 @@ API Requests:     58.1% ██████████████████�
 Data Transfer:    41.9% ██████████████████████████████████████████████
 ```
 
-
 ## Scaling Analysis
 
 ### Cost Scaling by User Growth
@@ -175,11 +178,13 @@ Data Transfer:    41.9% ██████████████████�
 ### Scaling Characteristics
 
 **Linear Scaling (0-300M requests/month)**:
+
 - API Gateway HTTP API pricing is flat at $1.00 per million requests
 - Data transfer pricing is flat at $0.09 per GB for first 10 TB
 - Cost per MAU remains constant: $0.001032
 
 **Volume Discounts (>300M requests/month)**:
+
 - Requests over 300M: $0.90 per million (10% discount)
 - Data transfer over 10 TB: $0.085 per GB (5.6% discount)
 - Cost per MAU decreases slightly at scale
@@ -187,6 +192,7 @@ Data Transfer:    41.9% ██████████████████�
 ### Detailed Scaling Calculations
 
 #### 50,000 MAU (5x Growth)
+
 ```
 Requests: 50K × 20 × 30 = 30M requests
 API Cost: 30M × $1.00/1M = $30.00
@@ -195,6 +201,7 @@ Total: $51.60/month
 ```
 
 #### 100,000 MAU (10x Growth)
+
 ```
 Requests: 100K × 20 × 30 = 60M requests
 API Cost: 60M × $1.00/1M = $60.00
@@ -203,6 +210,7 @@ Total: $103.20/month
 ```
 
 #### 500,000 MAU (50x Growth)
+
 ```
 Requests: 500K × 20 × 30 = 300M requests
 API Cost: 300M × $1.00/1M = $300.00
@@ -211,6 +219,7 @@ Total: $516.00/month
 ```
 
 #### 600,000 MAU (60x Growth - Volume Discount)
+
 ```
 Requests: 600K × 20 × 30 = 360M requests
   First 300M: 300M × $1.00/1M = $300.00
@@ -220,15 +229,16 @@ Data Transfer: 360M × 8KB = 2,880 GB × $0.09 = $259.20
 Total: $613.20/month
 ```
 
-
 ## Optimization Opportunities
 
 ### High-Impact Optimizations
 
 #### 1. Response Compression (Potential Savings: $2.60/month)
+
 **Impact**: 60% reduction in data transfer costs
 
 Enable gzip compression for API responses:
+
 ```
 Current: 48 GB × $0.09 = $4.32
 With Compression: 19.2 GB × $0.09 = $1.73
@@ -236,6 +246,7 @@ Savings: $2.59/month (60% reduction)
 ```
 
 **Implementation**:
+
 - Enable compression in API Gateway settings
 - Configure Lambda functions to return compressed responses
 - Set `Content-Encoding: gzip` header
@@ -243,9 +254,11 @@ Savings: $2.59/month (60% reduction)
 **Effort**: Low (configuration change)
 
 #### 2. Payload Optimization (Potential Savings: $1.30/month)
+
 **Impact**: 30% reduction in response sizes
 
 Optimize JSON responses by:
+
 - Removing unnecessary fields
 - Using shorter field names
 - Implementing field selection (GraphQL-style)
@@ -261,9 +274,11 @@ Savings: $1.30/month (30% reduction)
 **Effort**: Medium (code changes required)
 
 #### 3. Request Batching (Potential Savings: $1.20/month)
+
 **Impact**: 20% reduction in API calls
 
 Combine multiple operations into single API calls:
+
 - Batch patient record updates
 - Combine related data fetches
 - Use GraphQL or custom batch endpoints
@@ -280,9 +295,11 @@ Savings: $1.20/month (20% reduction)
 ### Medium-Impact Optimizations
 
 #### 4. CloudFront Integration (Potential Savings: $2.00/month)
+
 **Impact**: Reduced data transfer costs through CDN caching
 
 Use CloudFront in front of API Gateway:
+
 - Cache GET requests for static/semi-static data
 - Reduce origin requests by 40-50%
 - Lower data transfer costs
@@ -294,9 +311,11 @@ Use CloudFront in front of API Gateway:
 **Effort**: Medium (infrastructure changes)
 
 #### 5. API Caching (Not Recommended at Current Scale)
+
 **Impact**: Negative cost impact at current volume
 
 API Gateway caching costs:
+
 - Smallest cache (0.5 GB): $0.02/hour = $14.40/month
 - Current API costs: $6.00/month
 
@@ -305,9 +324,11 @@ API Gateway caching costs:
 ### Low-Impact Optimizations
 
 #### 6. Error Rate Reduction (Potential Savings: $0.30/month)
+
 **Impact**: 5% reduction in unnecessary requests
 
 Reduce 4XX/5XX errors through:
+
 - Better input validation on frontend
 - Improved error handling
 - Request deduplication
@@ -319,7 +340,6 @@ Savings: $0.30/month
 ```
 
 **Effort**: Low (code quality improvements)
-
 
 ### Optimization Summary
 
@@ -348,12 +368,12 @@ Savings: $0.30/month
    - Architectural improvements
    - Savings: $3.20/month
 
-
 ## Assumptions and Exclusions
 
 ### Usage Assumptions
 
 **User Behavior**:
+
 - ✅ 10,000 Monthly Active Users (MAU)
 - ✅ 20 sessions per user per month
 - ✅ 30 API calls per session
@@ -361,18 +381,21 @@ Savings: $0.30/month
 - ✅ Business hours: 12 hours/day, 5 days/week
 
 **Request Patterns**:
+
 - ✅ Peak load: 30,000 RPM (500 RPS)
 - ✅ Average load: 333 RPS during business hours
 - ✅ Request distribution: 60% reads, 40% writes
 - ✅ Error rate: <5% (4XX/5XX responses)
 
 **Data Transfer**:
+
 - ✅ Average request size: 2 KB
 - ✅ Average response size: 8 KB
 - ✅ No compression enabled (baseline)
 - ✅ All data transfer within us-east-1 region
 
 **API Configuration**:
+
 - ✅ HTTP API (not REST API)
 - ✅ JWT authorization via Cognito
 - ✅ No API caching enabled
@@ -394,6 +417,7 @@ Savings: $0.30/month
 ### Exclusions
 
 **Not Included in This Report**:
+
 - ❌ Lambda function execution costs (covered in Backend Stack)
 - ❌ Database query costs (covered in Backend Stack)
 - ❌ Cognito authentication costs (covered in Backend Stack)
@@ -405,12 +429,12 @@ Savings: $0.30/month
 - ❌ API Gateway access logs storage (S3)
 
 **Future Considerations**:
+
 - 🔄 WebSocket API costs (if real-time features added)
 - 🔄 API caching costs (if implemented at scale)
 - 🔄 Custom domain and SSL certificate costs
 - 🔄 Multi-region deployment costs
 - 🔄 API Gateway private endpoints (VPC)
-
 
 ## Monitoring and Alerting
 
@@ -421,6 +445,7 @@ Savings: $0.30/month
 **Budget Name**: API-Stack-Monthly-Budget  
 **Amount**: $15.00/month (45% buffer above baseline)  
 **Alerts**:
+
 - 80% threshold ($12.00): Email notification
 - 90% threshold ($13.50): Email + SMS notification
 - 100% threshold ($15.00): Email + SMS + Slack notification
@@ -428,12 +453,14 @@ Savings: $0.30/month
 #### CloudWatch Metrics to Monitor
 
 **Request Metrics**:
+
 - `Count` - Total number of API requests
 - `4XXError` - Client errors (should be <5%)
 - `5XXError` - Server errors (should be <1%)
 - `Latency` - Response time (p50, p95, p99)
 
 **Cost-Related Metrics**:
+
 - Daily request count trend
 - Request rate per endpoint
 - Data transfer volume
@@ -442,6 +469,7 @@ Savings: $0.30/month
 #### Cost Anomaly Detection
 
 **AWS Cost Anomaly Detection Settings**:
+
 - Service: API Gateway
 - Threshold: $5.00 increase over 7-day average
 - Alert: Email to cost optimization team
@@ -452,6 +480,7 @@ Savings: $0.30/month
 #### Request Volume Alerts
 
 **High Volume Alert**:
+
 ```
 Metric: API Gateway Request Count
 Threshold: 250,000 requests/hour (>10% above expected)
@@ -459,6 +488,7 @@ Action: Investigate traffic spike
 ```
 
 **Low Volume Alert**:
+
 ```
 Metric: API Gateway Request Count
 Threshold: 150,000 requests/hour (<30% below expected)
@@ -468,6 +498,7 @@ Action: Check for service issues
 #### Error Rate Alerts
 
 **High Error Rate Alert**:
+
 ```
 Metric: 4XX Error Rate
 Threshold: >10% of requests
@@ -475,6 +506,7 @@ Action: Investigate client-side issues
 ```
 
 **Server Error Alert**:
+
 ```
 Metric: 5XX Error Rate
 Threshold: >2% of requests
@@ -496,21 +528,23 @@ Action: Immediate investigation required
 ### Review Schedule
 
 **Daily**:
+
 - Review request count and error rates
 - Check for cost anomalies
 - Monitor latency metrics
 
 **Weekly**:
+
 - Analyze cost trends
 - Review optimization opportunities
 - Check budget utilization
 
 **Monthly**:
+
 - Full cost analysis and reporting
 - Optimization implementation review
 - Forecast next month's costs
 - Update usage assumptions if needed
-
 
 ## Comparison with Alternatives
 
@@ -529,6 +563,7 @@ Action: Immediate investigation required
 | WebSocket | Separate API | No | Neither supports |
 
 **Recommendation**: HTTP API is optimal for AWSomeBuilder2
+
 - 71% cost savings
 - Sufficient features for current requirements
 - Native CORS support
@@ -547,6 +582,7 @@ Action: Immediate investigation required
 | Throttling | Built-in | Manual | API Gateway advantage |
 
 **ALB Cost Calculation**:
+
 ```
 Fixed: $0.0225/hour × 730 hours = $16.43
 LCU: ~0.5 LCU × 730 hours × $0.008 = $2.92
@@ -554,6 +590,7 @@ Total: ~$19.35/month
 ```
 
 **Recommendation**: API Gateway is better for this use case
+
 - Lower cost at current scale
 - Better Lambda integration
 - Native JWT support
@@ -572,12 +609,12 @@ Total: ~$19.35/month
 | Request Validation | Yes | No | API Gateway only |
 
 **Recommendation**: API Gateway worth the cost
+
 - Better security and authorization
 - Centralized throttling and monitoring
 - Custom domain support
 - Request validation
 - Professional API management
-
 
 ## Risk Analysis
 
@@ -590,6 +627,7 @@ Total: ~$19.35/month
 **Impact**: 10x traffic = $103.20/month (vs $10.32 baseline)
 
 **Mitigation**:
+
 - ✅ Implement throttling (currently: 100 RPS, 200 burst)
 - ✅ Set up AWS WAF for DDoS protection
 - ✅ Configure CloudWatch alarms for traffic spikes
@@ -606,6 +644,7 @@ Total: ~$19.35/month
 **Impact**: 2x requests = $20.64/month (vs $10.32 baseline)
 
 **Mitigation**:
+
 - ✅ Implement request caching on frontend
 - ✅ Monitor API call patterns per endpoint
 - ✅ Set up alerts for unusual request patterns
@@ -622,6 +661,7 @@ Total: ~$19.35/month
 **Impact**: 2x data transfer = $14.64/month (vs $10.32 baseline)
 
 **Mitigation**:
+
 - ✅ Monitor average response sizes
 - ✅ Implement response compression
 - ✅ Use pagination for large datasets
@@ -636,6 +676,7 @@ Total: ~$19.35/month
 #### Assumption Validation Required
 
 **User Behavior Assumptions** [NEEDS REVIEW]:
+
 - Sessions per user: 20/month (industry average)
 - API calls per session: 30 (estimated from design)
 - Session duration: 20-30 minutes (typical healthcare app)
@@ -643,6 +684,7 @@ Total: ~$19.35/month
 **Action**: Monitor actual usage patterns for first 3 months and adjust estimates
 
 **Request/Response Sizes** [NEEDS REVIEW]:
+
 - Request size: 2 KB (typical JSON)
 - Response size: 8 KB (typical JSON with medical data)
 
@@ -657,6 +699,7 @@ Total: ~$19.35/month
 **Impact**: Linear cost scaling with user growth
 
 **Mitigation**:
+
 - ✅ Implement optimizations early (compression, batching)
 - ✅ Monitor cost per MAU metric
 - ✅ Plan for volume discounts at 300M+ requests
@@ -665,12 +708,12 @@ Total: ~$19.35/month
 **Probability**: Medium  
 **Impact**: Manageable (predictable scaling)
 
-
 ## Integration with Other Stacks
 
 ### Upstream Dependencies
 
 **Frontend Stack (Amplify)**:
+
 - Amplify frontend makes all API calls to API Gateway
 - API Gateway URL configured in Amplify environment
 - CORS configuration must match Amplify domain
@@ -681,6 +724,7 @@ Total: ~$19.35/month
 ### Downstream Dependencies
 
 **Backend Stack (Lambda Functions)**:
+
 - API Gateway invokes Lambda functions for all endpoints
 - Lambda execution time affects API latency
 - Lambda errors result in 5XX responses from API Gateway
@@ -689,6 +733,7 @@ Total: ~$19.35/month
 **Cost Impact**: Lambda performance affects API Gateway data transfer (error responses)
 
 **Backend Stack (Aurora Database)**:
+
 - Lambda functions query Aurora for data
 - Database performance affects API response times
 - Database errors propagate as API errors
@@ -696,6 +741,7 @@ Total: ~$19.35/month
 **Cost Impact**: Database performance affects API latency and error rates
 
 **Assistant Stack (Bedrock AgentCore)**:
+
 - `/agent` endpoint proxies requests to AgentCore
 - AgentCore response times affect API latency
 - Large AI responses increase data transfer costs
@@ -712,6 +758,7 @@ Total: ~$19.35/month
 4. **API + AgentCore**: Implement streaming responses for AI interactions
 
 **Total Stack Cost Context**:
+
 ```
 Frontend Stack:     $182.01/month (0.7%)
 API Stack:          $10.32/month (0.04%)
@@ -723,7 +770,6 @@ Total System:       ~$25,000/month
 ```
 
 **API Stack Significance**: API Gateway represents <0.1% of total system cost, making it a low-priority optimization target compared to AI/ML services.
-
 
 ## Recommendations
 
@@ -796,32 +842,36 @@ Total System:       ~$25,000/month
 ### Do Not Implement
 
 **API Gateway Caching**: Not cost-effective at current scale
+
 - Smallest cache: $14.40/month
 - Current API costs: $6.00/month
 - Recommendation: Revisit at >100M requests/month
 
 **Custom Domain**: Not included in baseline estimate
+
 - Route 53 hosted zone: $0.50/month
 - SSL certificate: Free (AWS Certificate Manager)
 - Recommendation: Implement if needed for branding
 
 **WebSocket API**: Not required for current architecture
+
 - Current: HTTP API for all endpoints
 - Agent integration: Uses HTTP, not WebSocket
 - Recommendation: Revisit if real-time features needed
-
 
 ## Appendix
 
 ### A. Pricing Reference
 
 **API Gateway HTTP API Pricing (us-east-1)**:
+
 - First 300M requests: $1.00 per million
 - Over 300M requests: $0.90 per million
 - Source: AWS Pricing API (October 2025)
 - Effective Date: July 1, 2025
 
 **Data Transfer Pricing (us-east-1)**:
+
 - First 10 TB: $0.09 per GB
 - Next 40 TB: $0.085 per GB
 - Next 100 TB: $0.07 per GB
@@ -829,33 +879,39 @@ Total System:       ~$25,000/month
 - Source: AWS Pricing API (October 2025)
 
 **Free Tier (First 12 Months)**:
+
 - 1 million API calls per month
 - 100 GB data transfer out per month (aggregated across all services)
 
 ### B. Calculation Formulas
 
 **Total API Requests**:
+
 ```
 Requests = MAU × Sessions per User × API Calls per Session
 ```
 
 **API Gateway Cost**:
+
 ```
 Cost = (Requests / 1,000,000) × Price per Million
 ```
 
 **Data Transfer Cost**:
+
 ```
 Data Transfer = Requests × Average Response Size
 Cost = Data Transfer (GB) × Price per GB
 ```
 
 **Cost per MAU**:
+
 ```
 Cost per MAU = Total Monthly Cost / MAU
 ```
 
 **Cost per Request**:
+
 ```
 Cost per Request = Total Monthly Cost / Total Requests
 ```
@@ -877,6 +933,7 @@ Cost per Request = Total Monthly Cost / Total Requests
 ### D. Related Documentation
 
 **Internal References**:
+
 - Frontend Stack Cost Report: `docs/costs_estimation/reports/frontend_stack_costs.md`
 - Backend Stack Cost Report: `docs/costs_estimation/reports/backend_stack_costs.md` (pending)
 - API Gateway Pricing Data: `docs/costs_estimation/data/api_gateway_pricing.md`
@@ -884,10 +941,11 @@ Cost per Request = Total Monthly Cost / Total Requests
 - Requirements Document: `.kiro/specs/aws-cost-estimation/requirements.md`
 
 **AWS Documentation**:
-- API Gateway Pricing: https://aws.amazon.com/api-gateway/pricing/
-- API Gateway Developer Guide: https://docs.aws.amazon.com/apigateway/
-- API Gateway Quotas: https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html
-- CloudWatch Metrics: https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-metrics-and-dimensions.html
+
+- API Gateway Pricing: <https://aws.amazon.com/api-gateway/pricing/>
+- API Gateway Developer Guide: <https://docs.aws.amazon.com/apigateway/>
+- API Gateway Quotas: <https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html>
+- CloudWatch Metrics: <https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-metrics-and-dimensions.html>
 
 ### E. Glossary
 
@@ -925,4 +983,3 @@ Cost per Request = Total Monthly Cost / Total Requests
 **Report Status**: Complete  
 **Next Review Date**: 30 days after production deployment  
 **Contact**: Cost Optimization Team
-

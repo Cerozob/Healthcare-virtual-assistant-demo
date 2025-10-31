@@ -47,7 +47,7 @@ class DocumentWorkflowStack(Stack):
             self,
             "RawBucket",
             bucket_name=f"ab2-cerozob-rawdata-{self.region}",
-            versioned=True,
+            versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
@@ -93,7 +93,7 @@ class DocumentWorkflowStack(Stack):
             self,
             "ProcessedBucket",
             bucket_name=f"ab2-cerozob-processeddata-{self.region}",
-            versioned=True,
+            versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
@@ -183,8 +183,6 @@ class DocumentWorkflowStack(Stack):
             string_value=self.raw_bucket.bucket_name,
             description="Raw data bucket name for document workflow",
         )
-
-
 
         self.bda_trigger_lambda = aws_lambda.Function(
             self,
@@ -425,8 +423,6 @@ class DocumentWorkflowStack(Stack):
         self.raw_bucket.grant_read_write(self.cleanup_lambda)
         self.processed_bucket.grant_read_write(self.cleanup_lambda)
 
-
-
         # * EventBridge Rules for S3 Object Deletion Events
 
         # Rule for raw bucket deletions
@@ -493,8 +489,6 @@ class DocumentWorkflowStack(Stack):
             description="Name of the S3 bucket for processed data",
         )
 
-
-
         CfnOutput(
             self,
             "S3ApiLogGroupName",
@@ -515,5 +509,3 @@ class DocumentWorkflowStack(Stack):
             value=self.cleanup_lambda.function_name,
             description="Name of the cleanup Lambda function",
         )
-
-

@@ -64,9 +64,10 @@ def lambda_handler(event, context):
 
 def load_and_process_sample_data(s3, rds_data, sample_bucket: str, 
                                cluster_arn: str, secret_arn: str, database_name: str) -> int:
-    """Load sample patient profiles from S3 and insert into database."""
+    """Load sample patient profiles from S3 and insert into database. 
+    Modified to load only the FIRST patient for easier debugging."""
     
-    logger.info(f"Loading sample data from bucket: {sample_bucket}")
+    logger.info(f"Loading sample data from bucket: {sample_bucket} (DEBUG MODE: single patient only)")
     
     # List all objects in the sample data bucket
     response = s3.list_objects_v2(Bucket=sample_bucket, Prefix='output/')
@@ -95,29 +96,31 @@ def load_and_process_sample_data(s3, rds_data, sample_bucket: str,
         if key.endswith('_profile.json'):
             patient_profiles.append(key)
     
-    logger.info(f"Found {len(patient_profiles)} patient profiles to process")
+    logger.info(f"Found {len(patient_profiles)} patient profiles available")
     
-    # Process each patient profile
-    for i, profile_key in enumerate(patient_profiles, 1):
+    # DEBUG MODE: Only process the FIRST patient for easier debugging
+    if patient_profiles:
+        profile_key = patient_profiles[0]  # Take only the first patient
+        logger.info(f"DEBUG MODE: Processing only first patient: {profile_key}")
+        
         try:
             # Load patient profile
             profile_data = load_patient_profile(s3, sample_bucket, profile_key)
-            if not profile_data:
-                continue
-            
-            # Upsert patient in database
-            upsert_patient_to_database(
-                rds_data, cluster_arn, secret_arn, database_name, profile_data
-            )
-            
-            patients_processed += 1
-            patient_name = profile_data.get('personal_info', {}).get('nombre_completo', 'Unknown')
-            logger.info(f"Successfully processed patient {i}/{len(patient_profiles)}: {patient_name}")
-            
+            if profile_data:
+                # Upsert patient in database
+                upsert_patient_to_database(
+                    rds_data, cluster_arn, secret_arn, database_name, profile_data
+                )
+                
+                patients_processed = 1
+                patient_name = profile_data.get('personal_info', {}).get('nombre_completo', 'Unknown')
+                patient_id = profile_data.get('patient_id', 'Unknown')
+                logger.info(f"Successfully processed single patient for debugging: {patient_name} (ID: {patient_id})")
+                
         except Exception as e:
             logger.error(f"Failed to process patient profile {profile_key}: {e}")
-            # Continue with other patients
-            continue
+    else:
+        logger.warning("No patient profiles found to process")
     
     # Also load basic sample data (medics and exams) if not already present
     try:

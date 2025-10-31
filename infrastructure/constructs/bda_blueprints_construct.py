@@ -145,7 +145,7 @@ class BDABlueprintsConstruct(Construct):
                         state="ENABLED"
                     ),
                     text_format=bedrock.CfnDataAutomationProject.DocumentOutputTextFormatProperty(
-                        types=["MARKDOWN"]
+                        types=["MARKDOWN", "HTML"]
                     )
                 )
             ),
@@ -187,7 +187,12 @@ class BDABlueprintsConstruct(Construct):
                 blueprints=blueprint_items
             ),
             standard_output_configuration=standard_output_configuration,
-
+            override_configuration=bedrock.CfnDataAutomationProject.OverrideConfigurationProperty(
+                modality_routing=bedrock.CfnDataAutomationProject.ModalityRoutingConfigurationProperty(
+                    jpeg="DOCUMENT",
+                    png="DOCUMENT"
+                )
+            ),
             tags=[
                 {
                     "key": "ProjectType",

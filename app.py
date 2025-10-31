@@ -155,10 +155,11 @@ document_workflow_stack = DocumentWorkflowStack(
     description="Workflow de procesamiento de documentos",
 )
 
-# Create the backend stack (database only)
+# Create the backend stack (database only) with raw bucket reference
 backend_stack = BackendStack(
     app,
     "backendstack",
+    raw_bucket_name=document_workflow_stack.raw_bucket.bucket_name,
     env=env,
     stack_name="AWSomeBuilder2-BackendStack",
     description="Database infrastructure for healthcare system",
@@ -200,6 +201,7 @@ api_stack = ApiStack(
 
 # Add stack dependencies - API stack now depends on backend and assistant stacks
 logger.info("Configuring stack dependencies...")
+backend_stack.add_dependency(document_workflow_stack)
 api_stack.add_dependency(backend_stack)
 api_stack.add_dependency(assistant_stack)
 assistant_stack.add_dependency(backend_stack)

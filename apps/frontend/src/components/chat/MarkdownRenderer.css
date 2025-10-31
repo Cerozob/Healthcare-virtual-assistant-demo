@@ -1,7 +1,7 @@
 /* Markdown Renderer Styles */
 .markdown-renderer {
   line-height: 1.6;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Headings */
@@ -9,62 +9,62 @@
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0 0 1rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h2 {
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0 0 0.875rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h3 {
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0 0 0.75rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h4 {
   font-size: 1.125rem;
   font-weight: 700;
   margin: 0 0 0.625rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h5 {
   font-size: 1rem;
   font-weight: 700;
   margin: 0 0 0.5rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h6 {
   font-size: 0.875rem;
   font-weight: 700;
   margin: 0 0 0.5rem 0;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 /* Paragraphs */
 .markdown-p {
   margin: 0 0 1rem 0;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Code */
 .markdown-code-inline {
-  background-color: var(--awsui-color-background-code-editor, #f2f3f3);
+  background-color: var(--awsui-color-background-code-editor, rgba(128, 128, 128, 0.1));
   border-radius: 4px;
   padding: 2px 6px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
-  color: var(--awsui-color-text-code-editor-default, #5f6b7a);
+  color: var(--awsui-color-text-code-editor-default, inherit);
 }
 
 .markdown-code-block {
-  background-color: var(--awsui-color-background-code-editor, #f2f3f3);
+  background-color: var(--awsui-color-background-code-editor, rgba(128, 128, 128, 0.1));
   border-radius: 8px;
   padding: 1rem;
   margin: 0 0 1rem 0;
@@ -72,7 +72,7 @@
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
   line-height: 1.4;
-  border: 1px solid var(--awsui-color-border-divider-default, #e9ebed);
+  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
 }
 
 .markdown-code-block code {
@@ -80,7 +80,7 @@
   padding: 0;
   border-radius: 0;
   font-size: inherit;
-  color: var(--awsui-color-text-code-editor-default, #5f6b7a);
+  color: var(--awsui-color-text-code-editor-default, inherit);
 }
 
 /* Lists */
@@ -88,22 +88,22 @@
 .markdown-ol {
   margin: 0 0 1rem 1.5rem;
   padding: 0;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 .markdown-li {
   margin: 0 0 0.25rem 0;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Blockquotes */
 .markdown-blockquote {
   border-left: 4px solid var(--awsui-color-border-status-success, #037f0c);
-  background-color: var(--awsui-color-background-container-content, #f9f9f9);
+  background-color: var(--awsui-color-background-container-content, rgba(128, 128, 128, 0.05));
   margin: 0 0 1rem 0;
   padding: 0.75rem 0 0.75rem 1rem;
   font-style: italic;
-  color: var(--awsui-color-text-body-secondary, #5f6b7a);
+  color: var(--awsui-color-text-body-secondary, inherit);
   border-radius: 4px;
 }
 
@@ -118,7 +118,7 @@
 }
 
 .markdown-link:visited {
-  color: var(--awsui-color-text-link-default, #7d2105);
+  color: var(--awsui-color-text-link-default, #0972d3);
 }
 
 /* Tables */
@@ -126,42 +126,42 @@
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 1rem 0;
-  border: 1px solid var(--awsui-color-border-divider-default, #e9ebed);
-  background-color: var(--awsui-color-background-container-content, #ffffff);
+  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+  background-color: var(--awsui-color-background-container-content, transparent);
 }
 
 .markdown-th {
-  border: 1px solid var(--awsui-color-border-divider-default, #e9ebed);
-  background-color: var(--awsui-color-background-container-header, #f2f3f3);
+  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+  background-color: var(--awsui-color-background-container-header, rgba(128, 128, 128, 0.1));
   padding: 0.75rem;
   font-weight: 700;
   text-align: left;
-  color: var(--awsui-color-text-heading-default, #16191f);
+  color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-td {
-  border: 1px solid var(--awsui-color-border-divider-default, #e9ebed);
+  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
   padding: 0.75rem;
-  color: var(--awsui-color-text-body-default, #16191f);
-  background-color: var(--awsui-color-background-container-content, #ffffff);
+  color: var(--awsui-color-text-body-default, inherit);
+  background-color: var(--awsui-color-background-container-content, transparent);
 }
 
 /* Horizontal Rules */
 .markdown-hr {
   border: none;
-  border-top: 1px solid var(--awsui-color-border-divider-default, #e9ebed);
+  border-top: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
   margin: 1.5rem 0;
 }
 
 /* Text Formatting */
 .markdown-strong {
   font-weight: 700;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 .markdown-em {
   font-style: italic;
-  color: var(--awsui-color-text-body-default, #16191f);
+  color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Responsive adjustments */

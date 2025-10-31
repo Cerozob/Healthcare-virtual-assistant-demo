@@ -4,10 +4,10 @@ import { Amplify } from 'aws-amplify';
 import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import outputs from '../amplify_outputs.json';
 import { SpanishAuthenticator } from './components/auth/SpanishAuthenticator';
-import { NotificationCenter } from './components/notifications';
+
 import { ProtectedRoute } from './components/routing/ProtectedRoute';
 import { LanguageProvider } from './contexts/LanguageContext';
-import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationProvider } from './components/common/NotificationSystem';
 import { PatientProvider } from './contexts/PatientContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import ChatPage from './pages/ChatPage';
@@ -38,7 +38,6 @@ function App() {
             <SpanishAuthenticator>
             {({ signOut, user }) => (
               <>
-                <NotificationCenter />
                 <Router>
                   <Routes>
               {/* If not authenticated, show login message */}

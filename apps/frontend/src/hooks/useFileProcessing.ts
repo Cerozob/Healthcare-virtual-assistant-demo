@@ -4,9 +4,9 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { useNotifications } from '../contexts/NotificationContext';
+import { useNotifications } from '../components/common/NotificationSystem';
 import { FileProcessingStatus } from '../components/notifications/FileUploadStatus';
-import { es } from '../i18n/es';
+
 
 interface UseFileProcessingOptions {
   pollInterval?: number;
@@ -15,7 +15,7 @@ interface UseFileProcessingOptions {
 
 export const useFileProcessing = (options: UseFileProcessingOptions = {}) => {
   const { pollInterval = 2000, onStatusChange } = options;
-  const { showSuccess, showError, showInfo } = useNotifications();
+  const { showInfo, showSuccess, showError } = useNotifications();
   const [processingFiles, setProcessingFiles] = useState<Map<string, FileProcessingStatus>>(
     new Map()
   );
@@ -32,7 +32,7 @@ export const useFileProcessing = (options: UseFileProcessingOptions = {}) => {
       };
 
       setProcessingFiles((prev) => new Map(prev).set(fileId, newStatus));
-      showInfo(es.notifications.fileProcessingStarted, `Archivo: ${fileName}`);
+      showInfo('Procesamiento iniciado', `Archivo: ${fileName}`);
 
       if (onStatusChange) {
         onStatusChange(fileId, newStatus);
@@ -67,12 +67,12 @@ export const useFileProcessing = (options: UseFileProcessingOptions = {}) => {
         // Show notifications for status changes
         if (updates.status === 'completed' && current.status !== 'completed') {
           showSuccess(
-            es.notifications.fileProcessingCompleted,
+            'Procesamiento completado',
             `Archivo: ${current.fileName}`
           );
         } else if (updates.status === 'failed' && current.status !== 'failed') {
           showError(
-            es.notifications.fileProcessingFailed,
+            'Error en procesamiento',
             updates.error || `Archivo: ${current.fileName}`
           );
         }

@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import logging
+import json
 from typing import Dict, Any
 from shared.database import DatabaseManager, DatabaseError
 from shared.utils import (
@@ -30,15 +31,19 @@ db_manager = DatabaseManager()
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for exams API.
-    Routes requests to appropriate handlers based on HTTP method and path.
+    Supports both API Gateway and MCP Gateway invocations.
     """
-    # Handle both API Gateway v1 and v2 event formats
+    # Check if this is an MCP Gateway invocation
+    if _is_mcp_gateway_event(event):
+        return handle_mcp_gateway_request(event)
+
+    # Handle API Gateway requests (existing logic)
     http_method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
     path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     path_params = event.get('pathParameters') or {}
     
     # Log the event for debugging
-    logger.info(f"Received request: method={http_method}, path={path}")
+    logger.info(f"Received API Gateway request: method={http_method}, path={path}")
     
     # Normalize path by removing stage prefix if present
     normalized_path = path
@@ -369,4 +374,94 @@ def delete_exam(exam_id: str) -> Dict[str, Any]:
     
     except Exception as e:
         logger.error(f"Error in delete_exam: {str(e)}")
+        return create_error_response(500, "Internal server error")
+
+
+def _is_mcp_gateway_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from MCP Gateway.
+    MCP Gateway events have an 'action' field and no HTTP method.
+    """
+    return 'action' in event and 'httpMethod' not in event
+
+
+def handle_mcp_gateway_request(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle MCP Gateway requests with action-based routing.
+    
+    Expected event format:
+    {
+        "action": "list|get|create|update|delete",
+        "exam_id": "string (for get, update, delete)",
+        "exam_type": "string (for list filtering)",
+        "exam_data": {
+            "exam_name": "string",
+            "exam_type": "string", 
+            "description": "string",
+            "duration_minutes": int,
+            "preparation_instructions": "string"
+        },
+        "pagination": {
+            "limit": int,
+            "offset": int
+        }
+    }
+    """
+    try:
+        action = event.get('action')
+        logger.info(f"Received MCP Gateway request: action={action}")
+        
+        if action == 'list':
+            # Convert MCP parameters to API Gateway format
+            query_params = {}
+            if event.get('exam_type'):
+                query_params['exam_type'] = event['exam_type']
+            if event.get('pagination'):
+                query_params.update(event['pagination'])
+            
+            mock_event = {
+                'queryStringParameters': query_params
+            }
+            return list_exams(mock_event)
+            
+        elif action == 'get':
+            exam_id = event.get('exam_id')
+            if not exam_id:
+                return create_error_response(400, "exam_id is required for get action")
+            return get_exam(exam_id)
+            
+        elif action == 'create':
+            exam_data = event.get('exam_data')
+            if not exam_data:
+                return create_error_response(400, "exam_data is required for create action")
+            
+            mock_event = {
+                'body': json.dumps(exam_data)
+            }
+            return create_exam(mock_event)
+            
+        elif action == 'update':
+            exam_id = event.get('exam_id')
+            exam_data = event.get('exam_data')
+            if not exam_id:
+                return create_error_response(400, "exam_id is required for update action")
+            if not exam_data:
+                return create_error_response(400, "exam_data is required for update action")
+            
+            mock_event = {
+                'body': json.dumps(exam_data)
+            }
+            return update_exam(exam_id, mock_event)
+            
+        elif action == 'delete':
+            exam_id = event.get('exam_id')
+            if not exam_id:
+                return create_error_response(400, "exam_id is required for delete action")
+            return delete_exam(exam_id)
+            
+        else:
+            return create_error_response(400, f"Unsupported action: {action}")
+            
+    except Exception as e:
+        logger.error(f"Error in MCP Gateway request: {str(e)}")
         return create_error_response(500, "Internal server error")

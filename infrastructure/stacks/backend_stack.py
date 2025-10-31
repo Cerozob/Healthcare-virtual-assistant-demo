@@ -16,6 +16,7 @@ from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_logs as logs
 from aws_cdk import custom_resources as cr
 from constructs import Construct
+from typing import Optional
 import uuid
 
 
@@ -29,12 +30,15 @@ class BackendStack(Stack):
         self,
         scope: Construct,
         construct_id: str,
+        raw_bucket_name: str,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         # Create sample data bucket and upload assets
         self.sample_data_bucket, self.sample_data_deployment = self._create_sample_data_bucket()
+
+        self.raw_bucket_name = raw_bucket_name
 
         # Create VPC with private subnets
         self.vpc = self._create_vpc()
@@ -58,30 +62,50 @@ class BackendStack(Stack):
         self._create_outputs()
 
     def _create_vpc(self) -> ec2.Vpc:
-        """Create VPC with public and private subnets for the healthcare system."""
-        return ec2.Vpc(
+        """Create VPC with isolated private subnets for the healthcare system."""
+        vpc = ec2.Vpc(
             self,
             "HealthcareVPC",
             ip_addresses=ec2.IpAddresses.cidr("10.0.0.0/16"),
             max_azs=2,  # Use 2 AZs for high availability
             subnet_configuration=[
-                # Public subnets for NAT gateways and load balancers
+                # Public subnets for load balancers (if needed in future)
                 ec2.SubnetConfiguration(
                     name="Public",
                     subnet_type=ec2.SubnetType.PUBLIC,
                     cidr_mask=24,
                 ),
-                # Private subnets for databases and Lambda functions
+                # Isolated private subnets for databases (no internet access)
                 ec2.SubnetConfiguration(
                     name="Private",
-                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    subnet_type=ec2.SubnetType.PRIVATE_ISOLATED,
                     cidr_mask=24,
                 ),
             ],
-            nat_gateways=1,  # One NAT gateway for cost optimization
+            nat_gateways=0,  # No NAT gateway needed - saves ~$50/month
             enable_dns_hostnames=True,
             enable_dns_support=True,
         )
+
+        # Add VPC endpoints for AWS services (more cost-effective than NAT Gateway)
+        self._add_vpc_endpoints(vpc)
+
+        return vpc
+
+    def _add_vpc_endpoints(self, vpc: ec2.Vpc) -> None:
+        """Add minimal VPC endpoints - only S3 Gateway Endpoint needed."""
+
+        # S3 Gateway Endpoint (free) - for future database S3 integration
+        # Note: Lambda functions access AWS services via internet, not VPC endpoints
+        vpc.add_gateway_endpoint(
+            "S3Endpoint",
+            service=ec2.GatewayVpcEndpointAwsService.S3,
+            subnets=[ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_ISOLATED)]
+        )
+
+        # Interface endpoints removed - Lambda functions don't use VPC
+        # Database uses RDS Data API via internet, not VPC endpoints
 
     def _create_database(self) -> rds.ServerlessCluster:
         """Create Aurora PostgreSQL Serverless v2 cluster."""
@@ -123,9 +147,9 @@ class BackendStack(Stack):
                                           version=rds.AuroraPostgresEngineVersion.VER_17_5
                                       ),
                                       vpc=self.vpc,
-                                      # Use private subnets for database
+                                      # Use isolated private subnets for database (no internet access needed)
                                       vpc_subnets=ec2.SubnetSelection(
-                                          subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+                                          subnet_type=ec2.SubnetType.PRIVATE_ISOLATED
                                       ),
                                       security_groups=[self.db_security_group],
                                       default_database_name="healthcare",
@@ -315,17 +339,8 @@ class BackendStack(Stack):
             tier=ssm.ParameterTier.STANDARD
         )
 
-        # Store private subnet IDs for Lambda functions
-        private_subnet_ids = [
-            subnet.subnet_id for subnet in self.vpc.private_subnets]
-        self.private_subnets_param = ssm.StringListParameter(
-            self,
-            "PrivateSubnetsParam",
-            parameter_name="/healthcare/vpc/private-subnet-ids",
-            string_list_value=private_subnet_ids,
-            description="Private subnet IDs for Lambda functions",
-            tier=ssm.ParameterTier.STANDARD
-        )
+        # Note: Private subnet IDs parameter removed - Lambda functions don't use VPC
+        # Database uses isolated subnets but doesn't need the parameter exposed
 
     def _create_database_initialization(self) -> CustomResource:
         """
@@ -572,6 +587,16 @@ class BackendStack(Stack):
         self.reservations_function.add_to_role_policy(secrets_policy)
 
         # Files Function
+        files_environment = {
+            "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80",
+            "KNOWLEDGE_BASE_ID": "healthcare-kb",
+            "ENABLE_DOCUMENT_CLASSIFICATION": "true"
+        }
+        
+        # Add RAW_BUCKET_NAME if provided
+        if self.raw_bucket_name:
+            files_environment["RAW_BUCKET_NAME"] = self.raw_bucket_name
+        
         self.files_function = lambda_.Function(
             self,
             "FilesFunction",
@@ -579,14 +604,44 @@ class BackendStack(Stack):
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.files.handler.lambda_handler",
-            environment={
-                "CLASSIFICATION_CONFIDENCE_THRESHOLD": "80",
-                "KNOWLEDGE_BASE_ID": "healthcare-kb"
-            },
+            environment=files_environment,
             **lambda_config
         )
         self.files_function.add_to_role_policy(ssm_policy)
         self.files_function.add_to_role_policy(rds_policy)
+        
+        # Add Bedrock Agent Runtime permissions for Knowledge Base queries
+        self.files_function.add_to_role_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "bedrock:Retrieve",
+                    "bedrock:GetKnowledgeBase",
+                    "bedrock:ListKnowledgeBases"
+                ],
+                resources=[
+                    f"arn:aws:bedrock:{self.region}:{self.account}:knowledge-base/*"
+                ]
+            )
+        )
+        
+        # Add S3 permissions for raw bucket access if bucket name is provided
+        if self.raw_bucket_name:
+            self.files_function.add_to_role_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "s3:GetObject",
+                        "s3:PutObject",
+                        "s3:DeleteObject",
+                        "s3:ListBucket"
+                    ],
+                    resources=[
+                        f"arn:aws:s3:::{self.raw_bucket_name}",
+                        f"arn:aws:s3:::{self.raw_bucket_name}/*"
+                    ]
+                )
+            )
         self.files_function.add_to_role_policy(secrets_policy)
 
         # Add S3 permissions for file operations
@@ -615,7 +670,6 @@ class BackendStack(Stack):
             ]
         )
         self.files_function.add_to_role_policy(bedrock_kb_policy)
-
 
         # AgentCore permissions removed - using AgentCore SDK directly from frontend
 
@@ -699,14 +753,7 @@ class BackendStack(Stack):
             export_name="HealthcareDatabaseSecurityGroupId"
         )
 
-        CfnOutput(
-            self,
-            "PrivateSubnetIds",
-            value=",".join(
-                [subnet.subnet_id for subnet in self.vpc.private_subnets]),
-            description="Private subnet IDs for Lambda functions",
-            export_name="HealthcarePrivateSubnetIds"
-        )
+        # Private subnet IDs output removed - not used by any components
 
         CfnOutput(
             self,
