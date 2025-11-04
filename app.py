@@ -172,6 +172,7 @@ lambda_functions = {
     "exams": backend_stack.exams_function,
     "reservations": backend_stack.reservations_function,
     "files": backend_stack.files_function,
+    "patient_lookup": backend_stack.patient_lookup_function,
 }
 
 # Create the assistant stack first (provides OAuth Lambda)
@@ -180,6 +181,7 @@ assistant_stack = AssistantStack(
     "genaistack",
     bedrock_user_secret=backend_stack.bedrock_user_secret,
     processed_bucket=document_workflow_stack.processed_bucket,
+    raw_bucket=document_workflow_stack.raw_bucket,
     database_cluster=backend_stack.db_cluster,
     db_init_resource=backend_stack.db_init_resource,
     lambda_functions=lambda_functions,

@@ -182,9 +182,32 @@ body {
   flex-direction: column;
   gap: 16px;
   width: 100%;
-  max-height: 500px;
+  max-height: 60vh; /* Use viewport height for better responsiveness */
+  min-height: 400px; /* Minimum height for usability */
   overflow-y: auto;
   overflow-x: hidden;
+  scroll-behavior: smooth;
+  padding: 8px;
+  border-radius: 8px;
+  background-color: transparent;
+}
+
+/* Custom scrollbar styling for better UX */
+.chat-messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-messages-container::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.chat-messages-container::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
 }
 
 /* Individual chat bubble wrapper */

@@ -9,6 +9,7 @@ import sys
 import logging
 from typing import Optional
 
+
 def force_stdout_logging():
     """
     Force all logging output to stdout to prevent WSGI suppression.
@@ -16,14 +17,15 @@ def force_stdout_logging():
     """
     # Redirect stderr to stdout to capture all output
     sys.stderr = sys.stdout
-    
+
     # Ensure stdout is unbuffered for immediate log visibility
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(line_buffering=True)
-    
+
     # Set environment variables to force unbuffered output
     os.environ['PYTHONUNBUFFERED'] = '1'
     os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 
 def create_agentcore_formatter() -> logging.Formatter:
     """Create a formatter optimized for AgentCore CloudWatch logs."""
@@ -32,49 +34,51 @@ def create_agentcore_formatter() -> logging.Formatter:
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
+
 def configure_root_logger(log_level: str = "INFO") -> logging.Logger:
     """
     Configure the root logger for AgentCore deployment.
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
-        
+
     Returns:
         Configured root logger
     """
     # Force stdout logging first
     force_stdout_logging()
-    
+
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
-    
+
     # Get root logger and clear any existing configuration
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)  # Capture everything
-    
+
     # Remove all existing handlers
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
-    
+
     # Create and configure stdout handler
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setLevel(log_level_value)
     stdout_handler.setFormatter(create_agentcore_formatter())
-    
+
     # Add handler to root logger
     root_logger.addHandler(stdout_handler)
-    
+
     return root_logger
+
 
 def configure_framework_loggers(log_level: str = "INFO"):
     """
     Configure framework-specific loggers (uvicorn, fastapi, etc.)
     to work properly with AgentCore.
-    
+
     Args:
         log_level: Logging level for framework loggers
     """
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
-    
+
     # Framework loggers to configure
     framework_loggers = [
         ("uvicorn", log_level_value),
@@ -89,88 +93,97 @@ def configure_framework_loggers(log_level: str = "INFO"):
         ("botocore", logging.WARNING),
         ("urllib3", logging.WARNING),
     ]
-    
+
     for logger_name, level in framework_loggers:
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
         logger.propagate = True  # Allow propagation to root logger
-        
+
         # Clear any existing handlers to prevent duplicates
         logger.handlers.clear()
-        
+
         # Ensure logger is not disabled
         logger.disabled = False
 
+
 def test_logging_configuration():
     """Test that logging configuration is working properly."""
-    
+
     # Test different loggers
     test_loggers = [
         "root",
         "agents",
-        "uvicorn", 
+        "uvicorn",
         "fastapi",
         "strands"
     ]
-    
+
     print("🧪 LOGGING CONFIGURATION TEST", flush=True)
     print("-" * 40, flush=True)
-    
+
     for logger_name in test_loggers:
         if logger_name == "root":
             logger = logging.getLogger()
         else:
             logger = logging.getLogger(logger_name)
-        
-        logger.info(f"✅ {logger_name.upper()} logger test - visible in AgentCore")
-    
+
+        logger.info(
+            f"✅ {logger_name.upper()} logger test - visible in AgentCore")
+
     print("-" * 40, flush=True)
     print("✅ Logging configuration test complete", flush=True)
+
 
 def setup_agentcore_logging(log_level: Optional[str] = None) -> logging.Logger:
     """
     Complete logging setup for AgentCore deployment.
-    
+
     Args:
         log_level: Optional log level override
-        
+
     Returns:
         Configured root logger
     """
     # Get log level from environment or parameter
     if log_level is None:
         log_level = os.getenv("LOG_LEVEL", "INFO")
-    
+
     # Configure logging
     root_logger = configure_root_logger(log_level)
     configure_framework_loggers(log_level)
+
+    # Configure Strands framework logging level (set to DEBUG for more verbose output)
+    strands_log_level = "DEBUG"
+    strands_level_value = logging.DEBUG
     
-    # Suppress verbose Strands framework logging during streaming
     strands_loggers = [
         "strands.agent",
-        "strands.agent.agent", 
+        "strands.agent.agent",
         "strands.telemetry",
         "strands.telemetry.metrics",
         "strands.session",
         "strands.models"
     ]
-    
+
     for logger_name in strands_loggers:
         logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.WARNING)  # Only show warnings and errors
+        logger.setLevel(strands_level_value)
         logger.propagate = True
-    
+
     # Log configuration info
     root_logger.info("🔧 AgentCore logging configuration complete")
     root_logger.info(f"   • Log Level: {log_level}")
     root_logger.info(f"   • Output: stdout (AgentCore compatible)")
-    root_logger.info(f"   • Unbuffered: {os.getenv('PYTHONUNBUFFERED', 'not set')}")
-    root_logger.info(f"   • Strands framework logging: WARNING level (reduced verbosity)")
-    
+    root_logger.info(
+        f"   • Unbuffered: {os.getenv('PYTHONUNBUFFERED', 'not set')}")
+    root_logger.info(
+        f"   • Strands framework logging: {strands_log_level} level")
+
     # Test the configuration
     test_logging_configuration()
-    
+
     return root_logger
+
 
 if __name__ == "__main__":
     # Test the logging configuration

@@ -687,7 +687,6 @@ class BackendStack(Stack):
             environment={
                 'LOG_LEVEL': 'INFO',
                 'PATIENT_TABLE': 'patients'
-                # Removed AWS_REGION - it's reserved by Lambda runtime
             }
         )
         self.patient_lookup_function.add_to_role_policy(ssm_policy)

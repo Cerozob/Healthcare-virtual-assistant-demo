@@ -155,45 +155,75 @@ class AgentCoreMCPClient:
             agent_type: Type of agent requesting tools
 
         Returns:
-            List containing MCP client (semantic filtering happens at gateway level)
+            List of actual tool objects from the MCP client
         """
-        logger.info(f"🔍 Semantic tool discovery for {agent_type} agent")
-        logger.info(f"   Search query: {search_query}")
+        logger.info(f"🔍 === SEMANTIC TOOL DISCOVERY START ===")
+        logger.info(f"🎯 Agent type: {agent_type}")
+        logger.info(f"🔍 Search query: {search_query[:100]}...")
+        logger.info(f"🌐 Gateway URL: {self.gateway_url}")
+        logger.info(f"🌍 AWS Region: {self.aws_region}")
 
         try:
+            logger.info("🔗 Getting MCP client...")
             mcp_client = self.get_mcp_client()
+            logger.info("✅ MCP client obtained successfully")
 
-            # Perform semantic search to understand what tools are available
-            # This helps the gateway understand the context for better tool selection
             with mcp_client:
+                # Perform semantic search to understand what tools are available
+                # This helps the gateway understand the context for better tool selection
+                logger.info("🔍 Attempting semantic search...")
                 try:
                     _rate_limiter.wait_if_needed()  # Rate limit before semantic search
+                    logger.info("⏳ Rate limiting complete, calling semantic search...")
+                    
                     search_result = mcp_client.call_tool_sync(
                         tool_use_id=f"semantic-search-{hash(search_query)}",
                         name="x_amz_bedrock_agentcore_search",
                         arguments={"query": search_query}
                     )
                     logger.info("✅ Semantic search completed successfully")
-                    logger.debug(f"   Search results: {search_result}")
+                    logger.info(f"🔍 Search result type: {type(search_result)}")
+                    logger.info(f"🔍 Search result preview: {str(search_result)[:200]}...")
                 except Exception as search_error:
-                    logger.warning(
-                        f"⚠️ Semantic search failed: {search_error}")
+                    logger.error(f"❌ Semantic search failed: {search_error}")
+                    logger.error(f"🔍 Error type: {type(search_error).__name__}")
                     # Check if it's a rate limit error
                     if "429" in str(search_error) or "Too Many Requests" in str(search_error):
                         logger.warning("⚠️ Rate limit hit during semantic search - continuing without search")
+                    else:
+                        logger.error(f"🔍 Unexpected search error: {search_error}")
                     logger.info("🔄 Continuing with standard tool discovery")
 
-            # Return the MCP client - AgentCore Gateway handles the actual tool filtering
-            # The semantic search helps the gateway understand context for better tool selection
-            return [mcp_client]
+                # Get the actual tools from the MCP client
+                logger.info("📋 Listing all available tools...")
+                tools = self.list_all_tools(mcp_client)
+                logger.info(f"✅ Retrieved {len(tools)} tools from MCP client")
+                
+                # Log detailed tool information for debugging
+                if tools:
+                    logger.info("🔧 === AVAILABLE TOOLS DETAILS ===")
+                    for i, tool in enumerate(tools, 1):
+                        tool_name = getattr(tool, 'tool_name', 'Unknown')
+                        tool_desc = getattr(tool, 'description', 'No description')
+                        logger.info(f"   {i}. {tool_name}")
+                        logger.info(f"      Description: {tool_desc}")
+                        if hasattr(tool, 'input_schema'):
+                            schema = getattr(tool, 'input_schema', {})
+                            logger.info(f"      Schema keys: {list(schema.keys()) if isinstance(schema, dict) else 'Not a dict'}")
+                    logger.info("🔧 === END TOOLS DETAILS ===")
+                else:
+                    logger.warning("⚠️ No tools retrieved from MCP client")
+                
+                logger.info(f"🔍 === SEMANTIC TOOL DISCOVERY END ===")
+                return tools
 
         except Exception as e:
-            logger.error(
-                f"❌ Failed to get semantic tools for {agent_type} agent: {e}")
-            logger.warning("🔄 Falling back to basic MCP client")
-            # Fallback: return basic MCP client without semantic search
-            mcp_client = self.get_mcp_client()
-            return [mcp_client]
+            logger.error(f"❌ Failed to get semantic tools for {agent_type} agent: {e}")
+            logger.error(f"🔍 Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"🔍 Full traceback: {traceback.format_exc()}")
+            logger.warning("🔄 Falling back to empty tool list")
+            return []
 
 
     def list_all_tools(self, client: MCPClient) -> List:
@@ -246,109 +276,6 @@ class AgentCoreMCPClient:
                 logger.error(f"❌ Failed to list tools: {e}")
                 return []
 
-    def test_gateway_connection(self) -> Dict[str, Any]:
-        """
-        Test the AgentCore Gateway connection and discover all available tools.
-        
-        Returns:
-            Dictionary with connection test results and tool information
-        """
-        logger.info("🧪 === AGENTCORE GATEWAY CONNECTION TEST ===")
-        
-        test_results = {
-            "connection_successful": False,
-            "tools_discovered": 0,
-            "tool_names": [],
-            "tool_details": [],
-            "semantic_search_available": False,
-            "error_message": None
-        }
-        
-        try:
-            # Test basic connection
-            logger.info("🔗 Testing basic MCP client connection...")
-            mcp_client = self.get_mcp_client()
-            
-            with mcp_client:
-                # Test tool discovery
-                logger.info("🔍 Testing tool discovery...")
-                tools = self.list_all_tools(mcp_client)
-                
-                test_results["connection_successful"] = True
-                test_results["tools_discovered"] = len(tools)
-                test_results["tool_names"] = [tool.tool_name for tool in tools]
-                
-                # Collect detailed tool information
-                for tool in tools:
-                    tool_info = {
-                        "name": tool.tool_name,
-                        "description": getattr(tool, 'description', 'No description available')
-                    }
-                    if hasattr(tool, 'input_schema'):
-                        tool_info["input_schema"] = getattr(tool, 'input_schema', None)
-                    test_results["tool_details"].append(tool_info)
-                
-                # Test semantic search capability (with rate limiting)
-                logger.info("🔍 Testing semantic search capability...")
-                try:
-                    _rate_limiter.wait_if_needed()  # Rate limit before semantic search
-                    search_result = mcp_client.call_tool_sync(
-                        tool_use_id="test-semantic-search",
-                        name="x_amz_bedrock_agentcore_search",
-                        arguments={"query": "healthcare tools"}
-                    )
-                    test_results["semantic_search_available"] = True
-                    logger.info("✅ Semantic search is available")
-                except Exception as search_error:
-                    logger.warning(f"⚠️ Semantic search not available: {search_error}")
-                    # Check if it's a rate limit error
-                    if "429" in str(search_error) or "Too Many Requests" in str(search_error):
-                        logger.warning("⚠️ Rate limit hit during semantic search test - this is expected under load")
-                        test_results["semantic_search_available"] = True  # Assume it works, just rate limited
-                    test_results["semantic_search_available"] = False
-                
-                # Test a sample healthcare tool if available
-                healthcare_tools = [tool for tool in tools if any(
-                    keyword in tool.tool_name.lower() 
-                    for keyword in ['patient', 'medic', 'exam', 'reservation', 'file']
-                )]
-                
-                if healthcare_tools:
-                    sample_tool = healthcare_tools[0]
-                    logger.info(f"🧪 Testing sample healthcare tool: {sample_tool.tool_name}")
-                    try:
-                        # Test with a simple list action
-                        test_call = mcp_client.call_tool_sync(
-                            tool_use_id="test-tool-call",
-                            name=sample_tool.tool_name,
-                            arguments={"action": "list", "pagination": {"limit": 1}}
-                        )
-                        logger.info(f"✅ Sample tool call successful: {sample_tool.tool_name}")
-                    except Exception as tool_error:
-                        logger.warning(f"⚠️ Sample tool call failed: {tool_error}")
-                
-        except Exception as e:
-            logger.error(f"❌ Gateway connection test failed: {e}")
-            test_results["error_message"] = str(e)
-            
-        # Log test summary
-        logger.info("🧪 === CONNECTION TEST SUMMARY ===")
-        logger.info(f"   Connection: {'✅ SUCCESS' if test_results['connection_successful'] else '❌ FAILED'}")
-        logger.info(f"   Tools Found: {test_results['tools_discovered']}")
-        logger.info(f"   Semantic Search: {'✅ Available' if test_results['semantic_search_available'] else '❌ Not Available'}")
-        
-        if test_results["tool_names"]:
-            logger.info("   Available Tools:")
-            for tool_name in test_results["tool_names"]:
-                logger.info(f"     • {tool_name}")
-        
-        if test_results["error_message"]:
-            logger.error(f"   Error: {test_results['error_message']}")
-            
-        logger.info("🧪 === END CONNECTION TEST ===")
-        
-        return test_results
-
 def create_agentcore_mcp_client(gateway_url: str, aws_region: str) -> AgentCoreMCPClient:
     """
     Factory function to create an AgentCore MCP client.
@@ -372,7 +299,7 @@ def get_healthcare_tools(gateway_url: str, aws_region: str) -> List:
         aws_region: AWS region for SigV4 authentication
 
     Returns:
-        List containing MCP client configured for healthcare tools
+        List of actual tool objects for healthcare operations
     """
     client = create_agentcore_mcp_client(gateway_url, aws_region)
 
@@ -395,7 +322,7 @@ def get_appointment_tools(gateway_url: str, aws_region: str) -> List:
         aws_region: AWS region for SigV4 authentication
 
     Returns:
-        List containing MCP client configured for appointment tools
+        List of actual tool objects for appointment operations
     """
     client = create_agentcore_mcp_client(gateway_url, aws_region)
 
@@ -418,7 +345,7 @@ def get_patient_info_tools(gateway_url: str, aws_region: str) -> List:
         aws_region: AWS region for SigV4 authentication
 
     Returns:
-        List containing MCP client configured for patient information tools
+        List of actual tool objects for patient information operations
     """
     client = create_agentcore_mcp_client(gateway_url, aws_region)
 
@@ -441,7 +368,7 @@ def get_medical_records_tools(gateway_url: str, aws_region: str) -> List:
         aws_region: AWS region for SigV4 authentication
 
     Returns:
-        List containing MCP client configured for medical records tools
+        List of actual tool objects for medical records operations
     """
     client = create_agentcore_mcp_client(gateway_url, aws_region)
 
@@ -466,141 +393,8 @@ def get_semantic_tools(gateway_url: str, aws_region: str, search_query: str, age
         agent_type: Type of agent requesting tools
 
     Returns:
-        List containing MCP client with semantically relevant tools
+        List of actual tool objects matching the semantic search
     """
     client = create_agentcore_mcp_client(gateway_url, aws_region)
     return client.get_semantic_tools(search_query, agent_type)
 
-
-def test_agentcore_gateway(gateway_url: str, aws_region: str) -> Dict[str, Any]:
-    """
-    Comprehensive test function for AgentCore Gateway connection and tool discovery.
-    
-    This function tests:
-    - Basic MCP client connection
-    - Tool discovery with pagination
-    - Semantic search capability
-    - Sample tool invocation
-    
-    Args:
-        gateway_url: AgentCore Gateway MCP endpoint URL
-        aws_region: AWS region for SigV4 authentication
-        
-    Returns:
-        Dictionary with comprehensive test results
-        
-    Example:
-        from shared.mcp_client import test_agentcore_gateway
-        
-        results = test_agentcore_gateway(
-            "https://agentcoregateway-xxx.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp",
-            "us-east-1"
-        )
-        print(f"Connection successful: {results['connection_successful']}")
-        print(f"Tools found: {results['tools_discovered']}")
-    """
-    logger.info("🚀 Starting comprehensive AgentCore Gateway test...")
-    
-    try:
-        client = create_agentcore_mcp_client(gateway_url, aws_region)
-        return client.test_gateway_connection()
-    except Exception as e:
-        logger.error(f"❌ Failed to create MCP client for testing: {e}")
-        return {
-            "connection_successful": False,
-            "tools_discovered": 0,
-            "tool_names": [],
-            "tool_details": [],
-            "semantic_search_available": False,
-            "error_message": f"Client creation failed: {str(e)}"
-        }
-
-
-def run_gateway_diagnostics(gateway_url: str, aws_region: str) -> None:
-    """
-    Run comprehensive diagnostics on the AgentCore Gateway.
-    
-    This function performs the same tests as the provided example code:
-    - Lists all available tools with pagination
-    - Tests semantic search functionality
-    - Attempts sample tool calls
-    
-    Args:
-        gateway_url: AgentCore Gateway MCP endpoint URL  
-        aws_region: AWS region for SigV4 authentication
-        
-    Example usage (equivalent to the provided sample):
-        from shared.mcp_client import run_gateway_diagnostics
-        
-        run_gateway_diagnostics(
-            "https://agentcoregateway-xxx.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp",
-            "us-east-1"
-        )
-    """
-    logger.info("🔧 === AGENTCORE GATEWAY DIAGNOSTICS ===")
-    
-    try:
-        # Create MCP client (equivalent to the sample code's MCPClient creation)
-        client = create_agentcore_mcp_client(gateway_url, aws_region)
-        mcp_client = client.get_mcp_client()
-        
-        with mcp_client:
-            # List all tools with pagination (equivalent to get_full_tools_list)
-            logger.info("📋 Listing all available tools...")
-            tools = client.list_all_tools(mcp_client)
-            
-            print(f"Found the following tools: {[tool.tool_name for tool in tools]}")
-            
-            # Test semantic search (equivalent to x_amz_bedrock_agentcore_search call)
-            if tools:
-                logger.info("🔍 Testing semantic search capability...")
-                try:
-                    result = mcp_client.call_tool_sync(
-                        tool_use_id="diagnostic-search-123",
-                        name="x_amz_bedrock_agentcore_search",
-                        arguments={"query": "find patient information"}
-                    )
-                    print(f"Semantic search result: {result}")
-                    logger.info("✅ Semantic search test successful")
-                except Exception as search_error:
-                    logger.warning(f"⚠️ Semantic search test failed: {search_error}")
-            
-            # Test sample tool calls if healthcare tools are available
-            healthcare_tools = [tool for tool in tools if any(
-                keyword in tool.tool_name.lower() 
-                for keyword in ['patient', 'medic', 'exam', 'reservation', 'file']
-            )]
-            
-            if healthcare_tools:
-                sample_tool = healthcare_tools[0]
-                logger.info(f"🧪 Testing sample tool: {sample_tool.tool_name}")
-                try:
-                    result = mcp_client.call_tool_sync(
-                        tool_use_id="diagnostic-tool-123",
-                        name=sample_tool.tool_name,
-                        arguments={"action": "list", "pagination": {"limit": 1}}
-                    )
-                    print(f"Sample tool result: {result}")
-                    logger.info("✅ Sample tool test successful")
-                except Exception as tool_error:
-                    logger.warning(f"⚠️ Sample tool test failed: {tool_error}")
-            
-    except Exception as e:
-        logger.error(f"❌ Gateway diagnostics failed: {e}")
-        print(f"Diagnostics failed: {e}")
-    
-    logger.info("🔧 === DIAGNOSTICS COMPLETE ===")
-
-
-# Convenience function matching the sample code pattern
-def run_agent_diagnostics(mcp_url: str, aws_region: str) -> None:
-    """
-    Run agent diagnostics (alias for run_gateway_diagnostics).
-    
-    This function matches the pattern from the provided sample code.
-    
-    Args:
-        mcp_url: AgentCore Gateway MCP endpoint URL (equivalent to gatewayUrl)
-        aws_region: AWS region (used instead of access token for SigV4 auth)
-    """
-    run_gateway_diagnostics(mcp_url, aws_region)

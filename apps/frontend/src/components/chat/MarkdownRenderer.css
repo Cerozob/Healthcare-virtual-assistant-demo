@@ -1,194 +1,217 @@
 /* Markdown Renderer Styles */
 .markdown-renderer {
-  line-height: 1.6;
-  color: var(--awsui-color-text-body-default, inherit);
+	line-height: 1.6;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Headings */
 .markdown-h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 1.75rem;
+	font-weight: 700;
+	margin: 0 0 1rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0 0 0.875rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 1.5rem;
+	font-weight: 700;
+	margin: 0 0 0.875rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h3 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 0 0 0.75rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 1.25rem;
+	font-weight: 700;
+	margin: 0 0 0.75rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h4 {
-  font-size: 1.125rem;
-  font-weight: 700;
-  margin: 0 0 0.625rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 1.125rem;
+	font-weight: 700;
+	margin: 0 0 0.625rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h5 {
-  font-size: 1rem;
-  font-weight: 700;
-  margin: 0 0 0.5rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 1rem;
+	font-weight: 700;
+	margin: 0 0 0.5rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-h6 {
-  font-size: 0.875rem;
-  font-weight: 700;
-  margin: 0 0 0.5rem 0;
-  color: var(--awsui-color-text-heading-default, inherit);
+	font-size: 0.875rem;
+	font-weight: 700;
+	margin: 0 0 0.5rem 0;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 /* Paragraphs */
 .markdown-p {
-  margin: 0 0 1rem 0;
-  color: var(--awsui-color-text-body-default, inherit);
+	margin: 0 0 1rem 0;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Code */
 .markdown-code-inline {
-  background-color: var(--awsui-color-background-code-editor, rgba(128, 128, 128, 0.1));
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
-  color: var(--awsui-color-text-code-editor-default, inherit);
+	background-color: var(
+		--awsui-color-background-code-editor,
+		rgba(128, 128, 128, 0.1)
+	);
+	border-radius: 4px;
+	padding: 2px 6px;
+	font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+	font-size: 0.9em;
+	color: var(--awsui-color-text-code-editor-default, inherit);
 }
 
 .markdown-code-block {
-  background-color: var(--awsui-color-background-code-editor, rgba(128, 128, 128, 0.1));
-  border-radius: 8px;
-  padding: 1rem;
-  margin: 0 0 1rem 0;
-  overflow: auto;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
-  line-height: 1.4;
-  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+	background-color: var(
+		--awsui-color-background-code-editor,
+		rgba(128, 128, 128, 0.1)
+	);
+	border-radius: 8px;
+	padding: 1rem;
+	margin: 0 0 1rem 0;
+	overflow: auto;
+	font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+	font-size: 0.9em;
+	line-height: 1.4;
+	border: 1px solid
+		var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
 }
 
 .markdown-code-block code {
-  background: none;
-  padding: 0;
-  border-radius: 0;
-  font-size: inherit;
-  color: var(--awsui-color-text-code-editor-default, inherit);
+	background: none;
+	padding: 0;
+	border-radius: 0;
+	font-size: inherit;
+	color: var(--awsui-color-text-code-editor-default, inherit);
 }
 
 /* Lists */
 .markdown-ul,
 .markdown-ol {
-  margin: 0 0 1rem 1.5rem;
-  padding: 0;
-  color: var(--awsui-color-text-body-default, inherit);
+	margin: 0 0 1rem 1.5rem;
+	padding: 0;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 .markdown-li {
-  margin: 0 0 0.25rem 0;
-  color: var(--awsui-color-text-body-default, inherit);
+	margin: 0 0 0.25rem 0;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Blockquotes */
 .markdown-blockquote {
-  border-left: 4px solid var(--awsui-color-border-status-success, #037f0c);
-  background-color: var(--awsui-color-background-container-content, rgba(128, 128, 128, 0.05));
-  margin: 0 0 1rem 0;
-  padding: 0.75rem 0 0.75rem 1rem;
-  font-style: italic;
-  color: var(--awsui-color-text-body-secondary, inherit);
-  border-radius: 4px;
+	border-left: 4px solid var(--awsui-color-border-status-success, #037f0c);
+	background-color: var(
+		--awsui-color-background-container-content,
+		rgba(128, 128, 128, 0.05)
+	);
+	margin: 0 0 1rem 0;
+	padding: 0.75rem 0 0.75rem 1rem;
+	font-style: italic;
+	color: var(--awsui-color-text-body-secondary, inherit);
+	border-radius: 4px;
 }
 
 /* Links */
 .markdown-link {
-  color: var(--awsui-color-text-link-default, #0972d3);
-  text-decoration: underline;
+	color: var(--awsui-color-text-link-default, #0972d3);
+	text-decoration: underline;
 }
 
 .markdown-link:hover {
-  color: var(--awsui-color-text-link-hover, #0258a3);
+	color: var(--awsui-color-text-link-hover, #0258a3);
 }
 
 .markdown-link:visited {
-  color: var(--awsui-color-text-link-default, #0972d3);
+	color: var(--awsui-color-text-link-default, #0972d3);
 }
 
 /* Tables */
 .markdown-table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0 0 1rem 0;
-  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
-  background-color: var(--awsui-color-background-container-content, transparent);
+	border-collapse: collapse;
+	width: 100%;
+	margin: 0 0 1rem 0;
+	border: 1px solid
+		var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+	background-color: var(
+		--awsui-color-background-container-content,
+		transparent
+	);
 }
 
 .markdown-th {
-  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
-  background-color: var(--awsui-color-background-container-header, rgba(128, 128, 128, 0.1));
-  padding: 0.75rem;
-  font-weight: 700;
-  text-align: left;
-  color: var(--awsui-color-text-heading-default, inherit);
+	border: 1px solid
+		var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+	background-color: var(
+		--awsui-color-background-container-header,
+		rgba(128, 128, 128, 0.1)
+	);
+	padding: 0.75rem;
+	font-weight: 700;
+	text-align: left;
+	color: var(--awsui-color-text-heading-default, inherit);
 }
 
 .markdown-td {
-  border: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
-  padding: 0.75rem;
-  color: var(--awsui-color-text-body-default, inherit);
-  background-color: var(--awsui-color-background-container-content, transparent);
+	border: 1px solid
+		var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+	padding: 0.75rem;
+	color: var(--awsui-color-text-body-default, inherit);
+	background-color: var(
+		--awsui-color-background-container-content,
+		transparent
+	);
 }
 
 /* Horizontal Rules */
 .markdown-hr {
-  border: none;
-  border-top: 1px solid var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
-  margin: 1.5rem 0;
+	border: none;
+	border-top: 1px solid
+		var(--awsui-color-border-divider-default, rgba(128, 128, 128, 0.2));
+	margin: 1.5rem 0;
 }
 
 /* Text Formatting */
 .markdown-strong {
-  font-weight: 700;
-  color: var(--awsui-color-text-body-default, inherit);
+	font-weight: 700;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 .markdown-em {
-  font-style: italic;
-  color: var(--awsui-color-text-body-default, inherit);
+	font-style: italic;
+	color: var(--awsui-color-text-body-default, inherit);
 }
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-  .markdown-h1 {
-    font-size: 1.5rem;
-  }
-  
-  .markdown-h2 {
-    font-size: 1.25rem;
-  }
-  
-  .markdown-h3 {
-    font-size: 1.125rem;
-  }
-  
-  .markdown-code-block {
-    padding: 0.75rem;
-    font-size: 0.8em;
-  }
-  
-  .markdown-table {
-    font-size: 0.875rem;
-  }
-  
-  .markdown-th,
-  .markdown-td {
-    padding: 0.5rem;
-  }
+	.markdown-h1 {
+		font-size: 1.5rem;
+	}
+
+	.markdown-h2 {
+		font-size: 1.25rem;
+	}
+
+	.markdown-h3 {
+		font-size: 1.125rem;
+	}
+
+	.markdown-code-block {
+		padding: 0.75rem;
+		font-size: 0.8em;
+	}
+
+	.markdown-table {
+		font-size: 0.875rem;
+	}
+
+	.markdown-th,
+	.markdown-td {
+		padding: 0.5rem;
+	}
 }

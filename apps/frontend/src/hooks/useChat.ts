@@ -3,15 +3,13 @@
  * React hooks for chat-related API operations
  */
 
-import { chatService, type StreamingChatResponse } from '../services';
-import type {
-  SendMessageRequest
-} from '../types/api';
+import { chatService } from '../services';
+import type { ChatResponse } from '../services/chatService';
 import { useApi } from './useApi';
 
 export function useSendMessage() {
-  return useApi<StreamingChatResponse>((data: SendMessageRequest) => 
-    chatService.sendStreamingMessage(data)
+  return useApi<ChatResponse>((message: string, sessionId: string, attachments?: any[]) => 
+    chatService.sendMessage(message, sessionId, attachments)
   );
 }
 

@@ -9,26 +9,21 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # Strands Agents Framework
-    "strands-agents>=1.0.0",
+    "strands-agents>=1.14.0",
     "strands-agents-tools>=0.2.13",
     # FastAPI and ASGI server
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
+    "bedrock-agentcore[strands-agents]>=1.0.5",
     # AWS SDK and Services
-    "boto3>=1.40.52",
+    "boto3>=1.40.62",
     "botocore>=1.35.0",
     # Data Models and Validation
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    # HTTP and API
-    "httpx>=0.25.0",
-    # Async Support
-    "aiofiles>=23.0.0",
     # Utilities
     "python-dateutil>=2.8.0",
     "typing-extensions>=4.8.0",
-    "boto3>=1.40.62",
-    "httpx-auth-awssigv4>=0.1.4"
+    "httpx-auth-awssigv4>=0.1.4",
+    "aws-opentelemetry-distro>=0.10.1"
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://healthcare-agent.com/schemas/chat-response.json",
+  "title": "Chat Response",
+  "description": "Response schema for chat service (frontend interface)",
+  "type": "object",
+  "required": ["sessionId", "messageId", "isComplete", "content", "success"],
+  "properties": {
+    "sessionId": {
+      "type": "string",
+      "description": "Session identifier for conversation continuity"
+    },
+    "messageId": {
+      "type": "string",
+      "description": "Unique identifier for this message"
+    },
+    "isComplete": {
+      "type": "boolean",
+      "description": "Indicates if the response is complete (always true for non-streaming)"
+    },
+    "content": {
+      "type": "string",
+      "description": "The response content/message"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "processingTimeMs": {
+          "type": "number",
+          "description": "Time taken to process the request in milliseconds"
+        },
+        "agentUsed": {
+          "type": "string",
+          "description": "Identifier of the agent that processed the request"
+        },
+        "toolsExecuted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of tools that were executed"
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Unique identifier for this request"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp"
+        },
+        "patientContext": {
+          "description": "Patient context information"
+        }
+      },
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+          "description": "Additional metadata fields"
+        }
+      },
+      "additionalProperties": true
+    },
+    "patientContext": {
+      "$ref": "structured_output.json#/$defs/patientContext"
+    },
+    "fileProcessingResults": {
+      "type": "array",
+      "description": "Results of processing attached files",
+      "items": {
+        "$ref": "structured_output.json#/$defs/fileProcessingResult"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Array of errors that occurred during processing",
+      "items": {
+        "$ref": "structured_output.json#/$defs/error"
+      }
+    },
+    "success": {
+      "type": "boolean",
+      "description": "Indicates if the request was processed successfully"
+    }
+  },
+  "additionalProperties": false
+}

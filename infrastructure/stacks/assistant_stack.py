@@ -40,6 +40,7 @@ class AssistantStack(Stack):
         construct_id: str,
         bedrock_user_secret,
         processed_bucket: s3.Bucket = None,
+        raw_bucket: s3.Bucket = None,
         database_cluster: rds.DatabaseCluster = None,
         db_init_resource: CustomResource = None,
         lambda_functions: Dict = None,
@@ -50,6 +51,7 @@ class AssistantStack(Stack):
 
         # Store references for use in methods
         self.processed_bucket = processed_bucket
+        self.raw_bucket = raw_bucket
         self.database_cluster = database_cluster
         self.db_init_resource = db_init_resource
         self.bedrock_user_secret = bedrock_user_secret
@@ -73,6 +75,9 @@ class AssistantStack(Stack):
             self,
             "Guardrail"
         )
+
+        # Create AgentCore Memory for healthcare conversations
+        self.healthcare_memory = self._create_healthcare_memory()
 
         # Using IAM-based authorization for AgentCore Gateway (simpler and more appropriate)
 
@@ -206,12 +211,13 @@ class AssistantStack(Stack):
             protocol_configuration=agentcore_alpha.ProtocolType.HTTP
         )
 
-        # Add dependency on knowledge base and guardrails
+        # Add dependency on knowledge base, guardrails, and memory
         self.agent_runtime.node.add_dependency(
             self.knowledge_base_construct.knowledge_base)
         self.agent_runtime.node.add_dependency(self.agentcore_gateway)
         self.agent_runtime.node.add_dependency(
             self.guardrail_construct.guardrails)
+        self.agent_runtime.node.add_dependency(self.healthcare_memory)
 
         # Store Knowledge Base configuration in SSM for extraction lambda to use
         self.knowledge_base_id_param = ssm.StringParameter(
@@ -261,7 +267,8 @@ class AssistantStack(Stack):
             get_medics_tool_schema,
             get_exams_tool_schema,
             get_reservations_tool_schema,
-            get_files_tool_schema
+            get_files_tool_schema,
+            get_patient_lookup_tool_schema
         )
 
         # Mapping of Lambda function names to their tool schemas
@@ -270,7 +277,8 @@ class AssistantStack(Stack):
             "medics": get_medics_tool_schema(),
             "exams": get_exams_tool_schema(),
             "reservations": get_reservations_tool_schema(),
-            "files": get_files_tool_schema()
+            "files": get_files_tool_schema(),
+            "patientlookup": get_patient_lookup_tool_schema()
         }
 
         gateway_targets = {}
@@ -434,7 +442,24 @@ class AssistantStack(Stack):
             )
         )
 
-        # S3 permissions for session management (medical notes storage)
+        # S3 permissions for raw bucket (file reference tools)
+        if self.raw_bucket:
+            agent_runtime_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "s3:GetObject",
+                        "s3:ListBucket",
+                        "s3:HeadObject"
+                    ],
+                    resources=[
+                        self.raw_bucket.bucket_arn,
+                        f"{self.raw_bucket.bucket_arn}/*"
+                    ]
+                )
+            )
+
+        # S3 permissions for processed bucket (session data)
         if self.processed_bucket:
             agent_runtime_role.add_to_policy(
                 iam.PolicyStatement(
@@ -443,9 +468,7 @@ class AssistantStack(Stack):
                         "s3:GetObject",
                         "s3:PutObject",
                         "s3:DeleteObject",
-                        "s3:ListBucket",
-                        "s3:GetObjectVersion",
-                        "s3:PutObjectAcl"
+                        "s3:ListBucket"
                     ],
                     resources=[
                         self.processed_bucket.bucket_arn,
@@ -453,6 +476,8 @@ class AssistantStack(Stack):
                     ]
                 )
             )
+
+        
 
         # ECR permissions for AgentCore container access
         agent_runtime_role.add_to_policy(
@@ -636,6 +661,47 @@ class AssistantStack(Stack):
 
         return agent_runtime_role
 
+    def _create_healthcare_memory(self) -> agentcore.CfnMemory:
+        """
+        Create AgentCore Memory for healthcare conversations with comprehensive strategies.
+        """
+        logger.info("Creating AgentCore Memory for healthcare conversations")
+
+        # Create memory with comprehensive strategies for healthcare
+        healthcare_memory = agentcore.CfnMemory(
+            self,
+            "HealthcareMemory",
+            name="HealthcareShortTermMemory",
+            description="Healthcare agent memory for conversation persistence and context retention",
+            event_expiry_duration=15, 
+            memory_strategies=[
+                agentcore.CfnMemory.MemoryStrategyProperty(
+                    summary_memory_strategy=agentcore.CfnMemory.SummaryMemoryStrategyProperty(
+                        name="SessionSummarizer",
+                        description="Summarizes healthcare conversation sessions",
+                        namespaces=["/summaries/{actorId}/{sessionId}"]
+                    )
+                ),
+                agentcore.CfnMemory.MemoryStrategyProperty(
+                    user_preference_memory_strategy=agentcore.CfnMemory.UserPreferenceMemoryStrategyProperty(
+                        name="PreferenceLearner",
+                        description="Learns user preferences for healthcare interactions",
+                        namespaces=["/preferences/{actorId}"]
+                    )
+                ),
+                agentcore.CfnMemory.MemoryStrategyProperty(
+                    semantic_memory_strategy=agentcore.CfnMemory.SemanticMemoryStrategyProperty(
+                        name="FactExtractor",
+                        description="Extracts and stores healthcare facts and information",
+                        namespaces=["/facts/{actorId}/{sessionId}"]
+                    )
+                )
+            ]
+        )
+
+        logger.info(f"Created healthcare memory: {healthcare_memory.name}")
+        return healthcare_memory
+
     def _create_ssm_parameters(self) -> None:
         """Store AgentCore configuration in SSM Parameter Store."""
 
@@ -665,22 +731,17 @@ class AssistantStack(Stack):
         """
         env_vars = {
             # Agent Configuration
-            "DEBUG": "false",
-            "LOG_LEVEL": "INFO",
+            "DEBUG": "true",
 
             # Model Configuration - agent expects BEDROCK_MODEL_ID
             "BEDROCK_MODEL_ID": self.inference_profile,
             "MODEL_TEMPERATURE": "0.1",
-            "MODEL_MAX_TOKENS": "4096",
-            "MODEL_TOP_P": "0.9",
 
             # Knowledge Base Configuration - agent expects BEDROCK_KNOWLEDGE_BASE_ID
             "BEDROCK_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
             # Used by Strands memory tool
             "STRANDS_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
             "SUPPLEMENTAL_DATA_BUCKET": self.knowledge_base_construct.supplemental_data_bucket_name,
-
-
 
             # Guardrails Configuration - agent checks both GUARDRAIL_ID and BEDROCK_GUARDRAIL_ID
             "GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
@@ -692,11 +753,8 @@ class AssistantStack(Stack):
             "MCP_GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
             "GATEWAY_ID": self.agentcore_gateway.attr_gateway_identifier,
 
-            # Session Management Configuration - always required
-            "SESSION_BUCKET": self.processed_bucket.bucket_name,
-
-            # Agent Configuration - matches agents/shared/config.py
-            "DEFAULT_LANGUAGE": "es-LATAM",
+            # AgentCore Memory Configuration
+            "AGENTCORE_MEMORY_ID": self.healthcare_memory.attr_memory_id,
 
             # Runtime Configuration
             "PORT": "8000",
@@ -709,10 +767,16 @@ class AssistantStack(Stack):
             "AWS_REGION": self.region,
             "AWS_DEFAULT_REGION": self.region,
 
+            # S3 Configuration - for file reference tools
+            "SESSION_BUCKET": self.processed_bucket.bucket_name if self.processed_bucket else "",
+
             # Observability Configuration - CloudWatch logging enabled
-            "ENABLE_TRACING": "true",
             "METRICS_NAMESPACE": "Healthcare/Agents",
         }
+
+        # Add RAW_BUCKET_NAME if raw bucket is provided
+        if self.raw_bucket:
+            env_vars["RAW_BUCKET_NAME"] = self.raw_bucket.bucket_name
 
         # Log environment variables being set for debugging
         logger.info("=== CDK ENVIRONMENT VARIABLES CONFIGURATION ===")
@@ -758,6 +822,13 @@ class AssistantStack(Stack):
             "GuardrailVersion",
             value=self.guardrail_construct.guardrail_version_id,
             description="Bedrock Guardrail Version ID"
+        )
+
+        CfnOutput(
+            self,
+            "HealthcareMemoryId",
+            value=self.healthcare_memory.attr_memory_id,
+            description="AgentCore Memory ID for healthcare conversations"
         )
 
         CfnOutput(

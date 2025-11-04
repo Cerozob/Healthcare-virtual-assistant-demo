@@ -250,19 +250,135 @@ export interface ChatSession {
   messageCount?: number;
 }
 
-export interface SendMessageRequest {
+// Chat request interface for normal messaging
+export interface ChatRequest {
   message: string;
-  sessionId?: string;
-  attachments?: Array<{
+  sessionId: string;
+  files?: Array<{
+    fileId: string;
     fileName: string;
-    fileSize: number;
     fileType: string;
-    category: string;
-    s3Key: string;
-    // For AgentCore multi-modal support
-    content?: string; // base64 encoded content for images
-    mimeType?: string; // MIME type for proper processing
+    s3Location: string;
+    metadata?: any;
   }>;
+  patientContext?: {
+    currentPatientId?: string;
+    sessionContext?: any;
+  };
+}
+
+// Chat response interface for normal messaging
+export interface ChatResponse {
+  sessionId: string;
+  messageId: string;
+  isComplete: boolean;
+  content: string;
+  metadata?: {
+    processingTimeMs?: number;
+    agentUsed?: string;
+    toolsExecuted?: string[];
+    requestId?: string;
+    timestamp?: string;
+    patientContext?: unknown;
+    [key: string]: unknown;
+  };
+  patientContext?: {
+    patientId?: string;
+    patientName?: string;
+    contextChanged?: boolean;
+    identificationSource?: string;
+  };
+  fileProcessingResults?: Array<{
+    fileId: string;
+    fileName: string;
+    status: 'processed' | 'failed' | 'skipped';
+    classification?: string;
+    analysisResults?: any;
+    s3Location?: string;
+    errorMessage?: string;
+  }>;
+  errors?: Array<{
+    code: string;
+    message: string;
+    details?: any;
+  }>;
+  success: boolean;
+}
+
+// Strands-compatible multimodal content blocks
+export interface TextBlock {
+  text: string;
+}
+
+export interface ImageBlock {
+  image: {
+    format: 'jpeg' | 'jpg' | 'png' | 'gif' | 'webp';
+    source: {
+      bytes: string; // base64 encoded image data
+    };
+  };
+}
+
+export interface DocumentBlock {
+  document: {
+    format: 'pdf' | 'txt' | 'doc' | 'docx' | 'md' | 'csv' | 'xls' | 'xlsx' | 'html';
+    name: string;
+    source: {
+      bytes: string; // base64 encoded document data
+    };
+  };
+}
+
+export type ContentBlock = TextBlock | ImageBlock | DocumentBlock;
+
+export interface SendMessageRequest {
+  content: ContentBlock[];
+  sessionId?: string;
+}
+
+// Structured output interfaces for normal messaging
+export interface StructuredOutput {
+  content: {
+    message: string;
+    type: 'text' | 'markdown';
+  };
+  metadata: {
+    processingTimeMs: number;
+    agentUsed: string;
+    toolsExecuted: string[];
+    requestId: string;
+    timestamp: string;
+    sessionId: string;
+    [key: string]: unknown;
+  };
+  patientContext?: {
+    patientId?: string;
+    patientName?: string;
+    contextChanged: boolean;
+    identificationSource?: string;
+  };
+  fileProcessingResults?: Array<{
+    fileId: string;
+    fileName: string;
+    status: 'processed' | 'failed' | 'skipped';
+    classification?: string;
+    analysisResults?: any;
+    s3Location?: string;
+    errorMessage?: string;
+  }>;
+  errors?: Array<{
+    code: string;
+    message: string;
+    details?: any;
+  }>;
+  success: boolean;
+}
+
+export interface LoadingState {
+  isLoading: boolean;
+  stage: 'uploading' | 'processing' | 'analyzing' | 'completing';
+  
+  progress?: number;
 }
 
 export interface SendMessageResponse {
@@ -278,6 +394,8 @@ export interface SendMessageResponse {
     patient_found?: boolean;
     patient_data?: Patient;
   };
+  // Structured output for normal messaging
+  structuredOutput?: StructuredOutput;
 }
 
 // Session management is handled by AgentCore internally

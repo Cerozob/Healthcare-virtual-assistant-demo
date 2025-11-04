@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://healthcare-agent.com/schemas/structured-output.json",
+  "title": "Structured Output",
+  "description": "Response schema for healthcare agent structured output",
+  "type": "object",
+  "required": ["content", "metadata", "success"],
+  "properties": {
+    "content": {
+      "$ref": "#/$defs/content"
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "patientContext": {
+      "$ref": "#/$defs/patientContext"
+    },
+    "fileProcessingResults": {
+      "type": "array",
+      "description": "Results of processing attached files",
+      "items": {
+        "$ref": "#/$defs/fileProcessingResult"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Array of errors that occurred during processing",
+      "items": {
+        "$ref": "#/$defs/error"
+      }
+    },
+    "success": {
+      "type": "boolean",
+      "description": "Indicates if the request was processed successfully"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "content": {
+      "type": "object",
+      "required": ["message", "type"],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The agent's response message"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["text", "markdown"],
+          "description": "Format type of the message content"
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["processingTimeMs", "agentUsed", "toolsExecuted", "requestId", "timestamp", "sessionId"],
+      "properties": {
+        "processingTimeMs": {
+          "type": "number",
+          "description": "Time taken to process the request in milliseconds",
+          "minimum": 0
+        },
+        "agentUsed": {
+          "type": "string",
+          "description": "Identifier of the agent that processed the request",
+          "examples": ["healthcare_agent", "appointment_agent", "info_retrieval_agent"]
+        },
+        "toolsExecuted": {
+          "type": "array",
+          "description": "List of tools that were executed during processing",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Unique identifier for this request",
+          "pattern": "^req_[0-9]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the request was processed"
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Session identifier for conversation continuity"
+        }
+      },
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9_]*$": {
+          "description": "Additional metadata fields"
+        }
+      },
+      "additionalProperties": true
+    },
+    "patientContext": {
+      "type": "object",
+      "properties": {
+        "patientId": {
+          "type": "string",
+          "description": "Unique identifier for the patient"
+        },
+        "patientName": {
+          "type": "string",
+          "description": "Full name of the patient"
+        },
+        "contextChanged": {
+          "type": "boolean",
+          "description": "Indicates if the patient context was updated during this interaction"
+        },
+        "identificationSource": {
+          "type": "string",
+          "enum": [
+            "conversation",
+            "file_analysis", 
+            "document_metadata",
+            "cedula_extraction",
+            "name_matching",
+            "tool_extraction",
+            "llm_extraction",
+            "default"
+          ],
+          "description": "Method used to identify the patient"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fileProcessingResult": {
+      "type": "object",
+      "required": ["fileId", "fileName", "status"],
+      "properties": {
+        "fileId": {
+          "type": "string",
+          "description": "Unique identifier for the processed file"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Original name of the file"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["processed", "failed", "skipped"],
+          "description": "Processing status of the file"
+        },
+        "classification": {
+          "type": "string",
+          "description": "Classified category of the file content"
+        },
+        "analysisResults": {
+          "description": "Results of file analysis (structure varies by file type)"
+        },
+        "s3Location": {
+          "type": "string",
+          "description": "S3 location where the file is stored"
+        },
+        "errorMessage": {
+          "type": "string",
+          "description": "Error message if processing failed"
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Error code identifier",
+          "examples": ["MISSING_MESSAGE", "AGENT_INITIALIZATION_FAILED", "PROCESSING_ERROR"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message"
+        },
+        "details": {
+          "description": "Additional error details (structure varies by error type)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

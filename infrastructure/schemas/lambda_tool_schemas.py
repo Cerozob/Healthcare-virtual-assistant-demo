@@ -529,6 +529,229 @@ def get_files_tool_schema() -> agentcore.CfnGatewayTarget.ToolDefinitionProperty
     )
 
 
+def get_patient_lookup_tool_schema() -> agentcore.CfnGatewayTarget.ToolDefinitionProperty:
+    """Create tool schema for patient lookup lambda function."""
+    return agentcore.CfnGatewayTarget.ToolDefinitionProperty(
+        name="patient_lookup",
+        description="Search for patients using multiple criteria including name, email, phone, and cedula (ID number). Supports exact and fuzzy matching with multi-criteria search capabilities.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search_patient", "list_recent_patients", "get_patient_by_id"],
+                    "description": "The action to perform - search_patient for multi-criteria search, list_recent_patients for recent patients, get_patient_by_id for exact ID lookup"
+                },
+                "search_criteria": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255,
+                            "description": "Patient's full name for fuzzy matching (case-insensitive, supports partial matches)"
+                        },
+                        "email": {
+                            "type": "string",
+                            "format": "email",
+                            "maxLength": 255,
+                            "description": "Patient's email address for exact matching (case-insensitive)"
+                        },
+                        "phone": {
+                            "type": "string",
+                            "pattern": "^[+]?[0-9\\s\\-\\(\\)]{7,20}$",
+                            "description": "Patient's phone number for exact matching (supports various formats)"
+                        },
+                        "cedula": {
+                            "type": "string",
+                            "minLength": 5,
+                            "maxLength": 20,
+                            "pattern": "^[0-9A-Za-z\\-]{5,20}$",
+                            "description": "Patient's cedula (national ID number) for exact matching"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10,
+                            "default": 3,
+                            "description": "Maximum number of results to return (default: 3, max: 10)"
+                        }
+                    },
+                    "additionalProperties": False,
+                    "description": "Search criteria for patient lookup - at least one criterion must be provided when action is search_patient"
+                },
+                "patient_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 50,
+                    "description": "Patient ID for get_patient_by_id action"
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "default": 5,
+                    "description": "Maximum number of results for list_recent_patients action"
+                }
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"action": {"const": "search_patient"}}
+                    },
+                    "then": {
+                        "required": ["search_criteria"],
+                        "properties": {
+                            "search_criteria": {
+                                "anyOf": [
+                                    {"required": ["name"]},
+                                    {"required": ["email"]},
+                                    {"required": ["phone"]},
+                                    {"required": ["cedula"]}
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {"action": {"const": "get_patient_by_id"}}
+                    },
+                    "then": {
+                        "required": ["patient_id"]
+                    }
+                }
+            ]
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "statusCode": {
+                    "type": "integer",
+                    "description": "HTTP status code (200 for success, 400 for client errors, 500 for server errors)"
+                },
+                "body": {
+                    "type": "object",
+                    "properties": {
+                        "success": {
+                            "type": "boolean",
+                            "description": "Indicates if the operation was successful"
+                        },
+                        "patients": {
+                            "type": "array",
+                            "maxItems": 10,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "patient_id": {
+                                        "type": "string",
+                                        "description": "Unique patient identifier"
+                                    },
+                                    "full_name": {
+                                        "type": "string",
+                                        "description": "Patient's full name"
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "description": "Patient's email address"
+                                    },
+                                    "phone": {
+                                        "type": "string",
+                                        "description": "Patient's phone number"
+                                    },
+                                    "cedula": {
+                                        "type": "string",
+                                        "description": "Patient's cedula (national ID number)"
+                                    },
+                                    "date_of_birth": {
+                                        "type": "string",
+                                        "format": "date",
+                                        "description": "Patient's date of birth (YYYY-MM-DD format)"
+                                    },
+                                    "created_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "description": "Record creation timestamp (ISO 8601 format)"
+                                    },
+                                    "updated_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "description": "Record last update timestamp (ISO 8601 format)"
+                                    }
+                                },
+                                "required": ["patient_id", "full_name"],
+                                "additionalProperties": False
+                            },
+                            "description": "Array of patient records matching the search criteria"
+                        },
+                        "search_metadata": {
+                            "type": "object",
+                            "properties": {
+                                "criteria_used": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": ["name", "email", "phone", "cedula", "patient_id", "recent"]
+                                    },
+                                    "description": "List of search criteria that were used in the query"
+                                },
+                                "total_results": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "description": "Total number of patients found"
+                                },
+                                "search_timestamp": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "description": "Timestamp when the search was executed (ISO 8601 format)"
+                                },
+                                "execution_time_ms": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "description": "Search execution time in milliseconds"
+                                }
+                            },
+                            "required": ["criteria_used", "total_results", "search_timestamp", "execution_time_ms"],
+                            "additionalProperties": False,
+                            "description": "Metadata about the search operation"
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Human-readable message describing the result or error"
+                        },
+                        "error": {
+                            "type": "string",
+                            "description": "Error message (present only when success is false)"
+                        },
+                        "error_code": {
+                            "type": "string",
+                            "enum": [
+                                "MISSING_CRITERIA",
+                                "NO_CRITERIA",
+                                "INVALID_ACTION",
+                                "MISSING_PATIENT_ID",
+                                "DATABASE_ERROR",
+                                "SEARCH_ERROR",
+                                "LIST_ERROR",
+                                "GET_ERROR",
+                                "INTERNAL_ERROR"
+                            ],
+                            "description": "Machine-readable error code (present only when success is false)"
+                        }
+                    },
+                    "required": ["success", "patients", "message"],
+                    "additionalProperties": False
+                }
+            },
+            "required": ["statusCode", "body"],
+            "additionalProperties": False
+        }
+    )
+
+
 def get_all_tool_schemas() -> List[agentcore.CfnGatewayTarget.ToolDefinitionProperty]:
     """Get all tool schemas for the gateway target."""
     return [
@@ -536,5 +759,6 @@ def get_all_tool_schemas() -> List[agentcore.CfnGatewayTarget.ToolDefinitionProp
         get_medics_tool_schema(),
         get_exams_tool_schema(),
         get_reservations_tool_schema(),
-        get_files_tool_schema()
+        get_files_tool_schema(),
+        get_patient_lookup_tool_schema()
     ]

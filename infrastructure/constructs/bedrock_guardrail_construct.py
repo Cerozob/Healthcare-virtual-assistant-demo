@@ -84,9 +84,8 @@ class BedrockGuardrailConstruct(Construct):
                     )
                 ]
             ),
-            # TODO: Add cross-region config once basic guardrail is working
             cross_region_config=bedrock.CfnGuardrail.GuardrailCrossRegionConfigProperty(
-                 guardrail_profile_arn=f"arn:aws:bedrock:{self.region}:{self.account}:guardrail-profile/us.guardrail.v1:0"
+                guardrail_profile_arn=f"arn:aws:bedrock:{self.region}:{self.account}:guardrail-profile/us.guardrail.v1:0"
             ),
             description="Guardrails for the healthcare assistant",
             sensitive_information_policy_config=self._create_sensitive_information_policy()
@@ -106,7 +105,7 @@ class BedrockGuardrailConstruct(Construct):
                 # NAME - Allow input and output for patient identification
                 bedrock.CfnGuardrail.PiiEntityConfigProperty(
                     type="NAME",
-                    action="NONE",  # Legacy parameter
+                    action="NONE",
                     input_action="NONE",
                     input_enabled=True,
                     output_action="NONE",
@@ -115,19 +114,19 @@ class BedrockGuardrailConstruct(Construct):
                 # AGE - Allow input, anonymize output
                 bedrock.CfnGuardrail.PiiEntityConfigProperty(
                     type="AGE",
-                    action="ANONYMIZE",  # Legacy parameter
+                    action="NONE",
                     input_action="NONE",
                     input_enabled=True,
-                    output_action="ANONYMIZE",
+                    output_action="NONE",
                     output_enabled=True
                 ),
                 # ADDRESS - Allow input, anonymize output
                 bedrock.CfnGuardrail.PiiEntityConfigProperty(
                     type="ADDRESS",
-                    action="ANONYMIZE",
+                    action="NONE",
                     input_action="NONE",
                     input_enabled=True,
-                    output_action="ANONYMIZE",
+                    output_action="NONE",
                     output_enabled=True
                 ),
                 # EMAIL - Allow input, anonymize output
@@ -171,10 +170,10 @@ class BedrockGuardrailConstruct(Construct):
                 name="CedulaColombia",
                 description="Cédula de Ciudadanía Colombia",
                 pattern=r"\b\d{8,10}\b",
-                action="ANONYMIZE",
+                action="NONE",
                 input_action="NONE",
                 input_enabled=True,
-                output_action="ANONYMIZE",
+                output_action="NONE",
                 output_enabled=True
             ),
             # RUT Chile (XX.XXX.XXX-X format)
@@ -182,10 +181,10 @@ class BedrockGuardrailConstruct(Construct):
                 name="RutChile",
                 description="RUT Chile format",
                 pattern=r"\b\d{1,2}\.\d{3}\.\d{3}-[\dkK]\b",
-                action="ANONYMIZE",
+                action="NONE",
                 input_action="NONE",
                 input_enabled=True,
-                output_action="ANONYMIZE",
+                output_action="NONE",
                 output_enabled=True
             ),
             # DNI Argentina (8 digits)
@@ -193,10 +192,10 @@ class BedrockGuardrailConstruct(Construct):
                 name="DniArgentina",
                 description="DNI Argentina",
                 pattern=r"\bDNI\s*:?\s*\d{8}\b",
-                action="ANONYMIZE",
+                action="NONE",
                 input_action="NONE",
                 input_enabled=True,
-                output_action="ANONYMIZE",
+                output_action="NONE",
                 output_enabled=True
             ),
             # CPF Brasil (XXX.XXX.XXX-XX format)
@@ -204,10 +203,10 @@ class BedrockGuardrailConstruct(Construct):
                 name="CpfBrasil",
                 description="CPF Brasil format",
                 pattern=r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b",
-                action="ANONYMIZE",
+                action="NONE",
                 input_action="NONE",
                 input_enabled=True,
-                output_action="ANONYMIZE",
+                output_action="NONE",
                 output_enabled=True
             ),
             # Cédula Ecuador (10 digits)
@@ -215,10 +214,10 @@ class BedrockGuardrailConstruct(Construct):
                 name="CedulaEcuador",
                 description="Cédula Ecuador",
                 pattern=r"\b\d{10}\b",
-                action="ANONYMIZE",
+                action="NONE",
                 input_action="NONE",
                 input_enabled=True,
-                output_action="ANONYMIZE",
+                output_action="NONE",
                 output_enabled=True
             ),
             # LATAM Phone Numbers (various formats)

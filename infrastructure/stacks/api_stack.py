@@ -88,7 +88,7 @@ class ApiStack(Stack):
         print(
             f"API Stack received functions: {list(self.lambda_functions.keys())}")
         for func_name, func_obj in self.lambda_functions.items():
-            print(f"Function {func_name}: {func_obj}")
+            print(f"Function {func_name}: {func_obj.function_name}")
 
         # Validate that all required Lambda functions are provided
         # Note: agent_integration is optional since AgentCore is accessed directly

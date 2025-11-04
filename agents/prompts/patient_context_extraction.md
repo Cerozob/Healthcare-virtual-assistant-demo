@@ -22,16 +22,18 @@ When files, images, or documents are shared in the conversation:
 - Patient identification is MANDATORY for all medical file operations
 
 ## Information to Extract
-- **patient_id**: Any unique identifier (cedula, medical record number, etc.)
+- **patient_id**: Primary unique identifier (prefer cedula if available, otherwise medical record number)
 - **full_name**: Complete patient name if mentioned
+- **cedula**: Colombian identification number (cédula) - extract this separately even if used as patient_id
 - **age**: Patient age if stated
-- **cedula**: Colombian identification number
-- **phone**: Contact phone number
-- **email**: Email address
-- **medical_history**: Any medical conditions mentioned
-- **lab_results**: Test results or lab values discussed
-- **allergies**: Known allergies mentioned
-- **medications**: Current medications discussed
+- **phone**: Contact phone number if mentioned
+- **email**: Email address if mentioned
+- **confidence**: Set to "high" if cedula is provided, "medium" if full name + context, "low" if partial info
+
+## Extraction Priority
+1. If cedula is mentioned, use it as both patient_id and cedula
+2. If only name is mentioned, use name as patient_id and leave cedula empty
+3. If medical record number is mentioned, use it as patient_id
 
 ## Response Guidelines
 - Set `success=True` only if you can identify a specific patient

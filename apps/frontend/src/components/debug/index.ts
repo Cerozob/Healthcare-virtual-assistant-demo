@@ -4,3 +4,4 @@
  */
 
 export { DebugPanel } from './DebugPanel';
+// Streaming components removed - not needed for HTTP-based implementation

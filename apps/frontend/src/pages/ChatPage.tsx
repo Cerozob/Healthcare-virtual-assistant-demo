@@ -15,7 +15,7 @@ import {
   SpaceBetween,
 } from '@cloudscape-design/components';
 import { useFilesDragging } from '@cloudscape-design/components/file-dropzone';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MarkdownRenderer, PatientChatSidebar } from '../components/chat';
 import { DebugPanel } from '../components/debug/DebugPanel';
 import { MainLayout } from '../components/layout';
@@ -23,8 +23,10 @@ import { PatientSelector } from '../components/patient';
 import { useLanguage } from '../contexts/LanguageContext';
 import { usePatientContext } from '../contexts/PatientContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { usePatientSync } from '../hooks/usePatientSync';
 import { chatService } from '../services/chatService';
 import { reservationService } from '../services/reservationService';
+
 import type { ChatMessage, Patient } from '../types/api';
 
 interface ChatPageProps {
@@ -86,23 +88,54 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'processing' | 'generating'>('processing');
-  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [sessionId, setSessionId] = useState<string>(() => {
+    // Always start with a session ID for conversation continuity
+    const initialSessionId = `healthcare_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log(`🔒 Initial session started: ${initialSessionId}`);
+    return initialSessionId;
+  });
+  
+  // 🔒 SECURITY: Generate new session ID for patient safety
+  const generateNewSession = (reason: string) => {
+    const newSessionId = `healthcare_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newSessionId);
+    console.log(`🔒 New session started: ${newSessionId} (Reason: ${reason})`);
+    return newSessionId;
+  };
+
+  // Enhanced patient sync hook
+  const { handlePatientContextSync } = usePatientSync({
+    onPatientDetected: (patient) => {
+      console.log('🎯 Patient detected via sync hook:', patient);
+    },
+    onPatientChanged: (oldPatient, newPatient) => {
+      console.log('🔄 Patient changed via sync hook:', { oldPatient, newPatient });
+    },
+    onSyncError: (error) => {
+      console.error('❌ Patient sync error:', error);
+      setError(`Error al sincronizar paciente: ${error.message}`);
+    },
+    generateNewSession
+  });
   const [showPatientSelector, setShowPatientSelector] = useState(false);
 
-  // Chat auto-scroll ref with callback
+  // Chat auto-scroll refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll when messages change
+  // Smooth scroll function for chat container only
+  const scrollChatToBottom = useCallback(() => {
+    if (chatContainerRef.current) {
+      // Scroll only the chat container, not the entire page
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, []);
+
+  // Auto-scroll chat container when messages change
   useEffect(() => {
-    const scrollToBottom = () => {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    };
-
-    const timer = setTimeout(scrollToBottom, 100);
+    const timer = setTimeout(scrollChatToBottom, 100);
     return () => clearTimeout(timer);
-  });
+  }, [messages, scrollChatToBottom]); // Trigger when messages change
 
   // Debug state for troubleshooting
   const [debugInfo, setDebugInfo] = useState<{
@@ -114,6 +147,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     lastRequest: null,
     patientContext: null
   });
+
+
 
   // Prompt input state
   const [promptValue, setPromptValue] = useState('');
@@ -161,12 +196,11 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
 
   const handleSendMessage = async () => {
     if (!promptValue.trim() && files.length === 0) return;
+    
 
-    // Check if patient is selected when files are attached
-    if (files.length > 0 && !selectedPatient) {
-      setError('Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.');
-      return;
-    }
+
+    // Allow files without patient selection - agent will help identify patient
+    // This enables the agent to analyze files and ask for patient information if needed
 
     // Create user message immediately
     const userMessage: ChatMessage = {
@@ -193,9 +227,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     setLoadingStage('processing');
 
     try {
-      // Process file uploads if patient is selected
-      if (attachedFiles.length > 0 && selectedPatient) {
-        console.log(`Processing ${attachedFiles.length} files for patient ${selectedPatient.full_name} following document workflow guidelines`);
+      // Process file uploads - handle both with and without patient context
+      if (attachedFiles.length > 0) {
+        console.log(`Processing ${attachedFiles.length} files ${selectedPatient ? `for patient ${selectedPatient.full_name}` : 'without patient context'}`);
 
         // Upload files to S3 using the storage service
         const { storageService } = await import('../services/storageService');
@@ -209,16 +243,26 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           try {
             const category = classification?.category || 'auto';
 
-            // S3 path structure: {patient_id}/{filename} (simple structure for BDA processing)
-            const s3Key = `${selectedPatient.patient_id}/${file.name}`;
+            // S3 path structure: 
+            // With patient: {patient_id}/{filename}
+            // Without patient: unassigned/{timestamp}/{filename} (for agent to process and assign)
+            const s3Key = selectedPatient 
+              ? `${selectedPatient.patient_id}/${file.name}`
+              : `unassigned/${Date.now()}/${file.name}`;
 
             // Prepare metadata following document workflow guidelines
-            const fileMetadata = {
+            const fileMetadata: { [key: string]: string } = selectedPatient ? {
               'patient-id': selectedPatient.patient_id,
               'document-category': category,
               'workflow-stage': 'uploaded',
               'auto-classification-enabled': 'true',
               'uploaded-from': 'chat-interface'
+            } : {
+              'document-category': category,
+              'workflow-stage': 'pending-patient-assignment',
+              'auto-classification-enabled': 'true',
+              'uploaded-from': 'chat-interface',
+              'requires-patient-identification': 'true'
             };
 
             console.log(`📋 Document Workflow Metadata:`, fileMetadata);
@@ -232,17 +276,19 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             });
 
             const response = {
-              patient_id: selectedPatient.patient_id,
+              patient_id: selectedPatient?.patient_id || null,
               s3_key: uploadResult.key,
-              message: `File uploaded successfully for patient ${selectedPatient.full_name} following document workflow guidelines`,
+              message: selectedPatient 
+                ? `File uploaded successfully for patient ${selectedPatient.full_name} following document workflow guidelines`
+                : `File uploaded to temporary location. Agent will help identify the patient and properly assign the file.`,
               category: category,
               workflow_info: {
-                next_stage: 'BDA processing and classification',
-                expected_processing_time: '2-5 minutes'
+                next_stage: selectedPatient ? 'BDA processing and classification' : 'Patient identification and file assignment',
+                expected_processing_time: selectedPatient ? '2-5 minutes' : 'Depends on patient identification'
               }
             };
 
-            console.log(`Successfully uploaded ${file.name} for patient ${selectedPatient.full_name}:`, response);
+            console.log(`Successfully uploaded ${file.name}${selectedPatient ? ` for patient ${selectedPatient.full_name}` : ' for patient identification'}:`, response);
           } catch (uploadError) {
             console.error(`Error uploading ${file.name}:`, uploadError);
             setError(`Error al subir ${file.name}: ${uploadError instanceof Error ? uploadError.message : 'Error desconocido'}`);
@@ -256,9 +302,13 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       // Add patient context if available
       if (selectedPatient) {
         contextualContent = `[Contexto del paciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})]\n\n${contextualContent}`;
-      } else if (attachedFiles.length === 0) {
-        // No patient selected and no files - this is a noop as requested
-        contextualContent = `[Sin contexto de paciente seleccionado]\n\n${contextualContent}`;
+      } else {
+        // No patient selected - let agent know it needs to help identify patient if files are attached
+        if (attachedFiles.length > 0) {
+          contextualContent = `[Sin paciente seleccionado - ARCHIVOS ADJUNTOS REQUIEREN IDENTIFICACIÓN DE PACIENTE]\n\n${contextualContent}`;
+        } else {
+          contextualContent = `[Sin contexto de paciente seleccionado]\n\n${contextualContent}`;
+        }
       }
 
       // Add document classification context if files are attached
@@ -268,23 +318,40 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           const classification = attachedClassifications.get(fileKey);
 
           if (classification && !classification.processing) {
+            const statusText = selectedPatient 
+              ? 'Subido al flujo de documentos'
+              : 'Subido - REQUIERE IDENTIFICACIÓN DE PACIENTE';
             return `- ${file.name}: ${getCategoryLabel(classification.category)}${classification.autoClassified && classification.confidence
               ? ` (${classification.confidence.toFixed(0)}% confianza)`
               : ''
-              } - Subido al flujo de documentos`;
+              } - ${statusText}`;
           }
           return `- ${file.name}: Procesando clasificación...`;
         }).join('\n');
 
-        contextualContent = `[Documentos adjuntos y procesados:\n${documentContext}]\n\n${contextualContent}`;
+        const contextHeader = selectedPatient 
+          ? '[Documentos adjuntos y procesados:'
+          : '[Documentos adjuntos - REQUIEREN ASIGNACIÓN DE PACIENTE:';
+        
+        contextualContent = `${contextHeader}\n${documentContext}]\n\n${contextualContent}`;
       }
 
-      // Send message to AgentCore
+      // Send message using normal messaging
       setLoadingStage('generating');
+
+      // 🔒 Validate session ID before sending
+      if (!sessionId || sessionId.length < 10) {
+        console.error('❌ Invalid session ID detected:', sessionId);
+        setError('Error de sesión: ID de sesión inválido. Recargando página...');
+        window.location.reload();
+        return;
+      }
+
+      console.log(`🔑 Using session ID for request: ${sessionId} (length: ${sessionId.length})`);
 
       const requestData = {
         message: contextualContent,
-        ...(sessionId && { sessionId }),
+        sessionId, // Always include consistent session ID
         // Include file information if available
         ...(attachedFiles.length > 0 && {
           attachments: await Promise.all(attachedFiles.map(async (file) => {
@@ -326,89 +393,113 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
               fileSize: file.size,
               fileType: file.type,
               category: classification?.category || 'other',
-              s3Key: `${selectedPatient?.patient_id}/${classification?.category || 'other'}/${new Date().toISOString().replace(/[:.]/g, '-')}/${file.name}`,
+              s3Key: selectedPatient 
+                ? `${selectedPatient.patient_id}/${file.name}`
+                : `unassigned/${Date.now()}/${file.name}`,
               content,
-              mimeType
+              mimeType,
+              requiresPatientAssignment: !selectedPatient
             };
           }))
         })
       };
 
-      // Create streaming agent message placeholder
-      const streamingMessageId = `agent_${Date.now()}`;
-      const streamingMessage: ChatMessage = {
-        id: streamingMessageId,
+      // Create agent message placeholder for loading state
+      const agentMessageId = `agent_${Date.now()}`;
+      const agentMessage: ChatMessage = {
+        id: agentMessageId,
         content: '',
         type: 'agent',
-        agentType: 'agentcore-streaming',
+        agentType: 'processing',
         timestamp: new Date().toISOString()
       };
+      
+      // Add agent message to UI immediately (this will show loading state)
+      setMessages(prev => [...prev, agentMessage]);
 
-      // Add streaming message to UI
-      setMessages(prev => [...prev, streamingMessage]);
-
-      // Use streaming service
-      await chatService.sendStreamingMessage(
-        requestData,
-        // onChunk callback - update the streaming message
-        (chunk) => {
-          console.log('📥 Streaming chunk:', chunk);
+      // Use normal messaging service with loading state handling
+      const response = await chatService.sendMessage(
+        requestData.message,
+        requestData.sessionId,
+        requestData.attachments?.map(att => ({
+          fileName: att.fileName,
+          fileType: att.fileType,
+          mimeType: att.mimeType || att.fileType,
+          content: att.content,
+          s3Key: att.s3Key,
+          fileSize: att.fileSize,
+          category: att.category
+        })),
+        // Loading state callback
+        (loadingState) => {
+          console.log('📊 Loading state:', loadingState);
+          
+          // Update agent message with loading information
           setMessages(prev => prev.map(msg =>
-            msg.id === streamingMessageId
-              ? { ...msg, content: chunk.content }
-              : msg
-          ));
-        },
-        // onComplete callback - finalize the message
-        (finalResponse) => {
-          console.log('✅ Streaming complete:', finalResponse);
-
-          // Update session ID
-          if (finalResponse.sessionId && finalResponse.sessionId !== sessionId) {
-            setSessionId(finalResponse.sessionId);
-            console.log(`Using session ID from AgentCore: ${finalResponse.sessionId}`);
-          }
-
-          // Finalize the streaming message
-          setMessages(prev => prev.map(msg =>
-            msg.id === streamingMessageId
+            msg.id === agentMessageId
               ? {
-                ...msg,
-                content: finalResponse.content,
-                agentType: 'agentcore',
-                metadata: finalResponse.metadata
-              }
+                  ...msg,
+                  content: loadingState.isLoading 
+                    ? `**Procesando...**}`
+                    : msg.content,
+                  agentType: loadingState.isLoading ? 'processing' : 'agentcore'
+                }
               : msg
           ));
-
-          // 🔍 DEBUG: Update debug info
-          setDebugInfo({
-            lastResponse: finalResponse,
-            lastRequest: requestData,
-            patientContext: finalResponse.metadata?.patientContext
-          });
-
-          setIsLoading(false);
-        },
-        // onError callback
-        (error) => {
-          console.error('❌ Streaming error:', error);
-
-          // Update the streaming message with error
-          setMessages(prev => prev.map(msg =>
-            msg.id === streamingMessageId
-              ? {
-                ...msg,
-                content: `Error: ${error.message}`,
-                agentType: 'error'
-              }
-              : msg
-          ));
-
-          setError(error.message);
-          setIsLoading(false);
         }
       );
+
+      console.log('✅ Normal messaging complete:', response);
+
+      // 🔒 CRITICAL: Do NOT update session ID from response
+      // We maintain session consistency by always using our own session ID
+      if (response.sessionId !== sessionId) {
+        console.warn(`⚠️ Session ID mismatch detected:`);
+        console.warn(`  Expected: ${sessionId}`);
+        console.warn(`  Received: ${response.sessionId}`);
+        console.warn(`  Maintaining original session ID for consistency`);
+      } else {
+        console.log(`✅ Session ID consistent: ${sessionId}`);
+      }
+
+      // Check if response is successful and has content
+      const hasContent = response.success && response.content && response.content.trim().length > 0;
+      
+      // Update the agent message with final response
+      setMessages(prev => prev.map(msg =>
+        msg.id === agentMessageId
+          ? {
+            ...msg,
+            content: hasContent 
+              ? response.content
+              : response.errors && response.errors.length > 0
+                ? `❌ **Error en la consulta**\n\n${response.errors[0].message}\n\n💡 **¿Qué puedes hacer?**\n• Verifica tu conexión a internet\n• Intenta reformular tu consulta\n• Si el problema persiste, espera unos momentos\n\n*Puedes escribir tu consulta nuevamente para intentar otra vez.*`
+                : '⚠️ **Respuesta vacía del agente**\n\nEl agente completó el procesamiento pero no generó una respuesta. Esto puede ocurrir cuando:\n\n• La consulta no pudo ser procesada correctamente\n• Hubo un problema técnico durante la generación\n• El agente se quedó bloqueado en una operación\n\n💡 **Sugerencias:**\n• Intenta reformular tu consulta de manera más específica\n• Verifica que tu consulta esté relacionada con temas médicos\n• Si persiste el problema, espera unos momentos e intenta nuevamente',
+            agentType: hasContent ? 'agentcore' : 'error',
+            metadata: response.metadata
+          }
+          : msg
+      ));
+
+      // 🔍 DEBUG: Update debug info
+      setDebugInfo({
+        lastResponse: response,
+        lastRequest: requestData,
+        patientContext: response.patientContext
+      });
+
+      // 👤 ENHANCED: Sync patient context using the enhanced sync hook
+      if (response.patientContext) {
+        console.log('🔍 Patient context from response:', response.patientContext);
+        
+        await handlePatientContextSync(
+          response.patientContext,
+          (message) => setMessages(prev => [...prev, message]),
+          () => setMessages([])
+        );
+      }
+
+      setIsLoading(false);
 
       // Patient context handling is now done in the streaming callbacks above
 
@@ -562,28 +653,59 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   };
 
   const handleClearPatient = () => {
+    const previousPatient = selectedPatient;
     clearPatient();
+    
+    // 🔒 SECURITY: Start new session when clearing patient
+    generateNewSession('Patient context cleared');
+    setMessages([]);
+    
     // Add system message about patient context being cleared
     const systemMessage: ChatMessage = {
       id: `system_${Date.now()}`,
-      content: 'Contexto del paciente eliminado. Las siguientes consultas no incluirán información del paciente.',
+      content: `🔒 **Contexto del paciente eliminado**\n\nPaciente anterior: ${previousPatient?.full_name || 'Desconocido'}\n\n*Se ha iniciado una nueva sesión por seguridad.*`,
       type: 'system',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      agentType: 'security'
     };
-    setMessages(prev => [...prev, systemMessage]);
+    setMessages([systemMessage]);
   };
 
   const handlePatientSelected = () => {
     setShowPatientSelector(false);
-    // Add system message about new patient context
+    
+    // 🔒 SECURITY: Check if this is a different patient
     if (selectedPatient) {
-      const systemMessage: ChatMessage = {
-        id: `system_${Date.now()}`,
-        content: `Contexto del paciente actualizado: ${String(selectedPatient.full_name)} (ID: ${String(selectedPatient.patient_id)})`,
-        type: 'system',
-        timestamp: new Date().toISOString()
-      };
-      setMessages(prev => [...prev, systemMessage]);
+      const previousPatientId = messages.length > 0 ? 
+        messages.find(msg => msg.agentType === 'system' && msg.content.includes('ID:'))?.content.match(/ID:\s*([^)]+)/)?.[1] : 
+        null;
+      
+      const isDifferentPatient = previousPatientId && previousPatientId !== selectedPatient.patient_id;
+      
+      if (isDifferentPatient) {
+        // Start new session for different patient
+        generateNewSession('Different patient manually selected');
+        setMessages([]);
+        
+        const securityMessage: ChatMessage = {
+          id: `system_${Date.now()}`,
+          content: `🔒 **Nuevo paciente seleccionado**\n\nPaciente: ${selectedPatient.full_name} (ID: ${selectedPatient.patient_id})\n\n*Se ha iniciado una nueva sesión por seguridad.*`,
+          type: 'system',
+          timestamp: new Date().toISOString(),
+          agentType: 'security'
+        };
+        setMessages([securityMessage]);
+      } else {
+        // Same patient or first selection
+        const systemMessage: ChatMessage = {
+          id: `system_${Date.now()}`,
+          content: `🎯 Contexto del paciente actualizado: **${selectedPatient.full_name}** (ID: ${selectedPatient.patient_id})`,
+          type: 'system',
+          timestamp: new Date().toISOString(),
+          agentType: 'system'
+        };
+        setMessages(prev => [...prev, systemMessage]);
+      }
     }
   };
 
@@ -592,7 +714,14 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       <SpaceBetween size="l">
         <Header
           variant="h1"
-          description={"Bienvenido"}
+          description={selectedPatient ? `Sesión segura activa - Paciente: ${selectedPatient.full_name}` : "Bienvenido"}
+          actions={
+            selectedPatient && (
+              <Box fontSize="body-s" color="text-status-success">
+                <Icon name="security" /> Sesión ID: {sessionId.split('_')[1]}
+              </Box>
+            )
+          }
         >
           {t.chat.title}
         </Header>
@@ -611,6 +740,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
               {/* Chat Messages */}
               
                 <div
+                  ref={chatContainerRef}
                   className={`chat-messages-container theme-transition`}
                   data-theme={mode}
                 >
@@ -644,7 +774,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           color="gen-ai"
                           iconName="gen-ai"
                           tooltipText="Generative AI assistant"
-                          loading={message.agentType === 'agentcore-streaming' && !message.content}
+                          loading={message.agentType === 'processing'}
                         />
                       );
 
@@ -654,7 +784,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           iconName="copy"
                           onClick={() => handleCopy(message.content)}
                           ariaLabel="Copy message"
-                          disabled={message.agentType === 'agentcore-streaming' && !message.content}
+                          disabled={message.agentType === 'agentcore-streaming' || message.agentType === 'agentcore-processing'}
                         />
                       ) : undefined;
 
@@ -668,11 +798,11 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                             type={isUser ? "outgoing" : "incoming"}
                             avatar={avatar}
                             actions={actions}
-                            showLoadingBar={message.agentType === 'agentcore-streaming' && !message.content}
+                            showLoadingBar={message.agentType === 'processing'}
                           >
-                            {message.agentType === 'agentcore-streaming' && !message.content ? (
+                            {message.agentType === 'processing' && !message.content ? (
                               <Box color="text-status-inactive">
-                                Conectando con AgentCore...
+                                Procesando consulta...
                               </Box>
                             ) : (
                               <MarkdownRenderer content={message.content} />
@@ -683,8 +813,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                     })
                   )}
 
-                  {/* Loading State - Only show when no streaming message exists */}
-                  {isLoading && !messages.some(msg => msg.agentType === 'agentcore-streaming') && (
+                  {/* Loading State - Only show when no processing message exists */}
+                  {isLoading && !messages.some(msg => msg.agentType === 'processing') && (
                     <div className="chat-bubble-wrapper incoming">
                       <ChatBubble
                         ariaLabel="Generative AI assistant generating response"
@@ -701,7 +831,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                         }
                       >
                         <Box color="text-status-inactive">
-                          {loadingStage === 'processing' ? 'Analizando solicitud' : 'Conectando con AgentCore...'}
+                          {loadingStage === 'processing' ? 'Analizando solicitud' : 'Procesando consulta...'}
                         </Box>
                       </ChatBubble>
                     </div>
@@ -740,7 +870,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                   disableSecondaryActionsPaddings
                   placeholder={selectedPatient
                     ? `Haz una pregunta sobre ${selectedPatient.full_name}`
-                    : "Selecciona un paciente y haz una pregunta"
+                    : "Haz una pregunta o adjunta archivos para identificar al paciente"
                   }
                   disabled={isLoading}
                   onAction={handleSendMessage}
@@ -759,10 +889,6 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                     areFilesDragging ? (
                       <FileDropzone
                         onChange={({ detail }) => {
-                          if (!selectedPatient) {
-                            setError('Por favor seleccione un paciente antes de adjuntar archivos. Los documentos necesitan estar asociados a un paciente específico.');
-                            return;
-                          }
                           handleFileChange([...files, ...detail.value]);
                         }}
                       >
@@ -771,7 +897,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           <Box>
                             {selectedPatient 
                               ? `Suelta los archivos aquí para ${selectedPatient.full_name}`
-                              : "Selecciona un paciente primero para adjuntar archivos"
+                              : "Suelta los archivos aquí - el asistente te ayudará a identificar al paciente"
                             }
                           </Box>
                         </SpaceBetween>
@@ -824,6 +950,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                                         {classification.category === 'not-identified' && (
                                           <span style={{ color: '#d91515' }}> - Requiere clasificación manual</span>
                                         )}
+                                        {!selectedPatient && (
+                                          <span style={{ color: '#0972d3' }}> - Requiere identificación de paciente</span>
+                                        )}
                                       </span>
                                     )}
                                   </Box>
@@ -854,7 +983,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           lastResponse={debugInfo.lastResponse}
           lastRequest={debugInfo.lastRequest}
           patientContext={debugInfo.patientContext}
-          selectedPatient={selectedPatient}
+          selectedPatient={selectedPatient || undefined}
+          sessionId={sessionId}
+          messages={messages}
         />
       </SpaceBetween>
 

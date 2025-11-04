@@ -24,10 +24,14 @@ class PatientInfoResponse(BaseModel):
     Used by healthcare agent for patient context.
     """
     
-    patient_id: Optional[str] = Field(None, description="Patient identifier")
+    patient_id: Optional[str] = Field(None, description="Patient identifier (cedula or medical record number)")
     full_name: Optional[str] = Field(None, description="Patient's full name")
-    cedula: Optional[str] = Field(None, description="Patient's cedula")
+    cedula: Optional[str] = Field(None, description="Patient's cedula (Colombian ID)")
+    age: Optional[int] = Field(None, description="Patient's age if mentioned")
+    phone: Optional[str] = Field(None, description="Patient's phone number if mentioned")
+    email: Optional[str] = Field(None, description="Patient's email if mentioned")
     success: bool = Field(description="Whether extraction was successful")
+    confidence: Optional[str] = Field(None, description="Confidence level of extraction (high/medium/low)")
     
     class Config:
         # Simplified - no complex validation needed

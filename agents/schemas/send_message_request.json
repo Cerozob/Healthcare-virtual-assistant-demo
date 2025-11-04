@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://healthcare-agent.com/schemas/send-message-request.json",
+  "title": "Send Message Request - Strands Compatible",
+  "description": "Request schema for sending multimodal messages to the healthcare agent using Strands format",
+  "type": "object",
+  "required": ["content"],
+  "properties": {
+    "content": {
+      "type": "array",
+      "description": "Array of content blocks in Strands multimodal format",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/textBlock"
+          },
+          {
+            "$ref": "#/$defs/imageBlock"
+          },
+          {
+            "$ref": "#/$defs/documentBlock"
+          }
+        ]
+      }
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "Optional session identifier for conversation continuity",
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "maxLength": 100
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "textBlock": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text content",
+          "minLength": 1,
+          "maxLength": 10000
+        }
+      },
+      "additionalProperties": false
+    },
+    "imageBlock": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "object",
+          "required": ["format", "source"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["jpeg", "jpg", "png", "gif", "webp"],
+              "description": "Image format"
+            },
+            "source": {
+              "type": "object",
+              "required": ["bytes"],
+              "properties": {
+                "bytes": {
+                  "type": "string",
+                  "description": "Base64 encoded image data",
+                  "contentEncoding": "base64"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "documentBlock": {
+      "type": "object",
+      "required": ["document"],
+      "properties": {
+        "document": {
+          "type": "object",
+          "required": ["format", "name", "source"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["pdf", "txt", "doc", "docx", "md", "csv", "xls", "xlsx", "html"],
+              "description": "Document format"
+            },
+            "name": {
+              "type": "string",
+              "description": "Document name/filename",
+              "maxLength": 255
+            },
+            "source": {
+              "type": "object",
+              "required": ["bytes"],
+              "properties": {
+                "bytes": {
+                  "type": "string",
+                  "description": "Base64 encoded document data",
+                  "contentEncoding": "base64"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

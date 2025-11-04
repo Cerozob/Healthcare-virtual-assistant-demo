@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './MarkdownRenderer.css';
 
 interface MarkdownRendererProps {
@@ -50,7 +51,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
 
   return (
     <div className={`markdown-renderer ${className || ''}`}>
-      <ReactMarkdown
+      <ReactMarkdown remarkPlugins={[remarkGfm]}
         components={{
           // Customize heading styles
           h1: ({ children }) => <h1 className="markdown-h1">{renderChildren(children)}</h1>,

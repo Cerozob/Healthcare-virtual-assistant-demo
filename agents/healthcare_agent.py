@@ -1,755 +1,580 @@
 """
-Simplified Healthcare Assistant Agent using Strands framework.
-Uses proper Strands tools and configuration management.
+Healthcare Agent - Simplified Version with Strands Multimodal Support
+Single streaming function with multimodal support and short-term memory
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+import json
+import base64
+from typing import Optional, List, Dict, Any, AsyncGenerator
+
+from datetime import datetime
 from strands import Agent
 from strands.models import BedrockModel
-from strands_tools import memory, use_llm, use_aws
+from strands.agent.agent_result import AgentResult
+from bedrock_agentcore.memory import MemoryClient
+from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig, RetrievalConfig
+from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
 from appointment_scheduling.agent import appointment_scheduling_agent
 from info_retrieval.agent import information_retrieval_agent
-from strands.session.s3_session_manager import S3SessionManager
-# MCP client is now handled by shared.mcp_client
-import os
-from datetime import datetime
-
 from shared.config import get_agent_config
-from shared.utils import get_logger
-from shared.prompts import get_prompt
-from shared.models import PatientInfoResponse, SessionContext
-from shared.mcp_client import get_healthcare_tools
+from shared.memory_logger import MemoryOperationLogger, MemoryDebugger
+from tools.multimodal_uploader import create_multimodal_uploader, MultimodalUploader
+from prompts import get_prompt
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
+
+# CloudWatch structured logging helper
+
+
+def log_memory_event(event_type: str, session_id: str, data: Dict[str, Any] = None):
+    """Log structured memory events for CloudWatch analysis."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "event_type": f"MEMORY_{event_type}",
+        "session_id": session_id,
+        "component": "healthcare_agent",
+        **(data or {})
+    }
+    logger.info(f"MEMORY_DEBUG: {json.dumps(log_entry)}")
+
+
+def log_session_event(event_type: str, session_id: str, data: Dict[str, Any] = None):
+    """Log structured session events for CloudWatch analysis."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "event_type": f"SESSION_{event_type}",
+        "session_id": session_id,
+        "component": "healthcare_agent",
+        **(data or {})
+    }
+    logger.info(f"SESSION_DEBUG: {json.dumps(log_entry)}")
 
 
 class HealthcareAgent:
-    """Healthcare Assistant Agent with proper Strands integration."""
+    """Simplified Healthcare Agent with unified streaming and multimodal support."""
 
-    def __init__(self, session_id: str):
-        """Initialize the healthcare agent."""
+    def __init__(self, config, session_id: str):
+        self.config = config
         self.session_id = session_id
-        self.config = get_agent_config()
-        self.session_manager = None
-        self.agent = None
-        self._setup_session_manager()
-        self._setup_agent()
+        self.agent: Optional[Agent] = None
+        self.session_manager: Optional[AgentCoreMemorySessionManager] = None
+        self.multimodal_uploader: Optional[MultimodalUploader] = None
 
-    def _setup_session_manager(self):
-        """Set up S3 session manager for conversation persistence (always S3, always persisted)."""
-        logger.info("📁 Setting up S3 session manager")
-        logger.info(f"Session ID: {self.session_id}")
-        logger.info(f"S3 Bucket: {self.config.session_bucket}")
-        logger.info("S3 Prefix: chats/ (hardcoded)")
+    def initialize(self) -> None:
+        """Initialize the healthcare agent."""
+        logger.info(
+            f"🏥 Initializing Healthcare Agent for session: {self.session_id}")
+
+        # Log initialization start
+        log_session_event("INIT_START", self.session_id, {
+            "session_id_length": len(self.session_id),
+            "memory_id": self.config.agentcore_memory_id,
+            "model_id": self.config.model_id
+        })
 
         try:
-            self.session_manager = S3SessionManager(
-                session_id=self.session_id,
-                bucket=self.config.session_bucket,
-                prefix="chats/",  # Always "chats/" as specified
-                region_name=self.config.aws_region
-            )
-            logger.info("✅ S3 session manager created successfully")
-        except Exception as e:
-            logger.error(f"❌ Failed to create S3 session manager: {e}")
-            raise ValueError(f"Session manager setup failed: {e}")
+            # Setup session manager
+            self._setup_session_manager()
 
-    def _setup_agent(self):
-        """Set up the Strands agent with proper tools."""
-        logger.info("🤖 Setting up Healthcare Agent")
-        logger.info(f"Session ID: {self.session_id}")
-        logger.info(f"Configuration: {self.config.model_dump()}")
+            # Setup multimodal uploader
+            self._setup_multimodal_uploader()
 
-        # Prepare tools list
-        tools = []
+            # Setup all tools (Strands tools + MCP tools + specialized agents)
+            tools = self._setup_all_tools()
 
-        # Add memory tool for knowledge base operations (always available)
-        logger.info("📚 Adding knowledge base memory tool")
-        os.environ["STRANDS_KNOWLEDGE_BASE_ID"] = self.config.knowledge_base_id
-        tools.append(memory)
-
-        # Add LLM tool for structured operations
-        tools.append(use_llm)
-
-        # Add specialized agent tools for orchestration
-
-        tools.extend([appointment_scheduling_agent,
-                     information_retrieval_agent])
-        logger.info("✅ Added specialized agent tools for orchestration")
-
-        # Add MCP Gateway tools (always required)
-        logger.info("🌐 Adding MCP Gateway tools")
-        mcp_clients = self._setup_mcp_tools()
-        if not mcp_clients:
-            raise ValueError(
-                "No MCP clients available - healthcare agent cannot function without MCP tools")
-
-        tools.extend(mcp_clients)
-        logger.info(f"✅ Added {len(mcp_clients)} MCP clients")
-
-        # Create the agent
-        system_prompt = self._get_system_prompt()
-
-        logger.info(
-            f"🚀 Creating agent with {len(tools)} tools (including MCP clients) and session management")
-        self.agent = Agent(
-            system_prompt=system_prompt,
-            tools=tools,
-            model=BedrockModel(
+            # Create a Bedrock model instance
+            bedrock_model = BedrockModel(
                 model_id=self.config.model_id,
+                temperature=self.config.model_temperature,
+                # top_p=self.config.model_top_p,
                 guardrail_id=self.config.guardrail_id,
                 guardrail_version=self.config.guardrail_version,
-                guardrail_trace="enabled"
-            ),
-            session_manager=self.session_manager
-        )
+                guardrail_trace="enabled_full"
+            )
 
-        logger.info(
-            f"🤖 current tools for healthcare agent: {self.agent.tool_names}")
+            # Create the agent
+            self.agent = Agent(
+                model=bedrock_model,
+                system_prompt=get_prompt("healthcare"),
+                tools=tools,
+                session_manager=self.session_manager
+            )
 
-        # Set initial state (will be persisted via session manager)
-        self.agent.state.set("session_id", self.session_id)
-        self.agent.state.set("language", "es-LATAM")  # Always Spanish LATAM
-        self.agent.state.set("current_patient_id", None)
-        self.agent.state.set("session_created_at", str(datetime.now()))
+            # Set initial state
+            self.agent.state.set("session_id", self.session_id)
 
-        logger.info("✅ Healthcare Agent setup complete")
+            logger.info("✅ Healthcare Agent initialized successfully")
+            logger.info(f"🤖 Tools available: {self.agent.tool_names}")
 
-    def _setup_mcp_tools(self) -> List:
-        """Set up MCP Gateway tools using unified MCP client."""
+            # Log successful initialization
+            log_session_event("INIT_SUCCESS", self.session_id, {
+                "tools_count": len(self.agent.tool_names),
+                "tools": self.agent.tool_names,
+                "session_manager_type": type(self.session_manager).__name__
+            })
+
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Healthcare Agent: {e}")
+
+            # Log initialization failure
+            log_session_event("INIT_FAILURE", self.session_id, {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+    def _setup_session_manager(self) -> None:
+        """Setup AgentCore Memory session manager with proper configuration."""
         try:
-            logger.info(
-                f"🔗 Connecting to AgentCore Gateway: {self.config.mcp_gateway_url}")
+            # Generate a user-specific actor ID (not session-specific)
+            # This allows memory to persist across sessions for the same user
+            actor_id = f"healthcare_user_{datetime.now().strftime('%Y%m%d')}"
 
-            # Import the test function for tool discovery
-            from shared.mcp_client import test_agentcore_gateway, create_agentcore_mcp_client
+            # Log memory setup start
+            log_memory_event("SETUP_START", self.session_id, {
+                "memory_id": self.config.agentcore_memory_id,
+                "actor_id": actor_id,
+                "session_id": self.session_id
+            })
 
-            # Test gateway connection and discover all tools
-            logger.info(
-                "🔍 Discovering available tools from AgentCore Gateway...")
-            test_results = test_agentcore_gateway(
-                self.config.mcp_gateway_url,
-                self.config.aws_region
-            )
-
-            # Log discovered tools for debugging
-            if test_results["connection_successful"]:
-                logger.info(
-                    f"✅ Gateway connection successful - found {test_results['tools_discovered']} tools")
-
-                if test_results["tool_names"]:
-                    logger.info("📋 Available tools from AgentCore Gateway:")
-                    for i, tool_name in enumerate(test_results["tool_names"], 1):
-                        logger.info(f"   {i:2d}. {tool_name}")
-
-                    # Log tool details for semantic search debugging
-                    logger.info("🔍 Tool details for semantic search:")
-                    for tool in test_results["tool_details"]:
-                        logger.info(
-                            f"   • {tool['name']}: {tool['description']}")
-
-                    # Check for expected healthcare tools
-                    expected_tools = ['patients_api', 'medics_api',
-                                      'exams_api', 'reservations_api', 'files_api']
-                    found_healthcare_tools = []
-
-                    for expected in expected_tools:
-                        matching_tools = [tool for tool in test_results["tool_names"]
-                                          if expected in tool or expected.replace('_api', '') in tool]
-                        if matching_tools:
-                            found_healthcare_tools.extend(matching_tools)
-
-                    if found_healthcare_tools:
-                        logger.info(
-                            f"✅ Found expected healthcare tools: {found_healthcare_tools}")
-                    else:
-                        logger.warning(
-                            "⚠️ No expected healthcare tools found - check gateway target configuration")
-
-                else:
-                    logger.warning("⚠️ No tools discovered from gateway")
-
-                if test_results["semantic_search_available"]:
-                    logger.info("✅ Semantic search capability confirmed")
-                else:
-                    logger.warning("⚠️ Semantic search not available")
-
-            else:
-                logger.error(
-                    f"❌ Gateway connection failed: {test_results.get('error_message', 'Unknown error')}")
-
-            # Use the unified MCP client to get healthcare tools
-            mcp_tools = get_healthcare_tools(
-                self.config.mcp_gateway_url,
-                self.config.aws_region
-            )
-
-            logger.info(
-                f"✅ Retrieved {len(mcp_tools)} MCP clients from unified setup")
-
-            # Additional verification: try to list tools from the MCP client
-            if mcp_tools:
-                try:
-                    # Get the first (and likely only) MCP client
-                    mcp_client = mcp_tools[0]
-                    agentcore_client = create_agentcore_mcp_client(
-                        self.config.mcp_gateway_url,
-                        self.config.aws_region
+            # Create memory configuration with proper parameters
+            agentcore_memory_config = AgentCoreMemoryConfig(
+                memory_id=self.config.agentcore_memory_id,
+                session_id=self.session_id,
+                actor_id=actor_id,
+                retrieval_config={
+                    # Configure retrieval for different memory namespaces
+                    "preferences": RetrievalConfig(
+                        top_k=5,
+                        relevance_score=0.7
+                    ),
+                    "facts": RetrievalConfig(
+                        top_k=10,
+                        relevance_score=0.6
+                    ),
+                    "summaries": RetrievalConfig(
+                        top_k=3,
+                        relevance_score=0.8
                     )
+                }
+            )
 
-                    with mcp_client:
-                        tools_from_client = agentcore_client.list_all_tools(
-                            mcp_client)
-                        logger.info(
-                            f"🔍 Verified: MCP client can access {len(tools_from_client)} tools")
+            # Create session manager
+            self.session_manager = AgentCoreMemorySessionManager(
+                agentcore_memory_config=agentcore_memory_config,
+                region_name=self.config.aws_region
+            )
 
-                except Exception as verification_error:
-                    logger.warning(
-                        f"⚠️ Tool verification failed: {verification_error}")
+            logger.info(f"✅ AgentCore Memory session manager created")
+            logger.info(f"   Memory ID: {self.config.agentcore_memory_id}")
+            logger.info(f"   Session ID: {self.session_id}")
+            logger.info(f"   Actor ID: {actor_id}")
+            logger.info(f"   Region: {self.config.aws_region}")
 
-            return mcp_tools
+            # Log successful memory setup
+            log_memory_event("SETUP_SUCCESS", self.session_id, {
+                "memory_id": self.config.agentcore_memory_id,
+                "actor_id": actor_id,
+                "retrieval_namespaces": ["preferences", "facts", "summaries"]
+            })
 
         except Exception as e:
-            logger.error(f"❌ Failed to setup AgentCore MCP tools: {e}")
-            logger.error(f"   Gateway URL: {self.config.mcp_gateway_url}")
-            logger.error(f"   AWS Region: {self.config.aws_region}")
             logger.error(
-                "   Healthcare agent requires MCP tools to function properly")
-            # Re-raise the exception with more context
+                f"❌ Failed to create AgentCore Memory session manager: {e}")
+
+            # Log memory setup failure
+            log_memory_event("SETUP_FAILURE", self.session_id, {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "memory_id": self.config.agentcore_memory_id
+            })
+
             raise ValueError(
-                f"AgentCore MCP Gateway connection failed - agent cannot start: {e}")
+                f"AgentCore Memory session manager setup failed: {e}")
 
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the healthcare agent."""
-        return get_prompt("healthcare")
-
-    def invoke(self, prompt: str) -> str:
-        """Invoke the agent with a prompt."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
-
-        logger.info(f"💬 Processing prompt: {prompt[:100]}...")
-
+    def _setup_multimodal_uploader(self) -> None:
+        """Setup multimodal content uploader for S3 storage."""
         try:
-            # Use the agent to process the prompt
-            response = self.agent(prompt)
+            # Create multimodal uploader if bucket is configured
+            self.multimodal_uploader = create_multimodal_uploader(
+                raw_bucket_name=self.config.raw_bucket_name,
+                aws_region=self.config.aws_region
+            )
 
-            # Extract the message from the response
-            if hasattr(response, 'message'):
-                message = str(response.message)
+            if self.multimodal_uploader:
+                logger.info(
+                    f"✅ Multimodal uploader initialized for bucket: {self.config.raw_bucket_name}")
             else:
-                message = str(response)
-
-            logger.info(f"✅ Response generated: {len(message)} characters")
-            return message
+                logger.warning(
+                    "⚠️ Multimodal uploader not available - uploads disabled")
 
         except Exception as e:
-            logger.error(f"❌ Error processing prompt: {e}")
-            return f"Lo siento, ocurrió un error al procesar tu consulta: {str(e)}"
+            logger.error(f"❌ Failed to setup multimodal uploader: {e}")
+            self.multimodal_uploader = None
 
-    def invoke_with_structured_output(self, prompt: str) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Invoke the agent with structured output for patient context."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
+    def _setup_all_tools(self) -> List[Any]:
+        """Setup tools: specialized agents with semantic tool filtering."""
+        tools = []
 
+        # Add specialized agent tools - each handles semantic tool discovery
         logger.info(
-            f"💬 Processing prompt with structured output: {prompt[:100]}...")
+            "🤖 Adding specialized agent tools with semantic filtering...")
+        tools.extend([appointment_scheduling_agent,
+                     information_retrieval_agent])
 
-        try:
-            # First get the regular response
-            response_message = self.invoke(prompt)
+        logger.info(f"✅ Total tools configured: {len(tools)}")
+        logger.info(
+            "ℹ️ Each specialized agent uses semantic search for relevant MCP tools")
+        return tools
 
-            # Use structured output to extract patient context
-            context_extraction_prompt = get_prompt(
-                "patient_context_extraction")
-            context_prompt = f"""
-            {context_extraction_prompt}
-            
-            ## Conversation to Analyze:
-            User Message: {prompt}
-            Assistant Response: {response_message}
-            
-            Extract patient context from this conversation.
-            """
+    def _extract_patient_context(
+        self,
+        result: Any,
+        content: str,
+        content_blocks: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract patient context information using proper tools instead of manual regex.
 
-            try:
-                # Use structured output to get patient context
-                structured_result = self.agent.structured_output(
-                    output_model=PatientInfoResponse,
-                    prompt=context_prompt
-                )
+        Args:
+            result: Agent execution result
+            content: Generated content text
+            content_blocks: Optional content blocks for multimodal analysis
 
-                if structured_result and structured_result.success:
-                    # Update agent state with structured context
-                    if structured_result.patient_id:
-                        self.agent.state.set(
-                            "current_patient_id", structured_result.patient_id)
-                        self.agent.state.set(
-                            "current_patient_name", structured_result.full_name)
-                        self.agent.state.set(
-                            "patient_found_in_last_interaction", True)
+        Returns:
+            Patient context dictionary or None
+        """
+        patient_context = None
 
-                        # Convert to dict for response
-                        context_dict = {
-                            "patient_id": structured_result.patient_id,
-                            "patient_name": structured_result.full_name,
-                            "has_patient_context": True,
-                            "patient_found": True,
-                            "patient_data": structured_result.model_dump()
+        # First, check if result has explicit patient context metadata
+        if hasattr(result, 'metadata') and result.metadata:
+            patient_context = result.metadata.get('patient_context')
+
+        # If no explicit context, check if tools were executed that might have patient info
+        if not patient_context and hasattr(result, 'tools_used') and result.tools_used:
+            # Check if patient lookup tools were used
+            for tool_result in result.tools_used:
+                if 'patient' in tool_result.get('name', '').lower():
+                    tool_output = tool_result.get('output', {})
+                    if isinstance(tool_output, dict) and tool_output.get('has_patient_info'):
+                        patient_context = {
+                            'patientId': tool_output.get('cedula') or tool_output.get('medical_record_number', '-'),
+                            'patientName': tool_output.get('full_name') or f"{tool_output.get('first_name', '')} {tool_output.get('last_name', '')}".strip() or 'Paciente -',
+                            'contextChanged': True,
+                            'identificationSource': 'tool_extraction'
                         }
+                        break
 
-                        logger.info(
-                            f"✅ Structured patient context extracted: {structured_result.patient_id}")
-                        return response_message, context_dict
+        # If still no context, the specialized agents will handle patient identification
+        # The information retrieval agent now includes patient lookup capabilities
+        if not patient_context:
+            logger.info(
+                "ℹ️ No explicit patient context found - specialized agents will handle patient identification as needed")
+            # Fallback to simple default context for file organization
+            patient_context = {
+                'patientId': '-',
+                'patientName': 'Paciente -',
+                'contextChanged': True,
+                'identificationSource': 'default'
+            }
 
-                logger.info("ℹ️ No patient context found in structured output")
-                return response_message, None
+        # Determine identification source based on multimodal content
+        if patient_context and content_blocks:
+            has_images = any("image" in block for block in content_blocks)
+            has_documents = any(
+                "document" in block for block in content_blocks)
 
-            except Exception as struct_error:
-                logger.warning(
-                    f"⚠️ Structured output failed, using fallback: {struct_error}")
-                return response_message, None
+            if has_images and has_documents:
+                patient_context['identificationSource'] = 'multimodal_analysis'
+            elif has_images:
+                patient_context['identificationSource'] = 'image_analysis'
+            elif has_documents:
+                patient_context['identificationSource'] = 'document_analysis'
 
-        except Exception as e:
-            logger.error(
-                f"❌ Error processing prompt with structured output: {e}")
-            return f"Lo siento, ocurrió un error al procesar tu consulta: {str(e)}", None
+        return patient_context
 
-    def invoke_with_multimodal_support(self, prompt: str, attachments: List[Any]) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Invoke the agent with multimodal support for files and images."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
+    def _prepare_strands_content(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Prepare Strands content blocks by converting base64 strings to bytes.
 
-        logger.info(
-            f"🖼️ Processing multimodal prompt with {len(attachments)} attachments")
+        Args:
+            content_blocks: List of content blocks in Strands format with base64 data
 
-        try:
-            # Enhanced prompt for multimodal processing
-            multimodal_prompt = f"""
-            {prompt}
-            
-            MULTIMODAL PROCESSING INSTRUCTIONS:
-            - Analyze any attached images for medical content (X-rays, lab results, etc.)
-            - Process document attachments for relevant medical information
-            - Correlate file content with patient context when available
-            - Provide comprehensive analysis combining text query and file content
-            
-            Available file processing tools:
-            - Use healthcare-files-api for document management
-            - Use knowledge base search for medical reference information
-            - Use patient tools for context correlation
-            """
+        Returns:
+            List of content blocks with bytes data for Strands Agent
+        """
+        prepared_blocks = []
 
-            # Store attachment information in agent state for tool access
-            self.agent.state.set("current_attachments", [
-                {
-                    "fileName": att.fileName,
-                    "fileType": att.fileType,
-                    "category": att.category,
-                    "s3Key": att.s3Key,
-                    "hasContent": bool(att.content),
-                    "mimeType": att.mimeType
-                } for att in attachments
-            ])
+        for block in content_blocks:
+            if "text" in block:
+                # Text blocks pass through unchanged
+                prepared_blocks.append(block)
 
-            # Process with enhanced multimodal prompt
-            response_message = self.invoke(multimodal_prompt)
+            elif "image" in block:
+                # Convert base64 to bytes for image blocks
+                image_block = block.copy()
+                base64_data = image_block["image"]["source"]["bytes"]
 
-            # Extract patient context (same as regular processing)
-            context_extraction_prompt = get_prompt(
-                "patient_context_extraction")
-            context_prompt = f"""
-            {context_extraction_prompt}
-            
-            ## Multimodal Conversation to Analyze:
-            User Message: {prompt}
-            Attachments: {len(attachments)} files
-            Assistant Response: {response_message}
-            
-            Extract patient context from this multimodal conversation.
-            """
+                try:
+                    # Convert base64 string to actual bytes
+                    image_bytes = base64.b64decode(base64_data)
+                    image_block["image"]["source"]["bytes"] = image_bytes
+                    prepared_blocks.append(image_block)
 
-            try:
-                structured_result = self.agent.structured_output(
-                    output_model=PatientInfoResponse,
-                    prompt=context_prompt
-                )
+                except Exception as e:
+                    logger.warning(f"Failed to decode image data: {e}")
+                    # Add as text description if decoding fails
+                    prepared_blocks.append({
+                        "text": f"[Imagen no válida - Error al decodificar: {str(e)}]"
+                    })
 
-                if structured_result and structured_result.success and structured_result.patient_id:
-                    # Update agent state
-                    self.agent.state.set(
-                        "current_patient_id", structured_result.patient_id)
-                    self.agent.state.set(
-                        "current_patient_name", structured_result.full_name)
-                    self.agent.state.set(
-                        "patient_found_in_last_interaction", True)
+            elif "document" in block:
+                # Convert base64 to bytes for document blocks
+                doc_block = block.copy()
+                base64_data = doc_block["document"]["source"]["bytes"]
 
-                    context_dict = {
-                        "patient_id": structured_result.patient_id,
-                        "patient_name": structured_result.full_name,
-                        "has_patient_context": True,
-                        "patient_found": True,
-                        "patient_data": structured_result.model_dump(),
-                        "multimodal_processing": True,
-                        "attachments_processed": len(attachments)
-                    }
+                try:
+                    # Convert base64 string to actual bytes
+                    doc_bytes = base64.b64decode(base64_data)
+                    doc_block["document"]["source"]["bytes"] = doc_bytes
+                    prepared_blocks.append(doc_block)
 
-                    logger.info(
-                        f"✅ Multimodal patient context extracted: {structured_result.patient_id}")
-                    return response_message, context_dict
+                except Exception as e:
+                    logger.warning(f"Failed to decode document data: {e}")
+                    # Add as text description if decoding fails
+                    doc_name = doc_block["document"].get("name", "documento")
+                    prepared_blocks.append({
+                        "text": f"[Documento {doc_name} no válido - Error al decodificar: {str(e)}]"
+                    })
 
+        return prepared_blocks
+
+    def _upload_multimodal_content(self, content_blocks: List[Dict[str, Any]], patient_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Upload multimodal content to S3 with patient context organization.
+
+        Args:
+            content_blocks: List of content blocks (already prepared with bytes)
+            patient_context: Patient context information from agent processing
+
+        Returns:
+            List of upload results for tracking
+        """
+        upload_results = []
+
+        # Check if uploader is available
+        if not self.multimodal_uploader:
+            logger.warning(
+                "⚠️ Multimodal uploader not available - skipping uploads")
+            return upload_results
+
+        # Determine patient ID for organizing uploads using AI identification
+        patient_id = "unknown_patient"
+        if patient_context:
+            # Use the AI-determined file organization ID if available
+            if patient_context.get('fileOrganizationId'):
+                patient_id = patient_context['fileOrganizationId']
+                logger.info(f"📁 Using AI file organization ID: {patient_id}")
+            elif patient_context.get('patientId'):
+                # Fallback to patientId with cleaning
+                raw_id = patient_context['patientId']
+                patient_id = raw_id.replace(
+                    '-', '').replace(' ', '_').replace('.', '')
                 logger.info(
-                    "ℹ️ No patient context found in multimodal processing")
-                return response_message, {
-                    "has_patient_context": False,
-                    "multimodal_processing": True,
-                    "attachments_processed": len(attachments)
-                }
+                    f"📁 Using cleaned patient ID: {patient_id} (from {raw_id})")
 
-            except Exception as struct_error:
-                logger.warning(
-                    f"⚠️ Multimodal structured output failed: {struct_error}")
-                return response_message, {
-                    "has_patient_context": False,
-                    "multimodal_processing": True,
-                    "attachments_processed": len(attachments)
-                }
-
-        except Exception as e:
-            logger.error(f"❌ Error processing multimodal prompt: {e}")
-            return f"Lo siento, ocurrió un error al procesar tu consulta multimodal: {str(e)}", None
-
-    def invoke_with_agentcore_multimodal(self, prompt: str, media_object: Dict[str, Any], attachment_context: List[Any]) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Invoke the agent with AgentCore official multimodal format."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
+            # Log AI identification details for debugging
+            if patient_context.get('aiIdentificationData'):
+                ai_data = patient_context['aiIdentificationData']
+                logger.info(
+                    f"🤖 AI Identification: {ai_data.get('primary_identifier_type')} with {ai_data.get('identification_confidence')} confidence")
 
         logger.info(
-            f"🎯 Processing AgentCore multimodal: {media_object['type']}/{media_object['format']}")
+            f"📁 Uploading multimodal content for patient: {patient_id}")
+
+        # Check if there's any multimodal content to upload
+        has_multimodal = any(
+            "image" in block or "document" in block for block in content_blocks)
+
+        if not has_multimodal:
+            logger.info("ℹ️ No multimodal content found - skipping uploads")
+            return upload_results
 
         try:
-            # Enhanced prompt for AgentCore multimodal processing
-            agentcore_prompt = f"""
-            {prompt}
-            
-            AGENTCORE MULTIMODAL PROCESSING:
-            - Media Type: {media_object['type']}
-            - Format: {media_object['format']}
-            - File: {media_object['metadata']['fileName']}
-            - Category: {media_object['metadata']['category']}
-            - Base64 content available for AI analysis
-            
-            PROCESSING INSTRUCTIONS:
-            - Analyze the {media_object['type']} content for medical information
-            - Extract relevant data (text, measurements, findings, etc.)
-            - Correlate with patient context when available
-            - Use healthcare tools for data management and lookup
-            - Provide comprehensive medical analysis
-            
-            Available tools for processing:
-            - healthcare-files-api for document management
-            - healthcare-patients-api for patient correlation
-            - Knowledge base search for medical reference
-            """
+            # Upload all multimodal content
+            upload_results = self.multimodal_uploader.upload_multimodal_content(
+                patient_id=patient_id,
+                content_blocks=content_blocks
+            )
 
-            # Store AgentCore media information in agent state
-            self.agent.state.set("agentcore_media", {
-                "type": media_object['type'],
-                "format": media_object['format'],
-                "fileName": media_object['metadata']['fileName'],
-                "category": media_object['metadata']['category'],
-                "s3Key": media_object['metadata']['s3Key'],
-                "hasBase64Content": True
+            # Log upload summary
+            successful_uploads = [
+                r for r in upload_results if r.get('success')]
+            failed_uploads = [
+                r for r in upload_results if not r.get('success')]
+
+            if successful_uploads:
+                logger.info(
+                    f"✅ Successfully uploaded {len(successful_uploads)} files for patient {patient_id}")
+                for result in successful_uploads:
+                    logger.info(
+                        f"   📄 {result.get('content_type', 'file')}: {result.get('s3_url', 'unknown')}")
+
+            if failed_uploads:
+                logger.warning(
+                    f"⚠️ Failed to upload {len(failed_uploads)} files for patient {patient_id}")
+                for result in failed_uploads:
+                    logger.warning(
+                        f"   ❌ {result.get('content_type', 'file')}: {result.get('error', 'unknown error')}")
+
+        except Exception as e:
+            logger.error(f"❌ Error during multimodal content upload: {e}")
+            upload_results.append({
+                'success': False,
+                'error': str(e),
+                'patient_id': patient_id
             })
 
-            # Store attachment context
-            self.agent.state.set("attachment_context", [
-                {
-                    "fileName": ctx.fileName,
-                    "fileType": ctx.fileType,
-                    "category": ctx.category,
-                    "s3Key": ctx.s3Key,
-                    "hasContent": ctx.hasContent,
-                    "mimeType": ctx.mimeType
-                } for ctx in attachment_context
-            ])
+        return upload_results
 
-            # Process with AgentCore multimodal prompt
-            response_message = self.invoke(agentcore_prompt)
+    def process_message(
+        self,
+        content_blocks: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Process healthcare agent request with multimodal support and AgentCore Memory.
 
-            # Extract patient context with multimodal awareness
-            context_extraction_prompt = get_prompt(
-                "patient_context_extraction")
-            context_prompt = f"""
-            {context_extraction_prompt}
-            
-            ## AgentCore Multimodal Conversation to Analyze:
-            User Message: {prompt}
-            Media Content: {media_object['type']} file ({media_object['metadata']['fileName']})
-            Additional Files: {len(attachment_context)} files
-            Assistant Response: {response_message}
-            
-            Extract patient context from this AgentCore multimodal conversation.
-            """
+        Args:
+            content_blocks: List of content blocks in Strands format
 
-            try:
-                structured_result = self.agent.structured_output(
-                    output_model=PatientInfoResponse,
-                    prompt=context_prompt
-                )
-
-                if structured_result and structured_result.success and structured_result.patient_id:
-                    # Update agent state
-                    self.agent.state.set(
-                        "current_patient_id", structured_result.patient_id)
-                    self.agent.state.set(
-                        "current_patient_name", structured_result.full_name)
-                    self.agent.state.set(
-                        "patient_found_in_last_interaction", True)
-
-                    context_dict = {
-                        "patient_id": structured_result.patient_id,
-                        "patient_name": structured_result.full_name,
-                        "has_patient_context": True,
-                        "patient_found": True,
-                        "patient_data": structured_result.model_dump(),
-                        "agentcore_multimodal": True,
-                        "media_type": media_object['type'],
-                        "media_format": media_object['format'],
-                        "primary_file": media_object['metadata']['fileName'],
-                        "total_attachments": len(attachment_context)
-                    }
-
-                    logger.info(
-                        f"✅ AgentCore multimodal patient context: {structured_result.patient_id}")
-                    return response_message, context_dict
-
-                logger.info(
-                    "ℹ️ No patient context found in AgentCore multimodal processing")
-                return response_message, {
-                    "has_patient_context": False,
-                    "agentcore_multimodal": True,
-                    "media_type": media_object['type'],
-                    "media_format": media_object['format'],
-                    "primary_file": media_object['metadata']['fileName'],
-                    "total_attachments": len(attachment_context)
-                }
-
-            except Exception as struct_error:
-                logger.warning(
-                    f"⚠️ AgentCore multimodal structured output failed: {struct_error}")
-                return response_message, {
-                    "has_patient_context": False,
-                    "agentcore_multimodal": True,
-                    "media_type": media_object['type'],
-                    "media_format": media_object['format'],
-                    "primary_file": media_object['metadata']['fileName'],
-                    "total_attachments": len(attachment_context),
-                    "error": "Context extraction failed"
-                }
-
-        except Exception as e:
-            logger.error(f"❌ Error processing AgentCore multimodal: {e}")
-            return f"Lo siento, ocurrió un error al procesar el contenido multimodal: {str(e)}", None
-
-    async def stream_response(self, prompt: str):
-        """Stream agent response for text-only queries using AgentCore pattern."""
+        Returns:
+            Response dictionary with patient context and memory information
+        """
         if not self.agent:
-            raise ValueError("Agent not initialized")
-
-        logger.info(f"🌊 Streaming text response: {prompt[:100]}...")
-
-        try:
-            # Use Strands streaming capability - yield events directly like AgentCore docs
-            stream = self.agent.stream_async(prompt)
-
-            chunk_count = 0
-
-            async for event in stream:
-                chunk_count += 1
-
-                # Log first few events for debugging
-                if chunk_count <= 3:
-                    logger.info(
-                        f"🔍 Raw event #{chunk_count}: {type(event)} = {str(event)[:200]}...")
-
-                # Yield the raw event directly as per AgentCore pattern
-                yield event
-
-                logger.debug(f"📤 Yielded raw event #{chunk_count}")
-
-                # Stop excessive logging after first few events
-                if chunk_count > 100:  # Safety limit
-                    logger.warning(
-                        "🛑 Stopping stream after 100 events (safety limit)")
-                    break
-
-            logger.info(f"✅ Streaming completed after {chunk_count} events")
-
-        except Exception as e:
-            logger.error(f"❌ Error streaming response: {e}")
-            yield {
-                "type": "error",
-                "error": f"Streaming failed: {str(e)}"
-            }
-
-    async def stream_with_agentcore_multimodal(self, prompt: str, media_object: Dict[str, Any], attachment_context: List[Any]):
-        """Stream agent response for AgentCore multimodal content using AgentCore pattern."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
+            raise ValueError("Agent not initialized. Call initialize() first.")
 
         logger.info(
-            f"🌊 Streaming AgentCore multimodal: {media_object['type']}/{media_object['format']}")
+            f"🏥 Processing healthcare request for session: {self.session_id}")
+
+        # Log request details
+        block_types = [list(block.keys())[0] for block in content_blocks]
+        log_session_event("REQUEST_START", self.session_id, {
+            "content_blocks": len(content_blocks),
+            "block_types": block_types
+        })
+
+        # Log memory operation start
+        log_memory_event("PROCESSING_START", self.session_id, {
+            "content_blocks": len(content_blocks),
+            "has_session_manager": bool(self.session_manager)
+        })
 
         try:
-            # Store multimodal context in agent state
-            self.agent.state.set("agentcore_media", {
-                "type": media_object['type'],
-                "format": media_object['format'],
-                "fileName": media_object['metadata']['fileName'],
-                "category": media_object['metadata']['category'],
-                "s3Key": media_object['metadata']['s3Key'],
-                "hasBase64Content": True
+            # Prepare content blocks for Strands (convert base64 to bytes)
+            prepared_blocks = self._prepare_strands_content(content_blocks)
+
+            logger.info(
+                f"📝 Prepared {len(prepared_blocks)} content blocks for Strands")
+
+            # Log multimodal content details
+            log_session_event("MULTIMODAL_PREPARATION", self.session_id, {
+                "original_blocks": len(content_blocks),
+                "prepared_blocks": len(prepared_blocks),
+                "block_types": [list(block.keys())[0] for block in prepared_blocks]
             })
 
-            # Enhanced prompt for multimodal processing
-            agentcore_prompt = f"""
-            {prompt}
+            # Get response from agent (this will automatically use AgentCore Memory)
+            logger.info(
+                "🧠 Invoking agent with AgentCore Memory integration...")
+            result: AgentResult = self.agent(prepared_blocks)
+
             
-            AGENTCORE MULTIMODAL PROCESSING:
-            - Media Type: {media_object['type']}
-            - Format: {media_object['format']}
-            - File: {media_object['metadata']['fileName']}
-            - Category: {media_object['metadata']['category']}
-            
-            Analyze the {media_object['type']} content and provide comprehensive medical analysis.
-            """
 
-            # Stream the response using AgentCore pattern
-            stream = self.agent.stream_async(agentcore_prompt)
+            logger.info(f"the raw object {result.to_dict()=}")
 
-            chunk_count = 0
-
-            async for event in stream:
-                chunk_count += 1
-
-                # Log first few events for debugging
-                if chunk_count <= 3:
-                    logger.info(
-                        f"🔍 Multimodal raw event #{chunk_count}: {type(event)} = {str(event)[:200]}...")
-
-                # Yield the raw event directly as per AgentCore pattern
-                yield event
-
-                logger.debug(f"📤 Yielded multimodal raw event #{chunk_count}")
-
-                # Safety limit
-                if chunk_count > 100:
-                    logger.warning(
-                        "🛑 Stopping multimodal stream after 100 events")
-                    break
+            # Extract content from result
+            if hasattr(result, 'content'):
+                full_content = result.content
+            else:
+                full_content = str(result)
 
             logger.info(
-                f"✅ Multimodal streaming completed after {chunk_count} events")
+                f"📄 Generated response length: {len(full_content)} characters")
 
-        except Exception as e:
-            logger.error(f"❌ Error streaming multimodal response: {e}")
-            yield {
-                "type": "error",
-                "error": f"Multimodal streaming failed: {str(e)}"
+            # Log memory operation completion
+            log_memory_event("PROCESSING_SUCCESS", self.session_id, {
+                "response_length": len(full_content),
+                "memory_used": bool(self.session_manager)
+            })
+
+            # Extract patient context
+            patient_context = self._extract_patient_context(
+                result=result,
+                content=full_content,
+                content_blocks=content_blocks
+            )
+
+            # Upload multimodal content to S3 with patient organization
+            upload_results = self._upload_multimodal_content(
+                prepared_blocks, patient_context)
+
+            # Create response with memory and upload information
+            response = {
+
+                "response": full_content,
+                "sessionId": self.session_id,
+                "patientContext": patient_context,
+                "memoryEnabled": bool(self.session_manager),
+                "memoryId": self.config.agentcore_memory_id if self.session_manager else None,
+                "uploadResults": upload_results,
+                "timestamp": datetime.utcnow().isoformat(),
+                "status": "success"
             }
 
-    async def stream_with_multimodal_support(self, prompt: str, attachments: List[Any]):
-        """Stream agent response for legacy multimodal attachments using AgentCore pattern."""
-        if not self.agent:
-            raise ValueError("Agent not initialized")
+            # Log successful completion
+            successful_uploads = [
+                r for r in upload_results if r.get('success')]
+            log_session_event("REQUEST_SUCCESS", self.session_id, {
+                "response_length": len(full_content),
+                "has_patient_context": bool(patient_context),
+                "patient_id": patient_context.get('patientId') if patient_context else None,
+                "memory_enabled": bool(self.session_manager),
+                "uploads_count": len(upload_results),
+                "successful_uploads": len(successful_uploads)
+            })
 
-        logger.info(
-            f"🌊 Streaming legacy multimodal: {len(attachments)} attachments")
-
-        try:
-            # Store attachment information
-            self.agent.state.set("current_attachments", [
-                {
-                    "fileName": att.fileName,
-                    "fileType": att.fileType,
-                    "category": att.category,
-                    "s3Key": att.s3Key,
-                    "hasContent": bool(att.content),
-                    "mimeType": att.mimeType
-                } for att in attachments
-            ])
-
-            # Stream the response using AgentCore pattern
-            stream = self.agent.stream_async(prompt)
-
-            chunk_count = 0
-
-            async for event in stream:
-                chunk_count += 1
-
-                # Log first few events for debugging
-                if chunk_count <= 3:
-                    logger.info(
-                        f"🔍 Legacy multimodal raw event #{chunk_count}: {type(event)} = {str(event)[:200]}...")
-
-                # Yield the raw event directly as per AgentCore pattern
-                yield event
-
-                logger.debug(
-                    f"📤 Yielded legacy multimodal raw event #{chunk_count}")
-
-                # Safety limit
-                if chunk_count > 100:
-                    logger.warning(
-                        "🛑 Stopping legacy multimodal stream after 100 events")
-                    break
-
-            logger.info(
-                f"✅ Legacy multimodal streaming completed after {chunk_count} events")
+            return response
 
         except Exception as e:
-            logger.error(f"❌ Error streaming legacy multimodal: {e}")
-            yield {
-                "type": "error",
-                "error": f"Legacy multimodal streaming failed: {str(e)}"
-            }
+            logger.error(f"❌ Error in healthcare agent processing: {e}")
 
-    def get_patient_context(self) -> Dict[str, Any]:
-        """Get current patient context from agent state."""
-        if not self.agent:
-            return {"has_patient_context": False}
+            # Log memory operation error
+            log_memory_event("PROCESSING_ERROR", self.session_id, {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
 
-        return {
-            "patient_id": self.agent.state.get("current_patient_id"),
-            "patient_name": self.agent.state.get("current_patient_name"),
-            "has_patient_context": bool(self.agent.state.get("current_patient_id")),
-            "patient_found": bool(self.agent.state.get("patient_found_in_last_interaction")),
-            "patient_data": self.agent.state.get("current_patient_data")
-        }
+            # Log session error
+            log_session_event("REQUEST_ERROR", self.session_id, {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
 
-    def reset_patient_context(self):
-        """Reset patient context in agent state."""
-        if self.agent:
-            self.agent.state.set("current_patient_id", None)
-            self.agent.state.set("current_patient_name", None)
-            self.agent.state.set("current_patient_data", None)
-            self.agent.state.set("patient_found_in_last_interaction", False)
-            logger.info("🔄 Patient context reset")
-
-    def get_session_info(self) -> Dict[str, Any]:
-        """Get session information."""
-        return {
-            "session_id": self.session_id,
-            "session_bucket": self.config.session_bucket,
-            "session_prefix": "chats/",  # Always "chats/" as specified
-            "session_manager_type": "S3SessionManager",
-            "aws_region": self.config.aws_region,
-            "conversation_persisted": True  # Always persisted as specified
-        }
+            raise
 
 
 def create_healthcare_agent(session_id: str) -> HealthcareAgent:
-    """Factory function to create a healthcare agent."""
-    return HealthcareAgent(session_id)
+    """
+    Factory function to create and initialize a healthcare agent with AgentCore Memory.
+
+    Args:
+        session_id: Unique session identifier
+
+    Returns:
+        Initialized HealthcareAgent instance
+    """
+    config = get_agent_config()
+    agent = HealthcareAgent(config, session_id)
+    agent.initialize()
+    return agent
