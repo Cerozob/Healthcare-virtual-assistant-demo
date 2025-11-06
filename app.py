@@ -172,7 +172,7 @@ lambda_functions = {
     "exams": backend_stack.exams_function,
     "reservations": backend_stack.reservations_function,
     "files": backend_stack.files_function,
-    "patient_lookup": backend_stack.patient_lookup_function,
+    "patientlookup": backend_stack.patient_lookup_function,
 }
 
 # Create the assistant stack first (provides OAuth Lambda)

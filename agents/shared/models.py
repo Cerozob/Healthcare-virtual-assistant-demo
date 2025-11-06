@@ -52,3 +52,74 @@ class SessionContext(BaseModel):
     class Config:
         # Simplified - Strands handles most session management
         pass
+
+
+class IdentificationSource(str, Enum):
+    """Source of patient identification."""
+    TOOL_EXTRACTION = "tool_extraction"  # Direct MCP API calls
+    AGENT_EXTRACTION = "agent_extraction"  # Information retrieval agent
+    CONTENT_EXTRACTION = "content_extraction"  # Manual text parsing (fallback)
+    IMAGE_ANALYSIS = "image_analysis"
+    DOCUMENT_ANALYSIS = "document_analysis"
+    MULTIMODAL_ANALYSIS = "multimodal_analysis"
+    DEFAULT = "default"
+
+
+class PatientContext(BaseModel):
+    """
+    Patient context information extracted by the healthcare agent.
+    Used in structured output to avoid parsing response text.
+    """
+    
+    patient_id: Optional[str] = Field(
+        None, 
+        description="Patient identifier (cedula, medical record number, or generated ID)"
+    )
+    patient_name: Optional[str] = Field(
+        None, 
+        description="Patient's full name as identified"
+    )
+    context_changed: bool = Field(
+        default=False,
+        description="Whether patient context changed in this interaction"
+    )
+    identification_source: IdentificationSource = Field(
+        default=IdentificationSource.DEFAULT,
+        description="How the patient was identified"
+    )
+    file_organization_id: Optional[str] = Field(
+        None,
+        description="AI-determined ID for file organization in S3"
+    )
+    confidence_level: Optional[str] = Field(
+        None,
+        description="Confidence level of patient identification (high/medium/low)"
+    )
+    additional_identifiers: Optional[Dict[str, str]] = Field(
+        None,
+        description="Additional patient identifiers found (cedula, medical_record, etc.)"
+    )
+
+
+class HealthcareAgentResponse(BaseModel):
+    """
+    Structured output model for healthcare agent responses.
+    Focuses on patient context extraction - metrics are handled separately by Strands.
+    """
+    
+    response_content: str = Field(
+        description="The agent's response in markdown format"
+    )
+    patient_context: Optional[PatientContext] = Field(
+        None,
+        description="Extracted patient context information"
+    )
+    file_processing_summary: Optional[str] = Field(
+        None,
+        description="Brief summary of any file processing that occurred"
+    )
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }

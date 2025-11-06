@@ -26,9 +26,10 @@
     },
     "sessionId": {
       "type": "string",
-      "description": "Optional session identifier for conversation continuity",
+      "description": "Optional session identifier for conversation continuity (minimum 33 characters for AgentCore)",
       "pattern": "^[a-zA-Z0-9_-]+$",
-      "maxLength": 100
+      "minLength": 33,
+      "maxLength": 200
     }
   },
   "additionalProperties": false,

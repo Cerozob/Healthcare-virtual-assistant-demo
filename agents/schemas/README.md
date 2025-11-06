@@ -5,69 +5,79 @@ This directory contains JSON Schema definitions for all request and response typ
 ## Schema Files
 
 ### 1. `send_message_request.json`
-**Purpose**: Validates incoming requests from the frontend to the agent (AgentCore format)  
+**Purpose**: Validates incoming requests from the frontend to the agent (Strands compatible format)  
 **Used by**: Frontend → Agent API  
 **Structure**:
 ```json
 {
-  "prompt": "string (required)",
-  "sessionId": "string (optional)", 
-  "media": {
-    "type": "image|document|audio",
-    "format": "jpeg|png|pdf|txt|etc",
-    "data": "base64_encoded_content"
-  }
+  "content": [
+    {"text": "string"},
+    {
+      "image": {
+        "format": "jpeg|png|gif|webp",
+        "source": {"bytes": "base64_encoded_data"}
+      }
+    },
+    {
+      "document": {
+        "format": "pdf|txt|doc|docx|md|csv|xls|xlsx|html",
+        "name": "filename",
+        "source": {"bytes": "base64_encoded_data"}
+      }
+    }
+  ],
+  "sessionId": "string (optional, min 33 chars for AgentCore)"
 }
 ```
 
-### 2. `structured_output.json`
-**Purpose**: Validates agent responses with full metadata  
-**Used by**: Agent → Frontend (complete response format)  
+### 2. `agentcore_multimodal_request.json`
+**Purpose**: Validates AgentCore runtime invocations with multimodal content  
+**Used by**: AgentCore Runtime → Healthcare Agent  
+**Structure**: Same as `send_message_request.json` but with AgentCore-specific validation rules and examples for healthcare use cases.
+
+### 3. `agentcore_response.json`
+**Purpose**: Validates healthcare agent responses from AgentCore runtime  
+**Used by**: Healthcare Agent → Frontend (via AgentCore)  
 **Structure**:
 ```json
 {
-  "content": {
-    "message": "string",
-    "type": "text|markdown"
-  },
-  "metadata": {
-    "processingTimeMs": "number",
-    "agentUsed": "string",
-    "toolsExecuted": ["string"],
-    "requestId": "string",
-    "timestamp": "datetime",
-    "sessionId": "string"
-  },
+  "response": "string (agent's response content)",
+  "sessionId": "string (min 33 chars)",
   "patientContext": {
     "patientId": "string",
-    "patientName": "string", 
+    "patientName": "string",
     "contextChanged": "boolean",
-    "identificationSource": "enum"
+    "identificationSource": "tool_extraction|content_extraction|image_analysis|document_analysis|multimodal_analysis|default",
+    "fileOrganizationId": "string (optional)",
+    "aiIdentificationData": "object (optional)"
   },
-  "fileProcessingResults": [...],
-  "errors": [...],
-  "success": "boolean"
+  "memoryEnabled": "boolean",
+  "memoryId": "string|null",
+  "uploadResults": [
+    {
+      "success": "boolean",
+      "content_type": "string",
+      "s3_url": "string",
+      "error": "string (if failed)",
+      "patient_id": "string"
+    }
+  ],
+  "timestamp": "datetime",
+  "status": "success|error"
 }
 ```
 
-### 3. `chat_response.json`
-**Purpose**: Validates chat service responses (frontend interface)  
-**Used by**: Chat Service → Frontend Components  
-**Structure**: Similar to structured_output but with additional chat-specific fields like `messageId` and `isComplete`.
+### 4. `chat_response.json`
+**Purpose**: Validates healthcare agent responses (legacy format for frontend compatibility)  
+**Used by**: Agent → Frontend Components  
+**Structure**: Similar to agentcore_response but with legacy field names for backward compatibility.
 
-### 4. `loading_state.json`
-**Purpose**: Validates loading state information during processing  
-**Used by**: Frontend loading indicators  
-**Structure**:
-```json
-{
-  "isLoading": "boolean",
-  "stage": "uploading|processing|analyzing|completing",
-  "progress": "number (optional, 0-100)"
-}
-```
+### 5. `structured_output.json`
+**Purpose**: Validates agent responses with full metadata (legacy format)  
+**Used by**: Agent → Frontend (complete response format for backward compatibility)  
+**Structure**: Legacy structured format with content/metadata separation.
 
-### 5. `strands_multimodal_format.json`
+### 6. `strands_multimodal_format.json`
 **Purpose**: Documents the internal Strands Agent multimodal format  
 **Used by**: Internal format conversion (AgentCore → Strands)  
 **Structure**:
@@ -129,17 +139,19 @@ async def process_message(request_data):
 ## Schema Validation Rules
 
 ### Request Validation
-- `message` is required and must be 1-10,000 characters
-- `sessionId` is optional, alphanumeric with dashes/underscores
-- `attachments` limited to 10 files, each max 100MB
-- File categories are restricted to predefined medical types
+- `content` array is required with at least one content block
+- `sessionId` is optional but must be minimum 33 characters for AgentCore compatibility
+- Text blocks: 1-50,000 characters
+- Image blocks: base64 encoded data in supported formats (jpeg, jpg, png, gif, webp)
+- Document blocks: base64 encoded data with valid filename and supported formats
 
 ### Response Validation
-- `content.message` and `content.type` are required
-- `metadata` must include all timing and identification fields
-- `success` boolean is required
-- `errors` array is required when `success: false`
+- `response` string is required (agent's response content)
+- `sessionId` must match request session ID (minimum 33 characters)
+- `status` must be "success" or "error"
 - `patientContext` follows strict identification source enum
+- `uploadResults` array documents S3 upload outcomes
+- `memoryEnabled` and `memoryId` track AgentCore Memory usage
 
 ### File Processing
 - File processing results must include `fileId`, `fileName`, `status`
@@ -148,34 +160,55 @@ async def process_message(request_data):
 
 ## Format Conversion
 
-The system handles two different multimodal formats:
+The system handles multimodal content in Strands-compatible format:
 
-### AgentCore SDK Format (External API)
+### Frontend → AgentCore Format (Request)
 ```json
 {
-  "prompt": "Analyze this image",
-  "media": {
-    "type": "image",
-    "format": "jpeg",
-    "data": "base64_encoded_data"
-  }
+  "content": [
+    {"text": "Analyze this medical document"},
+    {
+      "document": {
+        "format": "pdf",
+        "name": "historial_medico.pdf",
+        "source": {"bytes": "base64_encoded_data"}
+      }
+    }
+  ],
+  "sessionId": "agentcore_session_12345678-1234-1234-1234-123456789012"
 }
 ```
 
 ### Strands Agent Format (Internal Processing)
 ```json
 [
-  {"text": "Analyze this image"},
+  {"text": "Analyze this medical document"},
   {
-    "image": {
-      "format": "jpeg", 
+    "document": {
+      "format": "pdf",
+      "name": "historial_medico.pdf", 
       "source": {"bytes": "raw_bytes"}
     }
   }
 ]
 ```
 
-The healthcare agent processes content blocks in Strands format using the `_prepare_strands_content()` method.
+### AgentCore → Frontend Format (Response)
+```json
+{
+  "response": "He analizado el historial médico...",
+  "sessionId": "agentcore_session_12345678-1234-1234-1234-123456789012",
+  "patientContext": {
+    "patientId": "juan_perez",
+    "patientName": "Juan Pérez",
+    "contextChanged": true,
+    "identificationSource": "document_analysis"
+  },
+  "status": "success"
+}
+```
+
+The healthcare agent processes content blocks in Strands format using the `_prepare_strands_content()` method, which converts base64 strings to bytes for internal processing.
 
 ## Benefits
 

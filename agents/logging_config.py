@@ -27,12 +27,47 @@ def force_stdout_logging():
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 
+class StructuredCloudWatchFormatter(logging.Formatter):
+    """
+    Structured formatter for CloudWatch logs with better context.
+    """
+
+    def format(self, record):
+        # Add structured context to log records
+        if not hasattr(record, 'component'):
+            # Determine component from logger name
+            if record.name.startswith('healthcare_agent'):
+                record.component = 'HEALTHCARE_AGENT'
+            elif record.name.startswith('info_retrieval'):
+                record.component = 'INFO_RETRIEVAL'
+            elif record.name.startswith('appointment_scheduling'):
+                record.component = 'APPOINTMENT_SCHEDULING'
+            elif record.name.startswith('shared'):
+                record.component = 'SHARED_UTILS'
+            elif record.name.startswith('strands'):
+                record.component = 'STRANDS_FRAMEWORK'
+            elif record.name.startswith('bedrock_agentcore'):
+                record.component = 'AGENTCORE_RUNTIME'
+            elif record.name.startswith('uvicorn'):
+                record.component = 'HTTP_SERVER'
+            elif record.name == '__main__':
+                record.component = 'MAIN_HANDLER'
+            else:
+                record.component = record.name.upper().replace('.', '_')
+
+        # Format with structured information
+        formatted = f"{self.formatTime(record)} | {record.levelname:<8} | {record.component:<20} | {record.getMessage()}"
+
+        # Add exception info if present
+        if record.exc_info:
+            formatted += f"\n{self.formatException(record.exc_info)}"
+
+        return formatted
+
+
 def create_agentcore_formatter() -> logging.Formatter:
     """Create a formatter optimized for AgentCore CloudWatch logs."""
-    return logging.Formatter(
-        fmt='%(asctime)s | %(levelname)-8s | %(name)-20s | %(funcName)-15s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    return StructuredCloudWatchFormatter(datefmt='%Y-%m-%d %H:%M:%S')
 
 
 def configure_root_logger(log_level: str = "INFO") -> logging.Logger:
@@ -79,19 +114,37 @@ def configure_framework_loggers(log_level: str = "INFO"):
     """
     log_level_value = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Framework loggers to configure
+    # Framework loggers to configure with meaningful names
     framework_loggers = [
+        # HTTP Server logs
         ("uvicorn", log_level_value),
-        ("uvicorn.access", log_level_value),
+        ("uvicorn.access", "WARNING"),
         ("uvicorn.error", log_level_value),
         ("fastapi", log_level_value),
+
+        # Agent framework logs
         ("strands", log_level_value),
-        ("agents", log_level_value),
+        ("strands.agent", log_level_value),
+        ("strands.models", log_level_value),
+        ("strands.session", log_level_value),
+
+        # Application-specific loggers
+        ("healthcare_agent", log_level_value),
+        ("info_retrieval", log_level_value),
+        ("appointment_scheduling", log_level_value),
+        ("shared", log_level_value),
         ("mcp", log_level_value),
+
+        # AgentCore runtime
+        ("bedrock_agentcore", log_level_value),
+        ("bedrock_agentcore.memory", log_level_value),
+        ("bedrock_agentcore.app", log_level_value),
+
         # Reduce noise from AWS SDKs
         ("boto3", logging.WARNING),
         ("botocore", logging.WARNING),
         ("urllib3", logging.WARNING),
+        ("s3transfer", logging.WARNING),
     ]
 
     for logger_name, level in framework_loggers:
@@ -104,35 +157,6 @@ def configure_framework_loggers(log_level: str = "INFO"):
 
         # Ensure logger is not disabled
         logger.disabled = False
-
-
-def test_logging_configuration():
-    """Test that logging configuration is working properly."""
-
-    # Test different loggers
-    test_loggers = [
-        "root",
-        "agents",
-        "uvicorn",
-        "fastapi",
-        "strands"
-    ]
-
-    print("🧪 LOGGING CONFIGURATION TEST", flush=True)
-    print("-" * 40, flush=True)
-
-    for logger_name in test_loggers:
-        if logger_name == "root":
-            logger = logging.getLogger()
-        else:
-            logger = logging.getLogger(logger_name)
-
-        logger.info(
-            f"✅ {logger_name.upper()} logger test - visible in AgentCore")
-
-    print("-" * 40, flush=True)
-    print("✅ Logging configuration test complete", flush=True)
-
 
 def setup_agentcore_logging(log_level: Optional[str] = None) -> logging.Logger:
     """
@@ -155,7 +179,7 @@ def setup_agentcore_logging(log_level: Optional[str] = None) -> logging.Logger:
     # Configure Strands framework logging level (set to DEBUG for more verbose output)
     strands_log_level = "DEBUG"
     strands_level_value = logging.DEBUG
-    
+
     strands_loggers = [
         "strands.agent",
         "strands.agent.agent",
@@ -179,8 +203,6 @@ def setup_agentcore_logging(log_level: Optional[str] = None) -> logging.Logger:
     root_logger.info(
         f"   • Strands framework logging: {strands_log_level} level")
 
-    # Test the configuration
-    test_logging_configuration()
 
     return root_logger
 

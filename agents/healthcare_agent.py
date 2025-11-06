@@ -12,6 +12,8 @@ from datetime import datetime
 from strands import Agent
 from strands.models import BedrockModel
 from strands.agent.agent_result import AgentResult
+from strands.types.content import Message, ContentBlock
+from strands.telemetry.metrics import EventLoopMetrics
 from bedrock_agentcore.memory import MemoryClient
 from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig, RetrievalConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
@@ -19,36 +21,61 @@ from appointment_scheduling.agent import appointment_scheduling_agent
 from info_retrieval.agent import information_retrieval_agent
 from shared.config import get_agent_config
 from shared.memory_logger import MemoryOperationLogger, MemoryDebugger
+from shared.models import HealthcareAgentResponse
 from tools.multimodal_uploader import create_multimodal_uploader, MultimodalUploader
 from prompts import get_prompt
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("healthcare_agent")
 
 # CloudWatch structured logging helper
 
 
 def log_memory_event(event_type: str, session_id: str, data: Dict[str, Any] = None):
     """Log structured memory events for CloudWatch analysis."""
-    log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "event_type": f"MEMORY_{event_type}",
+    memory_logger = logging.getLogger("healthcare_agent.memory")
+
+    # Create structured log message
+    log_data = {
+        "event_type": event_type,
         "session_id": session_id,
-        "component": "healthcare_agent",
         **(data or {})
     }
-    logger.info(f"MEMORY_DEBUG: {json.dumps(log_entry)}")
+
+    # Format as key=value pairs for better CloudWatch parsing
+    log_parts = [f"{k}={v}" for k, v in log_data.items()]
+    memory_logger.info(f"🧠 Memory operation | {' | '.join(log_parts)}")
 
 
 def log_session_event(event_type: str, session_id: str, data: Dict[str, Any] = None):
     """Log structured session events for CloudWatch analysis."""
-    log_entry = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "event_type": f"SESSION_{event_type}",
+    session_logger = logging.getLogger("healthcare_agent.session")
+
+    # Create structured log message
+    log_data = {
+        "event_type": event_type,
         "session_id": session_id,
-        "component": "healthcare_agent",
         **(data or {})
     }
-    logger.info(f"SESSION_DEBUG: {json.dumps(log_entry)}")
+
+    # Format as key=value pairs for better CloudWatch parsing
+    log_parts = [f"{k}={v}" for k, v in log_data.items()]
+    session_logger.info(f"🔄 Session event | {' | '.join(log_parts)}")
+
+
+def log_guardrail_event(event_type: str, session_id: str, data: Dict[str, Any] = None):
+    """Log structured guardrail detection events for AgentCore monitoring."""
+    guardrail_logger = logging.getLogger("healthcare_agent.guardrail")
+
+    # Create structured log message
+    log_data = {
+        "event_type": event_type,
+        "session_id": session_id,
+        **(data or {})
+    }
+
+    # Format as key=value pairs for better CloudWatch parsing
+    log_parts = [f"{k}={v}" for k, v in log_data.items()]
+    guardrail_logger.info(f"🛡️ Guardrail event | {' | '.join(log_parts)}")
 
 
 class HealthcareAgent:
@@ -64,7 +91,7 @@ class HealthcareAgent:
     def initialize(self) -> None:
         """Initialize the healthcare agent."""
         logger.info(
-            f"🏥 Initializing Healthcare Agent for session: {self.session_id}")
+            f"🏥 Initializing Healthcare Agent | session_id={self.session_id}")
 
         # Log initialization start
         log_session_event("INIT_START", self.session_id, {
@@ -83,15 +110,23 @@ class HealthcareAgent:
             # Setup all tools (Strands tools + MCP tools + specialized agents)
             tools = self._setup_all_tools()
 
-            # Create a Bedrock model instance
+            # Create a Bedrock model instance with full guardrail tracing
             bedrock_model = BedrockModel(
                 model_id=self.config.model_id,
                 temperature=self.config.model_temperature,
                 # top_p=self.config.model_top_p,
                 guardrail_id=self.config.guardrail_id,
                 guardrail_version=self.config.guardrail_version,
-                guardrail_trace="enabled_full"
+                guardrail_trace="enabled_full",  # Enable complete guardrail activity logging for AgentCore
+                guardrail_stream_processing_mode="async",  # Use async processing to avoid blocking
+                guardrail_redact_input=False,  # CRITICAL: Don't redact input - allow PII for patient lookup
+                guardrail_redact_output=False,  # Don't redact output - let ANONYMIZE action in guardrail handle it
+                guardrail_redact_input_message="[Entrada procesada de forma segura]",
+                guardrail_redact_output_message="[Información sensible protegida]"
             )
+
+            logger.info(f"🛡️ Guardrail configured: ID={self.config.guardrail_id}, Version={self.config.guardrail_version}")
+            logger.info("🔍 Guardrail tracing: ENABLED_FULL (detection without blocking)")
 
             # Create the agent
             self.agent = Agent(
@@ -104,8 +139,10 @@ class HealthcareAgent:
             # Set initial state
             self.agent.state.set("session_id", self.session_id)
 
-            logger.info("✅ Healthcare Agent initialized successfully")
-            logger.info(f"🤖 Tools available: {self.agent.tool_names}")
+            logger.info(
+                f"✅ Healthcare Agent initialized | session_id={self.session_id} | tools_count={len(self.agent.tool_names)}")
+            logger.debug(
+                f"🤖 Available tools | session_id={self.session_id} | tools={self.agent.tool_names}")
 
             # Log successful initialization
             log_session_event("INIT_SUCCESS", self.session_id, {
@@ -228,71 +265,38 @@ class HealthcareAgent:
             "ℹ️ Each specialized agent uses semantic search for relevant MCP tools")
         return tools
 
-    def _extract_patient_context(
-        self,
-        result: Any,
-        content: str,
-        content_blocks: Optional[List[Dict[str, Any]]] = None
-    ) -> Optional[Dict[str, Any]]:
+    def _extract_text_from_content_blocks(self, content_blocks: List[Any]) -> str:
         """
-        Extract patient context information using proper tools instead of manual regex.
+        Extract text content from Strands ContentBlock list.
 
         Args:
-            result: Agent execution result
-            content: Generated content text
-            content_blocks: Optional content blocks for multimodal analysis
+            content_blocks: List of ContentBlock objects from Strands
 
         Returns:
-            Patient context dictionary or None
+            Combined text content as string
         """
-        patient_context = None
+        text_parts = []
 
-        # First, check if result has explicit patient context metadata
-        if hasattr(result, 'metadata') and result.metadata:
-            patient_context = result.metadata.get('patient_context')
+        for block in content_blocks:
+            # Handle different types of content blocks
+            if hasattr(block, 'text') and block.text:
+                text_parts.append(block.text)
+            elif hasattr(block, 'toolResult') and block.toolResult:
+                # Include tool results in the response
+                tool_result = block.toolResult
+                if hasattr(tool_result, 'content') and tool_result.content:
+                    text_parts.append(f"Tool result: {tool_result.content}")
+            elif hasattr(block, 'reasoningContent') and block.reasoningContent:
+                # Include reasoning content if available
+                reasoning = block.reasoningContent
+                if hasattr(reasoning, 'text') and reasoning.text:
+                    text_parts.append(reasoning.text)
 
-        # If no explicit context, check if tools were executed that might have patient info
-        if not patient_context and hasattr(result, 'tools_used') and result.tools_used:
-            # Check if patient lookup tools were used
-            for tool_result in result.tools_used:
-                if 'patient' in tool_result.get('name', '').lower():
-                    tool_output = tool_result.get('output', {})
-                    if isinstance(tool_output, dict) and tool_output.get('has_patient_info'):
-                        patient_context = {
-                            'patientId': tool_output.get('cedula') or tool_output.get('medical_record_number', '-'),
-                            'patientName': tool_output.get('full_name') or f"{tool_output.get('first_name', '')} {tool_output.get('last_name', '')}".strip() or 'Paciente -',
-                            'contextChanged': True,
-                            'identificationSource': 'tool_extraction'
-                        }
-                        break
+        combined_text = '\n'.join(text_parts)
+        logger.info(
+            f"📝 Extracted {len(text_parts)} text blocks, total length: {len(combined_text)}")
 
-        # If still no context, the specialized agents will handle patient identification
-        # The information retrieval agent now includes patient lookup capabilities
-        if not patient_context:
-            logger.info(
-                "ℹ️ No explicit patient context found - specialized agents will handle patient identification as needed")
-            # Fallback to simple default context for file organization
-            patient_context = {
-                'patientId': '-',
-                'patientName': 'Paciente -',
-                'contextChanged': True,
-                'identificationSource': 'default'
-            }
-
-        # Determine identification source based on multimodal content
-        if patient_context and content_blocks:
-            has_images = any("image" in block for block in content_blocks)
-            has_documents = any(
-                "document" in block for block in content_blocks)
-
-            if has_images and has_documents:
-                patient_context['identificationSource'] = 'multimodal_analysis'
-            elif has_images:
-                patient_context['identificationSource'] = 'image_analysis'
-            elif has_documents:
-                patient_context['identificationSource'] = 'document_analysis'
-
-        return patient_context
+        return combined_text
 
     def _prepare_strands_content(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -455,7 +459,7 @@ class HealthcareAgent:
             raise ValueError("Agent not initialized. Call initialize() first.")
 
         logger.info(
-            f"🏥 Processing healthcare request for session: {self.session_id}")
+            f"🏥 Processing healthcare request | session_id={self.session_id} | content_blocks={len(content_blocks)}")
 
         # Log request details
         block_types = [list(block.keys())[0] for block in content_blocks]
@@ -484,44 +488,91 @@ class HealthcareAgent:
                 "block_types": [list(block.keys())[0] for block in prepared_blocks]
             })
 
-            # Get response from agent (this will automatically use AgentCore Memory)
+            # Step 1: Get response from agent normally (let it use tools and generate response)
             logger.info(
                 "🧠 Invoking agent with AgentCore Memory integration...")
+
+            # First, get the normal agent response with tools
             result: AgentResult = self.agent(prepared_blocks)
 
+            stop_reason: str = result.stop_reason
+            message: Message = result.message
+            role: str = message.get("role")
+            content: List[ContentBlock] = message.get("content")
+            metrics: EventLoopMetrics = result.metrics
+            metric_summary: Dict[str, Any] = metrics.get_summary()
+            interrupts = result.interrupts if result.interrupts else []
+            interrupts = [inter.to_dict() for inter in interrupts]
+
+            # Extract text content from Strands ContentBlock objects
+            content_text = self._extract_text_from_content_blocks(content)
+
+            logger.info(f"📄 Agent response length: {len(content_text)} characters")
+
+            # Step 2: Extract structured output from the conversation
+            logger.info("🔍 Extracting structured patient context from conversation...")
             
+            try:
+                # Use structured_output to extract patient context from the conversation
+                structured_result: AgentResult = self.agent.structured_output(
+                    HealthcareAgentResponse
+                )
+                
+                structured_output: HealthcareAgentResponse = structured_result.structured_output
+                
+                if structured_output:
+                    logger.info("✅ Successfully extracted structured output")
+                    
+                    # Get response content from structured output
+                    response_content = getattr(structured_output, 'response_content', None)
+                    full_content = response_content or content_text
 
-            logger.info(f"the raw object {result.to_dict()=}")
-
-            # Extract content from result
-            if hasattr(result, 'content'):
-                full_content = result.content
-            else:
-                full_content = str(result)
+                    # Get patient context from structured output
+                    patient_context_obj = getattr(structured_output, 'patient_context', None)
+                    if patient_context_obj:
+                        patient_context_data = patient_context_obj
+                        patient_context = {
+                            "patientId": patient_context_data.patient_id,
+                            "patientName": patient_context_data.patient_name,
+                            "contextChanged": patient_context_data.context_changed,
+                            "identificationSource": patient_context_data.identification_source.value,
+                            "fileOrganizationId": patient_context_data.file_organization_id,
+                            "confidenceLevel": patient_context_data.confidence_level,
+                            "additionalIdentifiers": patient_context_data.additional_identifiers
+                        }
+                        logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name}")
+                    else:
+                        patient_context = None
+                        logger.info("ℹ️ No patient context identified")
+                        
+                else:
+                    logger.warning("⚠️ No structured output received from extraction")
+                    full_content = content_text
+                    patient_context = None
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to extract structured output: {e}")
+                # Fallback to original response
+                full_content = content_text
+                patient_context = None
 
             logger.info(
-                f"📄 Generated response length: {len(full_content)} characters")
+                f"📄 Final response length: {len(full_content)} characters")
 
             # Log memory operation completion
             log_memory_event("PROCESSING_SUCCESS", self.session_id, {
                 "response_length": len(full_content),
-                "memory_used": bool(self.session_manager)
+                "memory_used": bool(self.session_manager),
+                "structured_output_used": patient_context is not None,
+                "patient_context_found": patient_context is not None
             })
-
-            # Extract patient context
-            patient_context = self._extract_patient_context(
-                result=result,
-                content=full_content,
-                content_blocks=content_blocks
-            )
 
             # Upload multimodal content to S3 with patient organization
             upload_results = self._upload_multimodal_content(
                 prepared_blocks, patient_context)
 
-            # Create response with memory and upload information
+            # Create response with memory, upload information, and Strands metrics
             response = {
-
                 "response": full_content,
                 "sessionId": self.session_id,
                 "patientContext": patient_context,
@@ -529,8 +580,26 @@ class HealthcareAgent:
                 "memoryId": self.config.agentcore_memory_id if self.session_manager else None,
                 "uploadResults": upload_results,
                 "timestamp": datetime.utcnow().isoformat(),
-                "status": "success"
+                "status": "success",
+                # Include Strands execution metrics
+                "metrics": {
+                    "stopReason": stop_reason,
+                    "metricsSummary": metric_summary,
+                    "interrupts": interrupts,
+                    "structuredOutputUsed": patient_context is not None
+                }
             }
+
+            # Log guardrail activity for AgentCore monitoring
+            log_guardrail_event("PROCESSING_COMPLETE", self.session_id, {
+                "guardrail_id": self.config.guardrail_id,
+                "guardrail_version": self.config.guardrail_version,
+                "trace_enabled": True,
+                "detection_mode": "ANONYMIZE",
+                "blocking_disabled": True,
+                "response_generated": True,
+                "content_blocks_processed": len(content_blocks)
+            })
 
             # Log successful completion
             successful_uploads = [
@@ -541,7 +610,12 @@ class HealthcareAgent:
                 "patient_id": patient_context.get('patientId') if patient_context else None,
                 "memory_enabled": bool(self.session_manager),
                 "uploads_count": len(upload_results),
-                "successful_uploads": len(successful_uploads)
+                "successful_uploads": len(successful_uploads),
+                "stop_reason": stop_reason,
+                "tool_calls": metric_summary.get('tool_calls', 0),
+                "structured_output_used": patient_context is not None,
+                "interrupts_count": len(interrupts),
+                "guardrail_active": bool(self.config.guardrail_id)
             })
 
             return response

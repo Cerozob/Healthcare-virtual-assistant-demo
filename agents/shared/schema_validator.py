@@ -16,9 +16,11 @@ logger = logging.getLogger(__name__)
 SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
 SCHEMAS = {
     "send_message_request": SCHEMA_DIR / "send_message_request.json",
+    "agentcore_multimodal_request": SCHEMA_DIR / "agentcore_multimodal_request.json",
+    "agentcore_response": SCHEMA_DIR / "agentcore_response.json",
     "structured_output": SCHEMA_DIR / "structured_output.json", 
     "chat_response": SCHEMA_DIR / "chat_response.json",
-    "loading_state": SCHEMA_DIR / "loading_state.json"
+    "strands_multimodal_format": SCHEMA_DIR / "strands_multimodal_format.json"
 }
 
 # Cache for loaded schemas
@@ -126,6 +128,66 @@ def validate_chat_response(data: Dict[str, Any]) -> Optional[List[str]]:
         return [f"Schema validation error: {str(e)}"]
 
 
+def validate_agentcore_request(data: Dict[str, Any]) -> Optional[List[str]]:
+    """
+    Validate an AgentCore multimodal request against the schema.
+    
+    Args:
+        data: AgentCore request data to validate
+        
+    Returns:
+        None if valid, list of error messages if invalid
+    """
+    try:
+        schema = load_schema("agentcore_multimodal_request")
+        validate(instance=data, schema=schema)
+        return None
+    except ValidationError as e:
+        return [f"AgentCore request validation error: {e.message}"]
+    except Exception as e:
+        return [f"Schema validation error: {str(e)}"]
+
+
+def validate_agentcore_response(data: Dict[str, Any]) -> Optional[List[str]]:
+    """
+    Validate an AgentCore response against the schema.
+    
+    Args:
+        data: AgentCore response data to validate
+        
+    Returns:
+        None if valid, list of error messages if invalid
+    """
+    try:
+        schema = load_schema("agentcore_response")
+        validate(instance=data, schema=schema)
+        return None
+    except ValidationError as e:
+        return [f"AgentCore response validation error: {e.message}"]
+    except Exception as e:
+        return [f"Schema validation error: {str(e)}"]
+
+
+def validate_strands_content(data: List[Dict[str, Any]]) -> Optional[List[str]]:
+    """
+    Validate Strands multimodal content format against the schema.
+    
+    Args:
+        data: Strands content blocks to validate
+        
+    Returns:
+        None if valid, list of error messages if invalid
+    """
+    try:
+        schema = load_schema("strands_multimodal_format")
+        validate(instance=data, schema=schema)
+        return None
+    except ValidationError as e:
+        return [f"Strands content validation error: {e.message}"]
+    except Exception as e:
+        return [f"Schema validation error: {str(e)}"]
+
+
 def create_error_response(
     session_id: str,
     error_code: str, 
@@ -133,7 +195,7 @@ def create_error_response(
     details: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Create a standardized error response that conforms to the schema.
+    Create a standardized error response that conforms to the AgentCore response schema.
     
     Args:
         session_id: Session identifier
@@ -142,7 +204,46 @@ def create_error_response(
         details: Optional additional error details
         
     Returns:
-        Dict containing standardized error response
+        Dict containing standardized AgentCore error response
+    """
+    from datetime import datetime
+    
+    response = {
+        "response": f"Error {error_code}: {error_message}",
+        "sessionId": session_id,
+        "patientContext": None,
+        "memoryEnabled": False,
+        "memoryId": None,
+        "uploadResults": [],
+        "timestamp": datetime.utcnow().isoformat(),
+        "status": "error"
+    }
+    
+    # Validate the error response we created
+    validation_errors = validate_agentcore_response(response)
+    if validation_errors:
+        logger.error(f"Created invalid AgentCore error response: {validation_errors}")
+    
+    return response
+
+
+def create_legacy_error_response(
+    session_id: str,
+    error_code: str, 
+    error_message: str,
+    details: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Create a legacy standardized error response that conforms to the structured output schema.
+    
+    Args:
+        session_id: Session identifier
+        error_code: Error code identifier
+        error_message: Human-readable error message
+        details: Optional additional error details
+        
+    Returns:
+        Dict containing standardized legacy error response
     """
     import time
     from datetime import datetime
@@ -175,7 +276,7 @@ def create_error_response(
     # Validate the error response we created
     validation_errors = validate_response(response)
     if validation_errors:
-        logger.error(f"Created invalid error response: {validation_errors}")
+        logger.error(f"Created invalid legacy error response: {validation_errors}")
     
     return response
 
@@ -250,10 +351,14 @@ def validate_input(schema_name: str):
                 data = args[0]
                 if schema_name == "send_message_request":
                     errors = validate_request(data)
+                elif schema_name == "agentcore_multimodal_request":
+                    errors = validate_agentcore_request(data)
                 elif schema_name == "structured_output":
                     errors = validate_response(data)
                 elif schema_name == "chat_response":
                     errors = validate_chat_response(data)
+                elif schema_name == "strands_multimodal_format":
+                    errors = validate_strands_content(data)
                 else:
                     errors = [f"Unknown schema for validation: {schema_name}"]
                 
@@ -279,6 +384,8 @@ def validate_output(schema_name: str):
             if isinstance(result, dict):
                 if schema_name == "structured_output":
                     errors = validate_response(result)
+                elif schema_name == "agentcore_response":
+                    errors = validate_agentcore_response(result)
                 elif schema_name == "chat_response":
                     errors = validate_chat_response(result)
                 else:
@@ -287,6 +394,10 @@ def validate_output(schema_name: str):
                 if errors:
                     logger.error(f"Output validation failed: {errors}")
                     # Don't raise exception for output validation, just log
+            elif isinstance(result, list) and schema_name == "strands_multimodal_format":
+                errors = validate_strands_content(result)
+                if errors:
+                    logger.error(f"Output validation failed: {errors}")
             
             return result
         return wrapper

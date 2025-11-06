@@ -265,17 +265,17 @@ export class AgentCoreService {
             }
           }
 
-          // Extract content from Strands agent response structure
-          if (parsedResponse.message?.content && Array.isArray(parsedResponse.message.content)) {
+          // Extract content from AgentCore response structure
+          if (parsedResponse.response && typeof parsedResponse.response === 'string') {
+            // Direct response field (most common for AgentCore)
+            fullContent = parsedResponse.response;
+          } else if (parsedResponse.message?.content && Array.isArray(parsedResponse.message.content)) {
             // Strands format: message.content[0].text
             const textContent = parsedResponse.message.content
               .filter((item: any) => item.text)
               .map((item: any) => item.text)
               .join('\n');
             fullContent = textContent;
-          } else if (parsedResponse.response) {
-            // Fallback: direct response field
-            fullContent = String(parsedResponse.response);
           } else if (parsedResponse.content) {
             // Fallback: direct content field
             fullContent = String(parsedResponse.content);
@@ -287,19 +287,26 @@ export class AgentCoreService {
           console.log('🔍 Final content type:', typeof fullContent);
           console.log('🔍 Final content length:', fullContent.length);
 
-          // Return structured response
+          // Return structured response with proper field extraction
           const result: AgentCoreResponse = {
-            sessionId: responseSessionId,
+            sessionId: validSessionId, // Always use the frontend session ID, not the agent response
             messageId: messageId,
             content: String(fullContent),
             metadata: {
               timestamp: new Date().toISOString(),
               agentUsed: 'healthcare_agent',
               requestId: messageId,
-              ...parsedResponse
+              // Include specific fields from response, not the entire object
+              status: parsedResponse.status,
+              memoryEnabled: parsedResponse.memoryEnabled,
+              memoryId: parsedResponse.memoryId,
+              metrics: parsedResponse.metrics,
+              uploadResults: parsedResponse.uploadResults,
+              // Store the original agent session ID for debugging
+              agentSessionId: parsedResponse.sessionId
             },
             patientContext: parsedResponse.patientContext,
-            fileProcessingResults: parsedResponse.fileProcessingResults
+            fileProcessingResults: parsedResponse.uploadResults // Map uploadResults to fileProcessingResults for frontend compatibility
           };
 
           console.log('✅ Structured response created:', result);
@@ -314,7 +321,7 @@ export class AgentCoreService {
 
       // Fallback response
       const result: AgentCoreResponse = {
-        sessionId: responseSessionId,
+        sessionId: validSessionId, // Always use the frontend session ID
         messageId: messageId,
         content: String(fullContent || 'No response content received'),
         metadata: {

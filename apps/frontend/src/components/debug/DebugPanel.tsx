@@ -16,6 +16,7 @@ import {
   StatusIndicator
 } from '@cloudscape-design/components';
 import { CodeView } from '@cloudscape-design/code-view';
+import { safeStringify, createDebugObject } from '../../utils/debugUtils';
 
 interface DebugPanelProps {
   lastResponse?: unknown;
@@ -83,14 +84,14 @@ export function DebugPanel({
 
             <ExpandableSection headerText="Última Respuesta Completa">
               <CodeView
-                content={JSON.stringify(lastResponse, null, 2)}
+                content={safeStringify(createDebugObject(lastResponse))}
                 lineNumbers
               />
             </ExpandableSection>
 
             <ExpandableSection headerText="Última Solicitud">
               <CodeView
-                content={JSON.stringify(lastRequest, null, 2)}
+                content={safeStringify(createDebugObject(lastRequest))}
                 lineNumbers
               />
             </ExpandableSection>

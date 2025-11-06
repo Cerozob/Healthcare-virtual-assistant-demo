@@ -5,6 +5,7 @@
  */
 
 import type { SendMessageRequest } from '../types/api';
+import { debugLog, extractResponseText } from '../utils/debugUtils';
 
 // Define structured response interfaces for normal messaging
 export interface ChatResponse {
@@ -150,10 +151,28 @@ export class ChatService {
           agentUsed: 'healthcare_agent',
           requestId: `req_${Date.now()}`,
           timestamp: new Date().toISOString(),
-          ...agentCoreResponse.metadata
+          // Safely spread metadata, avoiding circular references
+          ...(agentCoreResponse.metadata && typeof agentCoreResponse.metadata === 'object' 
+            ? Object.fromEntries(
+                Object.entries(agentCoreResponse.metadata).filter(([key, value]) => 
+                  typeof value !== 'function' && key !== 'constructor'
+                )
+              )
+            : {}
+          )
         },
         success: true
       };
+
+      // Log response structure for debugging
+      debugLog('AgentCore Response Structure', {
+        sessionId: agentCoreResponse.sessionId,
+        contentLength: agentCoreResponse.content?.length || 0,
+        hasPatientContext: !!agentCoreResponse.patientContext,
+        hasFileProcessingResults: !!agentCoreResponse.fileProcessingResults,
+        metadataKeys: agentCoreResponse.metadata ? Object.keys(agentCoreResponse.metadata) : 'none',
+        responsePreview: agentCoreResponse.content?.substring(0, 100) + '...'
+      });
 
       // Extract structured fields from AgentCore response if available
       if (agentCoreResponse.patientContext) {

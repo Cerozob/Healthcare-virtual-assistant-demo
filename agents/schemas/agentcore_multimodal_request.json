@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://healthcare-agent.com/schemas/agentcore-multimodal-request.json",
+  "title": "AgentCore Multimodal Request",
+  "description": "Request schema for AgentCore runtime invocations with multimodal content support",
+  "type": "object",
+  "required": ["content"],
+  "properties": {
+    "content": {
+      "type": "array",
+      "description": "Array of content blocks in Strands multimodal format with base64 encoded data",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/textBlock"
+          },
+          {
+            "$ref": "#/$defs/imageBlock"
+          },
+          {
+            "$ref": "#/$defs/documentBlock"
+          }
+        ]
+      }
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "Session identifier for conversation continuity (minimum 33 characters required by AgentCore)",
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "minLength": 33,
+      "maxLength": 200,
+      "examples": [
+        "agentcore_session_12345678-1234-1234-1234-123456789012",
+        "healthcare_session_abcdef01-2345-6789-abcd-ef0123456789"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "textBlock": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text content for the healthcare agent",
+          "minLength": 1,
+          "maxLength": 50000,
+          "examples": [
+            "¿Puedes mostrarme el historial médico del paciente Juan Pérez?",
+            "Necesito agendar una cita para mañana",
+            "Analiza este documento médico adjunto"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "imageBlock": {
+      "type": "object",
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "object",
+          "required": ["format", "source"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["jpeg", "jpg", "png", "gif", "webp"],
+              "description": "Image format - supported medical imaging and document formats"
+            },
+            "source": {
+              "type": "object",
+              "required": ["bytes"],
+              "properties": {
+                "bytes": {
+                  "type": "string",
+                  "description": "Base64 encoded image data (will be converted to bytes internally)",
+                  "contentEncoding": "base64",
+                  "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "documentBlock": {
+      "type": "object",
+      "required": ["document"],
+      "properties": {
+        "document": {
+          "type": "object",
+          "required": ["format", "name", "source"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "enum": ["pdf", "txt", "doc", "docx", "md", "csv", "xls", "xlsx", "html", "json"],
+              "description": "Document format - supported medical document types"
+            },
+            "name": {
+              "type": "string",
+              "description": "Document name/filename for identification and organization",
+              "maxLength": 255,
+              "pattern": "^[^<>:\"/\\|?*]+$",
+              "examples": [
+                "historial_medico_juan_perez.pdf",
+                "resultados_laboratorio_2024.xlsx",
+                "radiografia_torax.jpg"
+              ]
+            },
+            "source": {
+              "type": "object",
+              "required": ["bytes"],
+              "properties": {
+                "bytes": {
+                  "type": "string",
+                  "description": "Base64 encoded document data (will be converted to bytes internally)",
+                  "contentEncoding": "base64",
+                  "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "content": [
+        {
+          "text": "¿Puedes mostrarme el historial médico del paciente Juan Pérez?"
+        }
+      ],
+      "sessionId": "agentcore_session_12345678-1234-1234-1234-123456789012"
+    },
+    {
+      "content": [
+        {
+          "text": "Analiza este documento médico"
+        },
+        {
+          "document": {
+            "format": "pdf",
+            "name": "historial_medico.pdf",
+            "source": {
+              "bytes": "JVBERi0xLjQKJcOkw7zDtsO..."
+            }
+          }
+        }
+      ],
+      "sessionId": "healthcare_session_abcdef01-2345-6789-abcd-ef0123456789"
+    },
+    {
+      "content": [
+        {
+          "text": "Revisa esta radiografía"
+        },
+        {
+          "image": {
+            "format": "jpeg",
+            "source": {
+              "bytes": "/9j/4AAQSkZJRgABAQEAYABgAAD..."
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

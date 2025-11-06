@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://healthcare-agent.com/schemas/structured-output.json",
-  "title": "Structured Output",
-  "description": "Response schema for healthcare agent structured output",
+  "title": "Healthcare Agent Structured Output",
+  "description": "Response schema for healthcare agent structured output (legacy format for frontend compatibility)",
   "type": "object",
   "required": ["content", "metadata", "success"],
   "properties": {
@@ -100,29 +100,45 @@
       "properties": {
         "patientId": {
           "type": "string",
-          "description": "Unique identifier for the patient"
+          "description": "Patient identifier (cedula, medical record number, or generated ID)"
         },
         "patientName": {
           "type": "string",
-          "description": "Full name of the patient"
+          "description": "Patient full name"
         },
         "contextChanged": {
           "type": "boolean",
-          "description": "Indicates if the patient context was updated during this interaction"
+          "description": "Indicates if patient context changed in this interaction"
         },
         "identificationSource": {
           "type": "string",
           "enum": [
-            "conversation",
-            "file_analysis", 
-            "document_metadata",
-            "cedula_extraction",
-            "name_matching",
             "tool_extraction",
-            "llm_extraction",
+            "agent_extraction",
+            "content_extraction", 
+            "image_analysis",
+            "document_analysis",
+            "multimodal_analysis",
             "default"
           ],
-          "description": "Method used to identify the patient"
+          "description": "How the patient was identified by the agent"
+        },
+        "fileOrganizationId": {
+          "type": "string",
+          "description": "AI-determined ID for file organization"
+        },
+        "aiIdentificationData": {
+          "type": "object",
+          "description": "Additional AI identification metadata",
+          "properties": {
+            "primary_identifier_type": {
+              "type": "string"
+            },
+            "identification_confidence": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": false

@@ -284,11 +284,6 @@ class AssistantStack(Stack):
         gateway_targets = {}
 
         for lambda_name, lambda_function in self.lambda_functions.items():
-            # Skip if we don't have a tool schema for this Lambda
-            if lambda_name not in lambda_tool_mapping:
-                logger.warning(
-                    f"No tool schema found for Lambda function: {lambda_name}")
-                continue
 
             tool_schema = lambda_tool_mapping[lambda_name]
 

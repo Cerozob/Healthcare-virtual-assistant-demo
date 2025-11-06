@@ -18,7 +18,7 @@ from logging_config import setup_agentcore_logging
 
 # Initialize logging
 setup_agentcore_logging()
-logger = get_logger(__name__)
+logger = logging.getLogger("healthcare_agent.main")
 
 # Initialize AgentCore app
 app = BedrockAgentCoreApp()
@@ -44,29 +44,29 @@ async def agent_invocation(payload):
     Expects Strands format: {content: [...], sessionId?}
     Returns StructuredOutput format for frontend.
     """
-    logger.info(f"🎯 Agent invocation: {list(payload.keys())}")
+    logger.info(f"🎯 Agent invocation started | payload_keys={list(payload.keys())}")
+    logger.info(f"full payload: {payload}")
 
     # Extract fields from Strands-compatible format
     content_blocks = payload.get("content", [])
     session_id = payload.get("sessionId", f"healthcare_session_{uuid4()}")
 
-    logger.info(f"📝 Session: {session_id}")
-    logger.info(f"📦 Content blocks: {len(content_blocks)}")
+    logger.info(f"📝 Processing request | session_id={session_id} | content_blocks={len(content_blocks)}")
 
-    # Log content block details
+    # Log content block details with structured format
     for i, block in enumerate(content_blocks):
         block_type = list(block.keys())[0] if block else "unknown"
         if block_type == "text":
             text_preview = block["text"][:50] + \
                 "..." if len(block["text"]) > 50 else block["text"]
-            logger.info(f"   {i+1}. Text: {text_preview}")
+            logger.info(f"📄 Content block {i+1} | type=text | preview='{text_preview}'")
         elif block_type == "image":
             image_format = block["image"].get("format", "unknown")
-            logger.info(f"   {i+1}. Image: {image_format} format")
+            logger.info(f"🖼️ Content block {i+1} | type=image | format={image_format}")
         elif block_type == "document":
             doc_name = block["document"].get("name", "unknown")
             doc_format = block["document"].get("format", "unknown")
-            logger.info(f"   {i+1}. Document: {doc_name} ({doc_format})")
+            logger.info(f"📋 Content block {i+1} | type=document | name={doc_name} | format={doc_format}")
 
     # Validate content blocks
     if not content_blocks:
@@ -83,13 +83,13 @@ async def agent_invocation(payload):
         # Process message (non-streaming)
         result = agent.process_message(content_blocks)
 
-        logger.info("✅ Agent processing completed")
+        logger.info(f"✅ Agent processing completed | session_id={session_id}")
         return result
 
     except Exception as e:
-        logger.error(f"❌ Agent processing failed: {e}")
+        logger.error(f"❌ Agent processing failed | session_id={session_id} | error={str(e)} | error_type={type(e).__name__}")
         import traceback
-        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+        logger.debug(f"🔍 Full traceback | session_id={session_id} | traceback={traceback.format_exc()}")
 
         return create_error_response(
             session_id,
@@ -97,8 +97,6 @@ async def agent_invocation(payload):
             f"Agent processing failed: {str(e)}",
             {"traceback": traceback.format_exc()}
         )
-
-    logger.info(f"🎯 === AGENT INVOCATION END ===")
 
 
 @app.ping
@@ -110,11 +108,8 @@ def health_check():
 
 
 if __name__ == "__main__":
-    logger.info("🚀 Starting Healthcare Assistant Agent")
-    logger.info("🌐 Server will start on http://0.0.0.0:8080")
-    logger.info("📍 Endpoints available:")
-    logger.info("   - GET  /ping")
-    logger.info("   - POST /invocations")
+    logger.info("🚀 Healthcare Assistant Agent starting | server=AgentCore | port=8080")
+    logger.info("📍 Available endpoints | GET=/ping | POST=/invocations")
 
     # Run the AgentCore app
     app.run()
