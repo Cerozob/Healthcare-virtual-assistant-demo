@@ -28,7 +28,7 @@ class AgentConfig(BaseSettings):
 
     # Managed Services Configuration
     knowledge_base_id: str = Field(
-        alias="BEDROCK_KNOWLEDGE_BASE_ID", description="Bedrock Knowledge Base ID")
+        alias="STRANDS_KNOWLEDGE_BASE_ID", description="Bedrock Knowledge Base ID")
     guardrail_id: Optional[str] = Field(
         default=None, alias="BEDROCK_GUARDRAIL_ID", description="Bedrock Guardrail ID")
     guardrail_version: Optional[str] = Field(
@@ -41,17 +41,11 @@ class AgentConfig(BaseSettings):
         alias="GATEWAY_ID", description="AgentCore Gateway ID")
     aws_region: str = Field(alias="AWS_REGION", description="AWS region")
 
-    # AgentCore Memory Configuration
-    agentcore_memory_id: str = Field(
-        alias="AGENTCORE_MEMORY_ID", description="AgentCore Memory ID")
-
     # S3 Configuration for file reference tools
     raw_bucket_name: Optional[str] = Field(
         default=None, alias="RAW_BUCKET_NAME", description="S3 bucket for raw uploaded files")
     session_bucket: Optional[str] = Field(
         default=None, alias="SESSION_BUCKET", description="S3 bucket for processed session data")
-
-    # AgentCore Memory is used exclusively - no additional configuration needed
 
     class Config:
         env_file = ".env"  # Load from .env file for local development

@@ -159,6 +159,106 @@
         }
       },
       "additionalProperties": false
+    },
+    "guardrailInterventions": {
+      "type": "array",
+      "description": "Guardrail interventions detected during processing (shadow mode monitoring)",
+      "items": {
+        "type": "object",
+        "required": ["source", "action"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["INPUT", "OUTPUT"],
+            "description": "Whether the intervention was on user input or agent output"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["GUARDRAIL_INTERVENED", "NONE"],
+            "description": "Action taken by guardrail (in shadow mode, content is never blocked)"
+          },
+          "content_preview": {
+            "type": "string",
+            "description": "First 100 characters of flagged content",
+            "maxLength": 100
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "When the evaluation occurred"
+          },
+          "violations": {
+            "type": "array",
+            "description": "Specific violations detected by guardrail policies",
+            "items": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["topic_policy", "content_policy", "pii_entity", "pii_regex", "grounding_policy"],
+                  "description": "Type of violation detected"
+                },
+                "topic": {
+                  "type": "string",
+                  "description": "Topic name for topic_policy violations",
+                  "examples": ["TradingCriptomonedas", "DeportesExtremosPeligrosos"]
+                },
+                "content_type": {
+                  "type": "string",
+                  "description": "Content type for content_policy violations",
+                  "enum": ["HATE", "INSULTS", "VIOLENCE", "SEXUAL"],
+                  "examples": ["VIOLENCE", "HATE"]
+                },
+                "pii_type": {
+                  "type": "string",
+                  "description": "PII type for pii_entity violations",
+                  "examples": ["EMAIL", "PHONE", "ADDRESS", "CREDIT_DEBIT_CARD_NUMBER"]
+                },
+                "pattern": {
+                  "type": "string",
+                  "description": "Pattern name for pii_regex violations",
+                  "examples": ["CedulaColombia", "HistoriaClinica", "TelefonoLatam"]
+                },
+                "grounding_type": {
+                  "type": "string",
+                  "description": "Grounding type for grounding_policy violations",
+                  "enum": ["GROUNDING", "RELEVANCE"]
+                },
+                "confidence": {
+                  "type": "string",
+                  "description": "Confidence level for content_policy violations",
+                  "enum": ["LOW", "MEDIUM", "HIGH"]
+                },
+                "score": {
+                  "type": "number",
+                  "description": "Score for grounding_policy violations",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "threshold": {
+                  "type": "number",
+                  "description": "Threshold for grounding_policy violations",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "action": {
+                  "type": "string",
+                  "description": "Action for this specific violation",
+                  "enum": ["BLOCK", "ANONYMIZE", "NONE"],
+                  "examples": ["BLOCK", "ANONYMIZE"]
+                },
+                "policy_type": {
+                  "type": "string",
+                  "description": "Policy type for topic_policy violations",
+                  "enum": ["DENY", "ALLOW"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false,
@@ -211,6 +311,94 @@
       ],
       "timestamp": "2024-11-05T10:35:00.000Z",
       "status": "success"
+    },
+    {
+      "response": "Lo siento, no puedo proporcionar consejos sobre inversiones en criptomonedas. ¿Puedo ayudarte con alguna consulta médica?",
+      "sessionId": "healthcare_session_xyz789-4567-8901-cdef-234567890123",
+      "patientContext": null,
+      "memoryEnabled": true,
+      "memoryId": "healthcare-memory-prod",
+      "uploadResults": [],
+      "timestamp": "2024-11-05T10:40:00.000Z",
+      "status": "success",
+      "metrics": {
+        "stopReason": "end_turn",
+        "metricsSummary": {
+          "tool_calls": 0,
+          "total_time_ms": 850
+        },
+        "interrupts": [],
+        "structuredOutputUsed": false
+      },
+      "guardrailInterventions": [
+        {
+          "source": "INPUT",
+          "action": "GUARDRAIL_INTERVENED",
+          "content_preview": "¿Cuál es la mejor criptomoneda para invertir ahora?",
+          "timestamp": "2024-11-05T10:40:00.123Z",
+          "violations": [
+            {
+              "type": "topic_policy",
+              "topic": "TradingCriptomonedas",
+              "action": "BLOCK",
+              "policy_type": "DENY"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "response": "He revisado la información del paciente. Los resultados muestran valores normales en todos los parámetros.",
+      "sessionId": "healthcare_session_pqr456-7890-1234-5678-901234567890",
+      "patientContext": {
+        "patientId": "87654321",
+        "patientName": "Paciente -",
+        "contextChanged": true,
+        "identificationSource": "content_extraction",
+        "fileOrganizationId": "87654321"
+      },
+      "memoryEnabled": true,
+      "memoryId": "healthcare-memory-prod",
+      "uploadResults": [],
+      "timestamp": "2024-11-05T10:45:00.000Z",
+      "status": "success",
+      "metrics": {
+        "stopReason": "end_turn",
+        "metricsSummary": {
+          "tool_calls": 1,
+          "total_time_ms": 1100
+        },
+        "interrupts": [],
+        "structuredOutputUsed": true
+      },
+      "guardrailInterventions": [
+        {
+          "source": "INPUT",
+          "action": "GUARDRAIL_INTERVENED",
+          "content_preview": "El paciente con cédula 87654321 necesita revisar sus resultados de laboratorio",
+          "timestamp": "2024-11-05T10:45:00.100Z",
+          "violations": [
+            {
+              "type": "pii_regex",
+              "pattern": "CedulaColombia",
+              "action": "ANONYMIZE"
+            }
+          ]
+        },
+        {
+          "source": "OUTPUT",
+          "action": "GUARDRAIL_INTERVENED",
+          "content_preview": "He revisado la información del paciente con cédula 87654321. Los resultados muestran valores normales...",
+          "timestamp": "2024-11-05T10:45:01.200Z",
+          "violations": [
+            {
+              "type": "pii_regex",
+              "pattern": "CedulaColombia",
+              "action": "ANONYMIZE"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

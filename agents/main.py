@@ -38,13 +38,14 @@ def get_or_create_agent(session_id: str):
 
 
 @app.entrypoint
-async def agent_invocation(payload):
+async def agent_invocation(payload, context):
     """
     Main entrypoint for agent invocations with Strands multimodal support.
     Expects Strands format: {content: [...], sessionId?}
     Returns StructuredOutput format for frontend.
     """
     logger.info(f"🎯 Agent invocation started | payload_keys={list(payload.keys())}")
+    agentcore_sessionid= context.session_id
     logger.info(f"full payload: {payload}")
 
     # Extract fields from Strands-compatible format
@@ -52,6 +53,12 @@ async def agent_invocation(payload):
     session_id = payload.get("sessionId", f"healthcare_session_{uuid4()}")
 
     logger.info(f"📝 Processing request | session_id={session_id} | content_blocks={len(content_blocks)}")
+    logger.info(f"🔑 Session ID received from payload: {session_id}")
+    logger.info(f"🔑 AgentCore session ID: {agentcore_sessionid}")
+    logger.info(f"🔑 Session ID type: {type(session_id).__name__}")
+    
+    # Note: The AgentCore SDK runtimeSessionId is managed at the SDK level
+    # and should match this session_id for proper session continuity
 
     # Log content block details with structured format
     for i, block in enumerate(content_blocks):
@@ -84,6 +91,16 @@ async def agent_invocation(payload):
         result = agent.process_message(content_blocks)
 
         logger.info(f"✅ Agent processing completed | session_id={session_id}")
+        
+        # Verify session ID consistency
+        result_session_id = result.get("sessionId")
+        if result_session_id != session_id:
+            logger.warning(f"⚠️ Session ID mismatch!")
+            logger.warning(f"   • Input session_id: {session_id}")
+            logger.warning(f"   • Result sessionId: {result_session_id}")
+        else:
+            logger.info(f"✅ Session ID consistency verified: {session_id}")
+        
         return result
 
     except Exception as e:

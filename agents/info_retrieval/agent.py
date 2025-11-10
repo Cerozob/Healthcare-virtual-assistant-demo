@@ -7,7 +7,8 @@ from typing import Dict, Any, Optional, List
 
 from strands import Agent, tool
 from strands.models import BedrockModel
-
+from os import environ
+from strands_tools import memory, retrieve
 from shared.config import get_agent_config, get_model_config
 from shared.utils import get_logger
 from shared.prompts import get_prompt
@@ -56,17 +57,20 @@ async def information_retrieval_agent(query: str) -> str:
             aws_region=config.aws_region
         )
         
-        # Use semantic search to get relevant tools for the query
-        logger.info("🔍 Using semantic search to discover relevant tools...")
+        # Use semantic search to find only the tools needed for information retrieval
+        # This reduces token usage significantly by avoiding loading all 6 Lambda APIs
+        logger.info("🔍 Using semantic search to find information retrieval tools...")
         
-        # Create a semantic search query that includes patient lookup context
-        semantic_query = f"""
-        Information retrieval and patient search query: {query}
+        # Create a focused semantic query for information retrieval tools only
+        # This will match against tool names and descriptions in AgentCore Gateway
+        semantic_query = """
+        Patient information retrieval and medical data access tools:
+        - Patient CRUD operations (create, read, update, delete patient records)
+        - Advanced patient search and lookup by name, email, phone, cedula, ID
+        - Medical files and document access, retrieval, and management
+        - Patient data queries and information access
         
-        Need tools for: patient information lookup, patient search by name/email/phone/cedula, 
-        medical records retrieval, patient data access, healthcare information queries.
-        
-        Specifically need patient lookup capabilities for comprehensive patient identification.
+        DO NOT include: appointment scheduling, reservations, doctor availability, medical exams
         """
         
         try:
@@ -74,17 +78,18 @@ async def information_retrieval_agent(query: str) -> str:
                 semantic_query, 
                 "information_retrieval"
             )
-            logger.info(f"🔍 Semantic search found {len(info_retrieval_tools)} relevant tools")
+            logger.info(f"✅ Semantic search found {len(info_retrieval_tools)} tools for information retrieval")
+            
+            # Log which tools were found
+            for i, tool in enumerate(info_retrieval_tools, 1):
+                tool_name = getattr(tool, 'tool_name', 'Unknown')
+                tool_desc = getattr(tool, 'description', 'No description')[:100]
+                logger.info(f"   {i}. {tool_name}: {tool_desc}")
             
         except Exception as semantic_error:
-            logger.warning(f"⚠️ Semantic search failed: {semantic_error}")
-            logger.info("🔄 Falling back to all available tools...")
-            
-            # Fallback: get all tools if semantic search fails
-            mcp_client = agentcore_client.get_mcp_client()
-            with mcp_client:
-                info_retrieval_tools = mcp_client.list_tools_sync()
-                logger.info(f"🔍 Fallback: using all {len(info_retrieval_tools)} available tools")
+            logger.error(f"❌ Semantic search failed: {semantic_error}")
+            logger.error("This is critical - cannot proceed without semantic tool discovery")
+            raise ValueError(f"Failed to discover information retrieval tools: {semantic_error}")
             
         # Create specialized agent with semantically discovered tools
         logger.info("� Creating infoirmation retrieval agent...")
@@ -100,14 +105,17 @@ async def information_retrieval_agent(query: str) -> str:
         
         # Create agent with MCP client context management
         mcp_client = agentcore_client.get_mcp_client()
+        environ["STRANDS_KNOWLEDGE_BASE_ID"]=config.knowledge_base_id
+        logger.info(f"Using bedrock KB: {config.knowledge_base_id}")
         
         with mcp_client:
             info_agent = Agent(
                 system_prompt=system_prompt,
-                tools=info_retrieval_tools,
+                tools=info_retrieval_tools + [memory, retrieve],
                 model=BedrockModel(
                     model_id=model_config.model_id,
-                    temperature=model_config.temperature
+                    temperature=model_config.temperature,
+                    streaming=False
                 )
             )
             

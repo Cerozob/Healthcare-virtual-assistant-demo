@@ -89,7 +89,7 @@ class PatientContext(BaseModel):
     )
     file_organization_id: Optional[str] = Field(
         None,
-        description="AI-determined ID for file organization in S3"
+        description="AI-determined ID for file organization in S3, usually the patient id itself"
     )
     confidence_level: Optional[str] = Field(
         None,
@@ -110,7 +110,7 @@ class HealthcareAgentResponse(BaseModel):
     response_content: str = Field(
         description="The agent's response in markdown format"
     )
-    patient_context: Optional[PatientContext] = Field(
+    patient_context: PatientContext = Field(
         None,
         description="Extracted patient context information"
     )

@@ -130,6 +130,7 @@ def configure_framework_loggers(log_level: str = "INFO"):
 
         # Application-specific loggers
         ("healthcare_agent", log_level_value),
+        ("healthcare_agent.guardrail_monitoring", log_level_value),  # Dedicated guardrail monitoring logger
         ("info_retrieval", log_level_value),
         ("appointment_scheduling", log_level_value),
         ("shared", log_level_value),

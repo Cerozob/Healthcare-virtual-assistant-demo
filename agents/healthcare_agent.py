@@ -10,18 +10,18 @@ from typing import Optional, List, Dict, Any, AsyncGenerator
 
 from datetime import datetime
 from strands import Agent
+from strands_tools import current_time
 from strands.models import BedrockModel
 from strands.agent.agent_result import AgentResult
 from strands.types.content import Message, ContentBlock
 from strands.telemetry.metrics import EventLoopMetrics
-from bedrock_agentcore.memory import MemoryClient
-from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig, RetrievalConfig
-from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
+from strands.session.s3_session_manager import S3SessionManager
 from appointment_scheduling.agent import appointment_scheduling_agent
 from info_retrieval.agent import information_retrieval_agent
 from shared.config import get_agent_config
 from shared.memory_logger import MemoryOperationLogger, MemoryDebugger
 from shared.models import HealthcareAgentResponse
+from shared.guardrail_monitoring_hook import create_guardrail_monitoring_hook
 from tools.multimodal_uploader import create_multimodal_uploader, MultimodalUploader
 from prompts import get_prompt
 
@@ -85,7 +85,7 @@ class HealthcareAgent:
         self.config = config
         self.session_id = session_id
         self.agent: Optional[Agent] = None
-        self.session_manager: Optional[AgentCoreMemorySessionManager] = None
+        self.session_manager = None
         self.multimodal_uploader: Optional[MultimodalUploader] = None
 
     def initialize(self) -> None:
@@ -96,7 +96,6 @@ class HealthcareAgent:
         # Log initialization start
         log_session_event("INIT_START", self.session_id, {
             "session_id_length": len(self.session_id),
-            "memory_id": self.config.agentcore_memory_id,
             "model_id": self.config.model_id
         })
 
@@ -110,6 +109,14 @@ class HealthcareAgent:
             # Setup all tools (Strands tools + MCP tools + specialized agents)
             tools = self._setup_all_tools()
 
+            # Create guardrail monitoring hook for shadow-mode monitoring
+            guardrail_hook = create_guardrail_monitoring_hook(
+                guardrail_id=self.config.guardrail_id,
+                guardrail_version=self.config.guardrail_version,
+                aws_region=self.config.aws_region,
+                session_id=self.session_id
+            )
+
             # Create a Bedrock model instance with full guardrail tracing
             bedrock_model = BedrockModel(
                 model_id=self.config.model_id,
@@ -118,22 +125,24 @@ class HealthcareAgent:
                 guardrail_id=self.config.guardrail_id,
                 guardrail_version=self.config.guardrail_version,
                 guardrail_trace="enabled_full",  # Enable complete guardrail activity logging for AgentCore
-                guardrail_stream_processing_mode="async",  # Use async processing to avoid blocking
                 guardrail_redact_input=False,  # CRITICAL: Don't redact input - allow PII for patient lookup
-                guardrail_redact_output=False,  # Don't redact output - let ANONYMIZE action in guardrail handle it
-                guardrail_redact_input_message="[Entrada procesada de forma segura]",
-                guardrail_redact_output_message="[Información sensible protegida]"
+                guardrail_redact_output=True,  # Don't redact output - let ANONYMIZE action in guardrail handle it
+                guardrail_redact_input_message="[Mensaje redactado por Guardrails]",
+                guardrail_redact_output_message="[Mensaje redactado por Guardrails]",
+                streaming=False
             )
 
             logger.info(f"🛡️ Guardrail configured: ID={self.config.guardrail_id}, Version={self.config.guardrail_version}")
             logger.info("🔍 Guardrail tracing: ENABLED_FULL (detection without blocking)")
+            logger.info("🔍 Guardrail monitoring hook: ENABLED (shadow mode with detailed logging)")
 
-            # Create the agent
+            # Create the agent with guardrail monitoring hook
             self.agent = Agent(
                 model=bedrock_model,
                 system_prompt=get_prompt("healthcare"),
                 tools=tools,
-                session_manager=self.session_manager
+                session_manager=self.session_manager,
+                hooks=[guardrail_hook]  # Add guardrail monitoring hook
             )
 
             # Set initial state
@@ -162,73 +171,39 @@ class HealthcareAgent:
             raise
 
     def _setup_session_manager(self) -> None:
-        """Setup AgentCore Memory session manager with proper configuration."""
+        """Setup S3 session manager for conversation history."""
         try:
-            # Generate a user-specific actor ID (not session-specific)
-            # This allows memory to persist across sessions for the same user
-            actor_id = f"healthcare_user_{datetime.now().strftime('%Y%m%d')}"
-
-            # Log memory setup start
-            log_memory_event("SETUP_START", self.session_id, {
-                "memory_id": self.config.agentcore_memory_id,
-                "actor_id": actor_id,
-                "session_id": self.session_id
-            })
-
-            # Create memory configuration with proper parameters
-            agentcore_memory_config = AgentCoreMemoryConfig(
-                memory_id=self.config.agentcore_memory_id,
+            # Use S3 session manager for simple conversation history
+            self.session_manager = S3SessionManager(
                 session_id=self.session_id,
-                actor_id=actor_id,
-                retrieval_config={
-                    # Configure retrieval for different memory namespaces
-                    "preferences": RetrievalConfig(
-                        top_k=5,
-                        relevance_score=0.7
-                    ),
-                    "facts": RetrievalConfig(
-                        top_k=10,
-                        relevance_score=0.6
-                    ),
-                    "summaries": RetrievalConfig(
-                        top_k=3,
-                        relevance_score=0.8
-                    )
-                }
-            )
-
-            # Create session manager
-            self.session_manager = AgentCoreMemorySessionManager(
-                agentcore_memory_config=agentcore_memory_config,
+                bucket=self.config.session_bucket,
+                prefix="chat_history",
                 region_name=self.config.aws_region
             )
 
-            logger.info(f"✅ AgentCore Memory session manager created")
-            logger.info(f"   Memory ID: {self.config.agentcore_memory_id}")
+            logger.info(f"✅ S3 session manager created")
             logger.info(f"   Session ID: {self.session_id}")
-            logger.info(f"   Actor ID: {actor_id}")
+            logger.info(f"   Bucket: {self.config.session_bucket}")
             logger.info(f"   Region: {self.config.aws_region}")
 
             # Log successful memory setup
             log_memory_event("SETUP_SUCCESS", self.session_id, {
-                "memory_id": self.config.agentcore_memory_id,
-                "actor_id": actor_id,
-                "retrieval_namespaces": ["preferences", "facts", "summaries"]
+                "session_manager_type": "S3SessionManager",
+                "bucket": self.config.session_bucket
             })
 
         except Exception as e:
             logger.error(
-                f"❌ Failed to create AgentCore Memory session manager: {e}")
+                f"❌ Failed to create S3 session manager: {e}")
 
             # Log memory setup failure
             log_memory_event("SETUP_FAILURE", self.session_id, {
                 "error": str(e),
-                "error_type": type(e).__name__,
-                "memory_id": self.config.agentcore_memory_id
+                "error_type": type(e).__name__
             })
 
             raise ValueError(
-                f"AgentCore Memory session manager setup failed: {e}")
+                f"S3 session manager setup failed: {e}")
 
     def _setup_multimodal_uploader(self) -> None:
         """Setup multimodal content uploader for S3 storage."""
@@ -258,39 +233,50 @@ class HealthcareAgent:
         logger.info(
             "🤖 Adding specialized agent tools with semantic filtering...")
         tools.extend([appointment_scheduling_agent,
-                     information_retrieval_agent])
+                     information_retrieval_agent, current_time])
 
         logger.info(f"✅ Total tools configured: {len(tools)}")
         logger.info(
             "ℹ️ Each specialized agent uses semantic search for relevant MCP tools")
         return tools
 
-    def _extract_text_from_content_blocks(self, content_blocks: List[Any]) -> str:
+    def _extract_text_from_content_blocks(self, content_blocks: List[ContentBlock]) -> str:
         """
         Extract text content from Strands ContentBlock list.
+        
+        ContentBlock is a TypedDict that can contain different types of content:
+        - text: str - Direct text response from the model
+        - toolUse: ToolUse - Model requesting to use a tool (not final response)
+        - toolResult: ToolResult - Result from tool execution (not final response)
+        - reasoningContent: ReasoningContentBlock - Internal reasoning (not final response)
+        - image, document, video: Media content (not text)
 
         Args:
-            content_blocks: List of ContentBlock objects from Strands
+            content_blocks: List of ContentBlock TypedDict objects from Strands
 
         Returns:
             Combined text content as string
         """
         text_parts = []
 
-        for block in content_blocks:
-            # Handle different types of content blocks
-            if hasattr(block, 'text') and block.text:
-                text_parts.append(block.text)
-            elif hasattr(block, 'toolResult') and block.toolResult:
-                # Include tool results in the response
-                tool_result = block.toolResult
-                if hasattr(tool_result, 'content') and tool_result.content:
-                    text_parts.append(f"Tool result: {tool_result.content}")
-            elif hasattr(block, 'reasoningContent') and block.reasoningContent:
-                # Include reasoning content if available
-                reasoning = block.reasoningContent
-                if hasattr(reasoning, 'text') and reasoning.text:
-                    text_parts.append(reasoning.text)
+        for i, block in enumerate(content_blocks):
+            # ContentBlock is a TypedDict - access as dictionary
+            # Only extract 'text' fields - these are the actual response content
+            if 'text' in block and block['text']:
+                text_parts.append(block['text'])
+                logger.debug(f"   Block {i}: text ({len(block['text'])} chars)")
+            elif 'toolUse' in block:
+                # Tool use requests are not part of the final response
+                logger.debug(f"   Block {i}: toolUse (skipped - not response content)")
+            elif 'toolResult' in block:
+                # Tool results are not part of the final response
+                logger.debug(f"   Block {i}: toolResult (skipped - not response content)")
+            elif 'reasoningContent' in block:
+                # Reasoning is internal processing, not final response
+                logger.debug(f"   Block {i}: reasoningContent (skipped - internal)")
+            elif 'image' in block or 'document' in block or 'video' in block:
+                # Media content is not text
+                logger.debug(f"   Block {i}: media content (skipped - not text)")
 
         combined_text = '\n'.join(text_parts)
         logger.info(
@@ -489,8 +475,7 @@ class HealthcareAgent:
             })
 
             # Step 1: Get response from agent normally (let it use tools and generate response)
-            logger.info(
-                "🧠 Invoking agent with AgentCore Memory integration...")
+            
 
             # First, get the normal agent response with tools
             result: AgentResult = self.agent(prepared_blocks)
@@ -508,53 +493,73 @@ class HealthcareAgent:
             content_text = self._extract_text_from_content_blocks(content)
 
             logger.info(f"📄 Agent response length: {len(content_text)} characters")
+            
+            # Debug: Log the actual content structure
+            logger.debug(f"🔍 Content blocks structure: {[type(block).__name__ for block in content]}")
+            if not content_text:
+                logger.warning("⚠️ No text extracted from content blocks - checking message structure")
+                logger.debug(f"🔍 Message role: {role}")
+                logger.debug(f"🔍 Content blocks count: {len(content)}")
 
-            # Step 2: Extract structured output from the conversation
+            # Use the original agent response as the primary content
+            # The content_text already contains the agent's response
+            full_content = content_text
+            
+            # Step 2: Extract structured patient context from the conversation
+            # IMPORTANT: The agent() followed by agent.structured_output() pattern is the
+            # intended way to get both the natural language response AND structured data.
+            # - agent() generates the response and uses tools
+            # - agent.structured_output() extracts structured data from the conversation
             logger.info("🔍 Extracting structured patient context from conversation...")
+            patient_context = None
             
             try:
-                # Use structured_output to extract patient context from the conversation
-                structured_result: AgentResult = self.agent.structured_output(
+                # Use structured_output to extract patient context metadata
+                # This makes a separate LLM call to extract structured data from the conversation
+                structured_output: HealthcareAgentResponse = self.agent.structured_output(
                     HealthcareAgentResponse
                 )
                 
-                structured_output: HealthcareAgentResponse = structured_result.structured_output
-                
-                if structured_output:
-                    logger.info("✅ Successfully extracted structured output")
-                    
-                    # Get response content from structured output
-                    response_content = getattr(structured_output, 'response_content', None)
-                    full_content = response_content or content_text
-
-                    # Get patient context from structured output
-                    patient_context_obj = getattr(structured_output, 'patient_context', None)
-                    if patient_context_obj:
-                        patient_context_data = patient_context_obj
-                        patient_context = {
-                            "patientId": patient_context_data.patient_id,
-                            "patientName": patient_context_data.patient_name,
-                            "contextChanged": patient_context_data.context_changed,
-                            "identificationSource": patient_context_data.identification_source.value,
-                            "fileOrganizationId": patient_context_data.file_organization_id,
-                            "confidenceLevel": patient_context_data.confidence_level,
-                            "additionalIdentifiers": patient_context_data.additional_identifiers
-                        }
-                        logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name}")
-                    else:
-                        patient_context = None
-                        logger.info("ℹ️ No patient context identified")
-                        
-                else:
-                    logger.warning("⚠️ No structured output received from extraction")
-                    full_content = content_text
-                    patient_context = None
+                patient_context_data = structured_output.patient_context
+                patient_context = {
+                    "patientId": patient_context_data.patient_id,
+                    "patientName": patient_context_data.patient_name,
+                    "contextChanged": patient_context_data.context_changed,
+                    "identificationSource": patient_context_data.identification_source.value,
+                    "fileOrganizationId": patient_context_data.file_organization_id,
+                    "confidenceLevel": patient_context_data.confidence_level,
+                    "additionalIdentifiers": patient_context_data.additional_identifiers
+                }
+                logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name}")
                     
             except Exception as e:
                 logger.warning(f"⚠️ Failed to extract structured output: {e}")
-                # Fallback to original response
-                full_content = content_text
-                patient_context = None
+                logger.debug(f"Exception details: {str(e)}")
+                # Continue without patient context - not critical
+            
+            # Final safety check - if we still have no content, try to recover from metrics
+            if not full_content:
+                logger.error("❌ CRITICAL: No response content extracted from agent!")
+                logger.error(f"   content_text length: {len(content_text)}")
+                logger.error(f"   content blocks: {len(content)}")
+                logger.error(f"   stop_reason: {stop_reason}")
+                # Try to extract from metrics as last resort
+                if metric_summary and 'traces' in metric_summary:
+                    logger.info("🔍 Attempting to extract response from metrics traces...")
+                    for trace in metric_summary['traces']:
+                        if trace.get('message') and trace['message'].get('content'):
+                            for block in trace['message']['content']:
+                                if 'text' in block:
+                                    full_content = block['text']
+                                    logger.info(f"✅ Recovered response from traces: {len(full_content)} chars")
+                                    break
+                        if full_content:
+                            break
+                
+                # If still no content, provide a fallback message
+                if not full_content:
+                    full_content = "Lo siento, hubo un problema al generar la respuesta. Por favor, intenta de nuevo."
+                    logger.error("❌ Using fallback error message as response")
 
             logger.info(
                 f"📄 Final response length: {len(full_content)} characters")
@@ -571,13 +576,19 @@ class HealthcareAgent:
             upload_results = self._upload_multimodal_content(
                 prepared_blocks, patient_context)
 
+            # Get guardrail interventions from agent state
+            guardrail_interventions = self.agent.state.get("guardrail_interventions")
+            if not guardrail_interventions:
+                guardrail_interventions = []
+            
             # Create response with memory, upload information, and Strands metrics
+            # IMPORTANT: sessionId is the Strands session ID (internal to the agent)
+            # The AgentCore runtimeSessionId is managed by the SDK and should match this
             response = {
                 "response": full_content,
-                "sessionId": self.session_id,
+                "sessionId": self.session_id,  # Strands session ID - should match runtimeSessionId from SDK
                 "patientContext": patient_context,
                 "memoryEnabled": bool(self.session_manager),
-                "memoryId": self.config.agentcore_memory_id if self.session_manager else None,
                 "uploadResults": upload_results,
                 "timestamp": datetime.utcnow().isoformat(),
                 "status": "success",
@@ -587,7 +598,9 @@ class HealthcareAgent:
                     "metricsSummary": metric_summary,
                     "interrupts": interrupts,
                     "structuredOutputUsed": patient_context is not None
-                }
+                },
+                # Include guardrail monitoring data
+                "guardrailInterventions": guardrail_interventions
             }
 
             # Log guardrail activity for AgentCore monitoring
@@ -598,7 +611,9 @@ class HealthcareAgent:
                 "detection_mode": "ANONYMIZE",
                 "blocking_disabled": True,
                 "response_generated": True,
-                "content_blocks_processed": len(content_blocks)
+                "content_blocks_processed": len(content_blocks),
+                "interventions_count": len(guardrail_interventions),
+                "has_violations": len(guardrail_interventions) > 0
             })
 
             # Log successful completion
@@ -615,7 +630,8 @@ class HealthcareAgent:
                 "tool_calls": metric_summary.get('tool_calls', 0),
                 "structured_output_used": patient_context is not None,
                 "interrupts_count": len(interrupts),
-                "guardrail_active": bool(self.config.guardrail_id)
+                "guardrail_active": bool(self.config.guardrail_id),
+                "guardrail_interventions": len(guardrail_interventions)
             })
 
             return response

@@ -98,6 +98,91 @@
       "type": "string",
       "enum": ["success", "error"],
       "description": "Response status"
+    },
+    "guardrailInterventions": {
+      "type": "array",
+      "description": "Guardrail interventions detected during processing (shadow mode)",
+      "items": {
+        "type": "object",
+        "required": ["source", "action"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["INPUT", "OUTPUT"],
+            "description": "Whether the intervention was on user input or agent output"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["GUARDRAIL_INTERVENED", "NONE"],
+            "description": "Action taken by guardrail"
+          },
+          "content_preview": {
+            "type": "string",
+            "description": "First 100 characters of flagged content"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "When the evaluation occurred"
+          },
+          "violations": {
+            "type": "array",
+            "description": "Specific violations detected",
+            "items": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["topic_policy", "content_policy", "pii_entity", "pii_regex", "grounding_policy"],
+                  "description": "Type of violation"
+                },
+                "topic": {
+                  "type": "string",
+                  "description": "Topic name for topic_policy violations"
+                },
+                "content_type": {
+                  "type": "string",
+                  "description": "Content type for content_policy violations (HATE, VIOLENCE, etc.)"
+                },
+                "pii_type": {
+                  "type": "string",
+                  "description": "PII type for pii_entity violations (EMAIL, PHONE, etc.)"
+                },
+                "pattern": {
+                  "type": "string",
+                  "description": "Pattern name for pii_regex violations"
+                },
+                "grounding_type": {
+                  "type": "string",
+                  "description": "Grounding type for grounding_policy violations"
+                },
+                "confidence": {
+                  "type": "string",
+                  "description": "Confidence level for content_policy violations"
+                },
+                "score": {
+                  "type": "number",
+                  "description": "Score for grounding_policy violations"
+                },
+                "threshold": {
+                  "type": "number",
+                  "description": "Threshold for grounding_policy violations"
+                },
+                "action": {
+                  "type": "string",
+                  "description": "Action for this specific violation (BLOCK, ANONYMIZE, etc.)"
+                },
+                "policy_type": {
+                  "type": "string",
+                  "description": "Policy type for topic_policy violations"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

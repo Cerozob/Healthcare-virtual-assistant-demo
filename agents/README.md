@@ -5,6 +5,7 @@ Multi-agent system using Strands Agents framework for healthcare support with ad
 ## Features
 
 - **Multi-Agent Architecture**: Specialized agents for different healthcare workflows
+- **Guardrail Monitoring**: Shadow-mode monitoring with detailed violation logging (see [Guardrail Monitoring Guide](../docs/guardrail_monitoring.md))
 - **AgentCore Memory Integration**: Automatic conversation context retention
 - **Intelligent Retrieval**: Smart context retrieval for healthcare conversations
 - **Healthcare-Specific Tools**: Patient lookup, appointment scheduling, medical records
@@ -68,9 +69,9 @@ MODEL_TEMPERATURE=0.1
 # Bedrock Knowledge Base
 BEDROCK_KNOWLEDGE_BASE_ID=your-knowledge-base-id
 
-# Bedrock Guardrails
+# Bedrock Guardrails (with Shadow-Mode Monitoring)
 BEDROCK_GUARDRAIL_ID=your-guardrail-id
-BEDROCK_GUARDRAIL_VERSION=1
+BEDROCK_GUARDRAIL_VERSION=1  # or DRAFT for testing
 
 # AgentCore Gateway Configuration
 MCP_GATEWAY_URL=your-agentcore-gateway-url
@@ -162,3 +163,26 @@ print(f"Patient context: {result['patientContext']}")
 - Document processing workflow
 - Automatic context retention with AgentCore Memory
 - **Multimodal analysis**: Image and document processing with Strands Agent framework
+
+## Guardrail Monitoring
+
+The system includes **shadow-mode guardrail monitoring** that tracks violations without blocking content:
+
+- **Non-blocking**: Responses are never blocked, violations are only logged
+- **Detailed logging**: Full violation details sent to CloudWatch
+- **Policy coverage**: Topic policies, content policies, PII detection, contextual grounding
+- **Healthcare-specific**: Custom regex patterns for LATAM healthcare data (cédulas, medical records, etc.)
+
+### Test Guardrail Monitoring
+
+```bash
+python test_guardrail_monitoring.py
+```
+
+This will test various scenarios including:
+- Safe healthcare queries
+- PII detection (names, cédulas, emails, phones)
+- Blocked topics (cryptocurrency, extreme sports)
+- Content policy violations
+
+See the [Guardrail Monitoring Guide](../docs/guardrail_monitoring.md) for complete documentation.

@@ -15,48 +15,6 @@ from shared.mcp_client import get_appointment_tools, get_semantic_tools, create_
 logger = get_logger(__name__)
 
 
-def _filter_tools_for_scheduling(all_tools: list, request: str) -> list:
-    """
-    Filter MCP tools semantically for appointment scheduling tasks.
-
-    Args:
-        all_tools: All available MCP tools
-        request: The scheduling request
-
-    Returns:
-        List of tools relevant for appointment scheduling
-    """
-    scheduling_keywords = [
-        'appointment', 'schedule', 'book', 'reserve', 'calendar', 'availability',
-        'slot', 'time', 'date', 'cancel', 'modify', 'reschedule', 'doctor',
-        'medic', 'staff', 'resource', 'room', 'clinic'
-    ]
-
-    patient_keywords = [
-        'patient', 'cedula', 'name', 'id'  # Basic patient info for scheduling
-    ]
-
-    filtered_tools = []
-
-    for tool in all_tools:
-        tool_name = getattr(tool, 'tool_name', '').lower()
-        tool_description = getattr(tool, 'description', '').lower()
-
-        # Include tools that match scheduling or basic patient keywords
-        is_scheduling_tool = any(keyword in tool_name or keyword in tool_description
-                                 for keyword in scheduling_keywords + patient_keywords)
-
-        if is_scheduling_tool:
-            filtered_tools.append(tool)
-            logger.info(
-                f"   ✅ Included scheduling tool: {getattr(tool, 'tool_name', 'Unknown')}")
-        else:
-            logger.debug(
-                f"   ❌ Excluded tool: {getattr(tool, 'tool_name', 'Unknown')}")
-
-    return filtered_tools
-
-
 # Strands "Agents as Tools" implementation
 @tool
 async def appointment_scheduling_agent(request: str) -> str:
@@ -85,30 +43,60 @@ async def appointment_scheduling_agent(request: str) -> str:
         # Load system prompt from file
         system_prompt = get_prompt("appointment_scheduling")
 
-        # Create MCP client for AgentCore Gateway
+        # Create AgentCore MCP client wrapper for semantic tool discovery
         logger.info(
             f"🔍 Creating MCP client for appointment request: {request[:100]}...")
         logger.info(f"🌐 Gateway URL: {config.mcp_gateway_url}")
         logger.info(f"🌍 AWS Region: {config.aws_region}")
-
-        mcp_client = create_agentcore_mcp_client(
+        
+        # Create AgentCore MCP client wrapper for semantic tool discovery
+        agentcore_client = create_agentcore_mcp_client(
             gateway_url=config.mcp_gateway_url,
             aws_region=config.aws_region
-        ).get_mcp_client()
-
+        )
+        
+        # Use semantic search to find only the tools needed for appointment scheduling
+        # This reduces token usage significantly by avoiding loading all 6 Lambda APIs
+        logger.info("🔍 Using semantic search to find appointment scheduling tools...")
+        
+        # Create a focused semantic query for appointment scheduling tools
+        # This will match against tool names and descriptions in AgentCore Gateway
+        # Note: Includes basic patient lookup for the scheduling workflow
+        semantic_query = """
+        Appointment scheduling and medical resource management tools:
+        - Appointment and reservation CRUD operations (create, read, update, delete appointments)
+        - Check appointment availability and time slots
+        - Doctor and medical staff information, schedules, and availability
+        - Medical exam types and information for scheduling
+        - Basic patient lookup by name or ID (for identifying patient_id during scheduling)
+        
+        DO NOT include: advanced patient search, medical files, document analysis, patient medical history
+        """
+        
+        try:
+            scheduling_tools = agentcore_client.get_semantic_tools(
+                semantic_query,
+                "appointment_scheduling"
+            )
+            logger.info(f"✅ Semantic search found {len(scheduling_tools)} tools for appointment scheduling")
+            
+            # Log which tools were found
+            for i, tool in enumerate(scheduling_tools, 1):
+                tool_name = getattr(tool, 'tool_name', 'Unknown')
+                tool_desc = getattr(tool, 'description', 'No description')[:100]
+                logger.info(f"   {i}. {tool_name}: {tool_desc}")
+            
+        except Exception as semantic_error:
+            logger.error(f"❌ Semantic search failed: {semantic_error}")
+            logger.error("This is critical - cannot proceed without semantic tool discovery")
+            raise ValueError(f"Failed to discover appointment scheduling tools: {semantic_error}")
+        
+        # Get MCP client for context management
+        mcp_client = agentcore_client.get_mcp_client()
+        
         # Use MCP client within context manager (CRITICAL for proper session management)
         with mcp_client:
             logger.info("🔗 MCP client session started")
-
-            # Get ALL tools from MCP gateway
-            all_tools = mcp_client.list_tools_sync()
-            logger.info(
-                f"📋 Retrieved {len(all_tools)} total tools from MCP gateway")
-
-            # Filter tools semantically for appointment scheduling tasks
-            scheduling_tools = _filter_tools_for_scheduling(all_tools, request)
-            logger.info(
-                f"📅 Filtered to {len(scheduling_tools)} relevant tools for scheduling")
 
             # Create specialized agent with filtered MCP tools
             logger.info("🤖 Creating appointment scheduling agent...")
