@@ -353,7 +353,7 @@ class BackendStack(Stack):
             runtime=lambda_.Runtime.PYTHON_3_11,
             # Reduced timeout since no data loading
             timeout=Duration.minutes(5),
-            memory_size=256,  # Reduced memory since no data processing
+            memory_size=128,  # Optimized based on actual usage metrics
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="db_initialization.handler.lambda_handler",
@@ -481,7 +481,7 @@ class BackendStack(Stack):
         lambda_config = {
             "runtime": lambda_.Runtime.PYTHON_3_13,
             "timeout": Duration.seconds(30),
-            "memory_size": 256,
+            "memory_size": 128,  # Optimized based on actual usage metrics (max 8.6MB observed)
         }
 
         # SSM policy for healthcare configuration
@@ -683,7 +683,7 @@ class BackendStack(Stack):
             handler="patient_lookup.index.lambda_handler",
             runtime=lambda_.Runtime.PYTHON_3_11,
             timeout=Duration.seconds(30),
-            memory_size=256,
+            memory_size=128,  # Optimized based on actual usage metrics
             environment={
                 'LOG_LEVEL': 'INFO',
                 'PATIENT_TABLE': 'patients'

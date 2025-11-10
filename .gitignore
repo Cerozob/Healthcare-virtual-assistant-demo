@@ -237,3 +237,7 @@ Thumbs.db
 *.ndjson
 *lbmaske*
 apps/SampleFileGeneration/output/*
+.DS_Store
+**/.DS_Store
+.DS_Store
+**/.DS_Store

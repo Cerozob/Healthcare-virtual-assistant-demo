@@ -13,18 +13,49 @@ import {
   Header,
   SpaceBetween,
   Tabs,
-  StatusIndicator
+  StatusIndicator,
+  Table,
+  Badge
 } from '@cloudscape-design/components';
 import { CodeView } from '@cloudscape-design/code-view';
 import { safeStringify, createDebugObject } from '../../utils/debugUtils';
+
+interface GuardrailViolation {
+  type: 'topic_policy' | 'content_policy' | 'pii_entity' | 'pii_regex' | 'grounding_policy';
+  topic?: string;
+  content_type?: string;
+  pii_type?: string;
+  pattern?: string;
+  grounding_type?: string;
+  confidence?: string;
+  score?: number;
+  threshold?: number;
+  action?: string;
+  policy_type?: string;
+}
+
+interface GuardrailIntervention {
+  source: 'INPUT' | 'OUTPUT';
+  action: 'GUARDRAIL_INTERVENED' | 'NONE';
+  content_preview?: string;
+  timestamp?: string;
+  violations: GuardrailViolation[];
+}
 
 interface DebugPanelProps {
   lastResponse?: unknown;
   lastRequest?: unknown;
   patientContext?: unknown;
-  selectedPatient?: any;
+  selectedPatient?: {
+    patient_id?: string;
+    full_name?: string;
+    cedula?: string;
+    phone?: string;
+    email?: string;
+  };
   sessionId?: string;
   messages?: Array<{ content: string; type: string; timestamp: string; agentType?: string }>;
+  guardrailInterventions?: GuardrailIntervention[];
 }
 
 export function DebugPanel({
@@ -33,7 +64,8 @@ export function DebugPanel({
   patientContext,
   selectedPatient,
   sessionId,
-  messages = []
+  messages = [],
+  guardrailInterventions = []
 }: DebugPanelProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [activeTab, setActiveTab] = useState('chat-history');
@@ -169,36 +201,159 @@ export function DebugPanel({
       content: (
         <Container>
           <SpaceBetween size="m">
-            <Alert type="warning">
-              Panel de GuardRails - TODO: Implementar cuando se conozca el formato de respuesta de AgentCore.
-            </Alert>
+            {guardrailInterventions.length === 0 ? (
+              <Alert type="success">
+                ✅ No se detectaron violaciones de guardrails en esta conversación.
+              </Alert>
+            ) : (
+              
+                  <SpaceBetween size="xxs" direction="horizontal">
+                    <Box>
+                      <Badge color="red">
+                        {guardrailInterventions.reduce((sum, i) => sum + (i.action === 'GUARDRAIL_INTERVENED' ? i.violations.length : 0), 0)} Violaciones Bloqueadas
+                      </Badge>
+                    </Box>
+                    <Box>
+                      <Badge color="blue">
+                        {guardrailInterventions.reduce((sum, i) => sum + (i.action === 'NONE' ? i.violations.length : 0), 0)} Violaciones Detectadas
+                      </Badge>
+                    </Box>
+                    <Box>
+                      <Badge color="grey">
+                        {guardrailInterventions.reduce((sum, i) => sum + i.violations.length, 0)} Total
+                      </Badge>
+                    </Box>
+                  </SpaceBetween>
+                
+            )}
 
-            <Box>
-              <Box variant="h4">Información de GuardRails</Box>
-              <Box color="text-body-secondary">
-                Este panel mostrará información sobre las detecciones de guardrails cuando esté implementado:
-              </Box>
-              <ul>
-                <li>Detecciones de contenido sensible</li>
-                <li>Filtros de seguridad aplicados</li>
-                <li>Alertas de cumplimiento</li>
-                <li>Logs de moderación de contenido</li>
-              </ul>
-            </Box>
+            {guardrailInterventions.length > 0 && (() => {
+              // Flatten violations into separate table rows
+              const flattenedViolations = guardrailInterventions.flatMap((intervention) =>
+                intervention.violations.map((violation) => ({
+                  timestamp: intervention.timestamp,
+                  source: intervention.source,
+                  interventionAction: intervention.action,
+                  content_preview: intervention.content_preview,
+                  violation
+                }))
+              );
 
-            <ExpandableSection headerText="Estructura Esperada (Placeholder)">
-              <CodeView
-                content={JSON.stringify({
-                  guardrails: {
-                    detected: false,
-                    filters_applied: [],
-                    content_warnings: [],
-                    compliance_status: "compliant"
+              return (
+                <Table
+                  columnDefinitions={[
+                    {
+                      id: 'source',
+                      header: 'Fuente',
+                      cell: (item) => (
+                        <Badge color={item.source === 'INPUT' ? 'blue' : 'grey'}>
+                          {item.source === 'INPUT' ? 'Usuario' : 'Agente'}
+                        </Badge>
+                      ),
+                      width: 100,
+                      minWidth: 100
+                    },
+                    {
+                      id: 'interventionAction',
+                      header: 'Intervención',
+                      cell: (item) => (
+                        <Badge color={item.interventionAction === 'GUARDRAIL_INTERVENED' ? 'red' : 'blue'}>
+                          {item.interventionAction === 'GUARDRAIL_INTERVENED' ? 'Bloqueada' : 'Detectada'}
+                        </Badge>
+                      ),
+                      width: 120,
+                      minWidth: 120
+                    },
+                    {
+                      id: 'violationType',
+                      header: 'Tipo',
+                      cell: (item) => {
+                        const v = item.violation;
+                        
+                    
+                        return (
+                          <Box>
+                            {v.type}
+                          </Box>
+                        );
+                      },
+                      width: 150,
+                      minWidth: 150
+                    },
+                    {
+                      id: 'violationDetails',
+                      header: 'Detalle',
+                      cell: (item) => {
+                        const v = item.violation;
+                        let detail = '';
+                        
+                        if (v.topic) detail = v.topic;
+                        else if (v.content_type) detail = v.content_type;
+                        else if (v.pii_type) detail = v.pii_type;
+                        else if (v.pattern) detail = v.pattern;
+                        else if (v.grounding_type) detail = v.grounding_type;
+                        
+                        return detail || '-';
+                      }
+                    },
+                    {
+                      id: 'violationAction',
+                      header: 'Acción',
+                      cell: (item) => {
+                        const action = item.violation.action;
+                        if (!action) return '-';
+                        
+                        return (
+                          <Badge color={action === 'ANONYMIZED' ? 'green' : action === 'BLOCK' ? 'red' : 'grey'}>
+                            {action}
+                          </Badge>
+                        );
+                      },
+                      width: 120,
+                      minWidth: 120
+                    },
+                    {
+                      id: 'metrics',
+                      header: 'Métricas',
+                      cell: (item) => {
+                        const v = item.violation;
+                        const metrics = [];
+                        
+                        if (v.confidence) metrics.push(`Conf: ${v.confidence}`);
+                        if (v.score !== undefined) metrics.push(`Score: ${v.score.toFixed(2)}`);
+                        if (v.threshold !== undefined) metrics.push(`Umbral: ${v.threshold.toFixed(2)}`);
+                        
+                        return metrics.length > 0 ? (
+                          <Box fontSize="body-s" color="text-body-secondary">
+                            {metrics.join(' | ')}
+                          </Box>
+                        ) : '-';
+                      }
+                    }
+                  ]}
+                  items={flattenedViolations}
+                  loadingText="Cargando detecciones..."
+                  empty={
+                    <Box textAlign="center" color="inherit">
+                      <b>No hay detecciones</b>
+                      <Box padding={{ bottom: 's' }} variant="p" color="inherit">
+                        No se encontraron violaciones de guardrails.
+                      </Box>
+                    </Box>
                   }
-                }, null, 2)}
-                lineNumbers
-              />
-            </ExpandableSection>
+                  variant="embedded"
+                />
+              );
+            })()}
+
+            {guardrailInterventions.length > 0 && (
+              <ExpandableSection headerText="Datos Completos de Detecciones (JSON)">
+                <CodeView
+                  content={JSON.stringify(guardrailInterventions, null, 2)}
+                  lineNumbers
+                />
+              </ExpandableSection>
+            )}
           </SpaceBetween>
         </Container>
       )

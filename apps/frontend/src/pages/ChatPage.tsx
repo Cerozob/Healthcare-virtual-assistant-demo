@@ -29,6 +29,29 @@ import { reservationService } from '../services/reservationService';
 
 import type { ChatMessage, Patient } from '../types/api';
 
+// Guardrail intervention types
+interface GuardrailViolation {
+  type: 'topic_policy' | 'content_policy' | 'pii_entity' | 'pii_regex' | 'grounding_policy';
+  topic?: string;
+  content_type?: string;
+  pii_type?: string;
+  pattern?: string;
+  grounding_type?: string;
+  confidence?: string;
+  score?: number;
+  threshold?: number;
+  action?: string;
+  policy_type?: string;
+}
+
+interface GuardrailIntervention {
+  source: 'INPUT' | 'OUTPUT';
+  action: 'GUARDRAIL_INTERVENED' | 'NONE';
+  content_preview?: string;
+  timestamp?: string;
+  violations: GuardrailViolation[];
+}
+
 interface ChatPageProps {
   signOut?: () => void;
   user?: {
@@ -99,6 +122,12 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   const generateNewSession = (reason: string) => {
     const newSessionId = `healthcare_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setSessionId(newSessionId);
+    
+    // Reset AgentCore session IDs (MCP and Runtime)
+    import('../services/agentCoreService').then(({ agentCoreService }) => {
+      agentCoreService.resetSessions();
+    });
+    
     console.log(`🔒 New session started: ${newSessionId} (Reason: ${reason})`);
     return newSessionId;
   };
@@ -142,10 +171,12 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     lastResponse: unknown;
     lastRequest: unknown;
     patientContext: unknown;
+    guardrailInterventions: GuardrailIntervention[];
   }>({
     lastResponse: null,
     lastRequest: null,
-    patientContext: null
+    patientContext: null,
+    guardrailInterventions: []
   });
 
 
@@ -456,7 +487,6 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       // The agent may modify session IDs (e.g., adding "_nonrestrictive" for guardrails)
       // but the frontend must maintain its own session ID for conversation continuity
       if (response.sessionId !== sessionId) {
-        console.warn(`⚠️ Session ID mismatch detected (this is expected with guardrails):`);
         console.warn(`  Frontend sessionId: "${sessionId}"`);
         console.warn(`  Agent response sessionId: "${response.sessionId}"`);
         console.warn(`  ✅ Maintaining frontend session ID for consistency`);
@@ -497,7 +527,8 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       setDebugInfo({
         lastResponse: response,
         lastRequest: requestData,
-        patientContext: response.patientContext
+        patientContext: response.patientContext,
+        guardrailInterventions: response.guardrailInterventions || []
       });
 
       // 👤 ENHANCED: Sync patient context using the enhanced sync hook
@@ -998,6 +1029,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           selectedPatient={selectedPatient || undefined}
           sessionId={sessionId}
           messages={messages}
+          guardrailInterventions={debugInfo.guardrailInterventions}
         />
       </SpaceBetween>
 

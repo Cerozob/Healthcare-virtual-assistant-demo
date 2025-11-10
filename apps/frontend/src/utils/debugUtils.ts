@@ -8,7 +8,7 @@
 export function safeStringify(obj: any, indent: number = 2): string {
   const seen = new WeakSet();
   
-  return JSON.stringify(obj, (key, value) => {
+  return JSON.stringify(obj, (_key, value) => {
     // Handle null and undefined
     if (value === null) return null;
     if (value === undefined) return '[undefined]';

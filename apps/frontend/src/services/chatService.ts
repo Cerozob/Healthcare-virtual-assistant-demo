@@ -5,14 +5,14 @@
  */
 
 import type { SendMessageRequest } from '../types/api';
-import { debugLog, extractResponseText } from '../utils/debugUtils';
+import { debugLog } from '../utils/debugUtils';
 
 // Define structured response interfaces for normal messaging
 export interface ChatResponse {
   sessionId: string;
   messageId: string;
   isComplete: boolean;
-  content: string;
+  content: string; // Fixed: should be string, not object
   metadata?: {
     processingTimeMs?: number;
     agentUsed?: string;
@@ -20,27 +20,56 @@ export interface ChatResponse {
     requestId?: string;
     timestamp?: string;
     patientContext?: unknown;
+    // Additional fields from agent response
+    status?: string;
+    memoryEnabled?: boolean;
+    memoryId?: string;
+    metrics?: Record<string, unknown>;
+    uploadResults?: unknown[];
+    agentSessionId?: string;
     [key: string]: unknown;
   };
   patientContext?: {
     patientId?: string;
     patientName?: string;
     contextChanged?: boolean;
-    identificationSource?: string;
+    identificationSource?: 'tool_extraction' | 'agent_extraction' | 'content_extraction' | 'image_analysis' | 'document_analysis' | 'multimodal_analysis' | 'default';
+    fileOrganizationId?: string;
+    confidenceLevel?: string;
+    additionalIdentifiers?: Record<string, unknown>;
   };
+  guardrailInterventions?: Array<{
+    source: 'INPUT' | 'OUTPUT';
+    action: 'GUARDRAIL_INTERVENED' | 'NONE';
+    content_preview?: string;
+    timestamp?: string;
+    violations: Array<{
+      type: 'topic_policy' | 'content_policy' | 'pii_entity' | 'pii_regex' | 'grounding_policy';
+      topic?: string;
+      content_type?: string;
+      pii_type?: string;
+      pattern?: string;
+      grounding_type?: string;
+      confidence?: string;
+      score?: number;
+      threshold?: number;
+      action?: string;
+      policy_type?: string;
+    }>;
+  }>;
   fileProcessingResults?: Array<{
     fileId: string;
     fileName: string;
     status: 'processed' | 'failed' | 'skipped';
     classification?: string;
-    analysisResults?: any;
+    analysisResults?: Record<string, unknown>;
     s3Location?: string;
     errorMessage?: string;
   }>;
   errors?: Array<{
     code: string;
     message: string;
-    details?: any;
+    details?: Record<string, unknown>;
   }>;
   success: boolean;
 }
@@ -145,7 +174,7 @@ export class ChatService {
         sessionId: agentCoreResponse.sessionId || sessionId,
         messageId: agentCoreResponse.messageId || `msg_${Date.now()}`,
         isComplete: true,
-        content: agentCoreResponse.content || '',
+        content: agentCoreResponse.content || '', // Now correctly typed as string
         metadata: {
           processingTimeMs: processingTime,
           agentUsed: 'healthcare_agent',
@@ -181,6 +210,12 @@ export class ChatService {
         chatResponse.patientContext = agentCoreResponse.metadata.patientContext as any;
       }
 
+      if (agentCoreResponse.guardrailInterventions) {
+        chatResponse.guardrailInterventions = agentCoreResponse.guardrailInterventions;
+      } else if (agentCoreResponse.metadata?.guardrailInterventions) {
+        chatResponse.guardrailInterventions = agentCoreResponse.metadata.guardrailInterventions as any;
+      }
+
       if (agentCoreResponse.fileProcessingResults) {
         chatResponse.fileProcessingResults = agentCoreResponse.fileProcessingResults;
       } else if (agentCoreResponse.metadata?.fileProcessingResults) {
@@ -198,7 +233,7 @@ export class ChatService {
 
       console.log('✅ HTTP response received and processed');
       console.log('📊 Processing time:', processingTime, 'ms');
-      console.log('📝 Response content length:', chatResponse.content.length);
+      console.log('📝 Response content length:', chatResponse.content?.length || 0);
 
       return chatResponse;
 

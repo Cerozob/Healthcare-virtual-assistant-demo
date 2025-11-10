@@ -193,7 +193,7 @@ class DocumentWorkflowStack(Stack):
             code=aws_lambda.Code.from_asset(
                 "lambdas/document_workflow/bda_trigger"),
             timeout=Duration.minutes(2),
-            memory_size=512,
+            memory_size=128,  # Optimized based on actual usage metrics (max 8.6MB observed)
             environment={
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
                 "BDA_PROJECT_ARN": self.bda_project.attr_project_arn,
@@ -278,7 +278,7 @@ class DocumentWorkflowStack(Stack):
             code=aws_lambda.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             timeout=Duration.minutes(10),
-            memory_size=1024,
+            memory_size=256,  # Optimized based on actual usage metrics (max 112MB observed)
             environment={
                 "SOURCE_BUCKET_NAME": self.raw_bucket.bucket_name,
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name,
@@ -405,7 +405,7 @@ class DocumentWorkflowStack(Stack):
             code=aws_lambda.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             timeout=Duration.minutes(5),
-            memory_size=512,
+            memory_size=128,  # Optimized based on actual usage metrics
             environment={
                 "RAW_BUCKET_NAME": self.raw_bucket.bucket_name,
                 "PROCESSED_BUCKET_NAME": self.processed_bucket.bucket_name

@@ -76,9 +76,6 @@ class AssistantStack(Stack):
             "Guardrail"
         )
 
-        # Create AgentCore Memory for healthcare conversations
-        self.healthcare_memory = self._create_healthcare_memory()
-
         # Using IAM-based authorization for AgentCore Gateway (simpler and more appropriate)
 
         # Note: AgentCore manages its own logging automatically
@@ -217,7 +214,6 @@ class AssistantStack(Stack):
         self.agent_runtime.node.add_dependency(self.agentcore_gateway)
         self.agent_runtime.node.add_dependency(
             self.guardrail_construct.guardrails)
-        self.agent_runtime.node.add_dependency(self.healthcare_memory)
 
         # Store Knowledge Base configuration in SSM for extraction lambda to use
         self.knowledge_base_id_param = ssm.StringParameter(
@@ -420,22 +416,7 @@ class AssistantStack(Stack):
             )
         )
 
-        # S3 permissions for supplemental data storage
-        agent_runtime_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "s3:GetObject",
-                    "s3:PutObject",
-                    "s3:DeleteObject",
-                    "s3:ListBucket"
-                ],
-                resources=[
-                    self.knowledge_base_construct.supplemental_data_storage.bucket_arn,
-                    f"{self.knowledge_base_construct.supplemental_data_storage.bucket_arn}/*"
-                ]
-            )
-        )
+       
 
         # S3 permissions for raw bucket (file reference tools)
         if self.raw_bucket:
@@ -656,47 +637,6 @@ class AssistantStack(Stack):
 
         return agent_runtime_role
 
-    def _create_healthcare_memory(self) -> agentcore.CfnMemory:
-        """
-        Create AgentCore Memory for healthcare conversations with comprehensive strategies.
-        """
-        logger.info("Creating AgentCore Memory for healthcare conversations")
-
-        # Create memory with comprehensive strategies for healthcare
-        healthcare_memory = agentcore.CfnMemory(
-            self,
-            "HealthcareMemory",
-            name="HealthcareShortTermMemory",
-            description="Healthcare agent memory for conversation persistence and context retention",
-            event_expiry_duration=15, 
-            memory_strategies=[
-                agentcore.CfnMemory.MemoryStrategyProperty(
-                    summary_memory_strategy=agentcore.CfnMemory.SummaryMemoryStrategyProperty(
-                        name="SessionSummarizer",
-                        description="Summarizes healthcare conversation sessions",
-                        namespaces=["/summaries/{actorId}/{sessionId}"]
-                    )
-                ),
-                agentcore.CfnMemory.MemoryStrategyProperty(
-                    user_preference_memory_strategy=agentcore.CfnMemory.UserPreferenceMemoryStrategyProperty(
-                        name="PreferenceLearner",
-                        description="Learns user preferences for healthcare interactions",
-                        namespaces=["/preferences/{actorId}"]
-                    )
-                ),
-                agentcore.CfnMemory.MemoryStrategyProperty(
-                    semantic_memory_strategy=agentcore.CfnMemory.SemanticMemoryStrategyProperty(
-                        name="FactExtractor",
-                        description="Extracts and stores healthcare facts and information",
-                        namespaces=["/facts/{actorId}/{sessionId}"]
-                    )
-                )
-            ]
-        )
-
-        logger.info(f"Created healthcare memory: {healthcare_memory.name}")
-        return healthcare_memory
-
     def _create_ssm_parameters(self) -> None:
         """Store AgentCore configuration in SSM Parameter Store."""
 
@@ -732,11 +672,8 @@ class AssistantStack(Stack):
             "BEDROCK_MODEL_ID": self.inference_profile,
             "MODEL_TEMPERATURE": "0.1",
 
-            # Knowledge Base Configuration - agent expects BEDROCK_KNOWLEDGE_BASE_ID
-            "BEDROCK_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
-            # Used by Strands memory tool
+           # Used by Strands memory tool
             "STRANDS_KNOWLEDGE_BASE_ID": self.knowledge_base_construct.knowledge_base_id,
-            "SUPPLEMENTAL_DATA_BUCKET": self.knowledge_base_construct.supplemental_data_bucket_name,
 
             # Guardrails Configuration - agent checks both GUARDRAIL_ID and BEDROCK_GUARDRAIL_ID
             "GUARDRAIL_ID": self.guardrail_construct.guardrail_id,
@@ -747,9 +684,6 @@ class AssistantStack(Stack):
             # MCP Gateway Configuration - always enabled
             "MCP_GATEWAY_URL": self.agentcore_gateway.attr_gateway_url,
             "GATEWAY_ID": self.agentcore_gateway.attr_gateway_identifier,
-
-            # AgentCore Memory Configuration
-            "AGENTCORE_MEMORY_ID": self.healthcare_memory.attr_memory_id,
 
             # Runtime Configuration
             "PORT": "8000",
@@ -798,12 +732,6 @@ class AssistantStack(Stack):
             description="Bedrock Knowledge Base ID"
         )
 
-        CfnOutput(
-            self,
-            "SupplementalDataBucket",
-            value=self.knowledge_base_construct.supplemental_data_bucket_name,
-            description="S3 bucket for supplemental data storage"
-        )
 
         CfnOutput(
             self,
@@ -817,13 +745,6 @@ class AssistantStack(Stack):
             "GuardrailVersion",
             value=self.guardrail_construct.guardrail_version_id,
             description="Bedrock Guardrail Version ID"
-        )
-
-        CfnOutput(
-            self,
-            "HealthcareMemoryId",
-            value=self.healthcare_memory.attr_memory_id,
-            description="AgentCore Memory ID for healthcare conversations"
         )
 
         CfnOutput(

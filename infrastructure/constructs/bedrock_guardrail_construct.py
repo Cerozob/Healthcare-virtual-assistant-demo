@@ -132,7 +132,7 @@ class BedrockGuardrailConstruct(Construct):
         )
 
         self.guardrail_version = bedrock.CfnGuardrailVersion(
-            self, "GuardrailVersion7",
+            self, "AllNewGuardrailVersion",
             guardrail_identifier=self.guardrails.attr_guardrail_id,
             description="Guardrail with topic policies for cryptocurrency and extreme sports blocking"
         )
@@ -149,14 +149,6 @@ class BedrockGuardrailConstruct(Construct):
         return bedrock.CfnGuardrail.SensitiveInformationPolicyConfigProperty(
             pii_entities_config=[
                 # NAME - Allow in input for patient lookup, anonymize in output
-                bedrock.CfnGuardrail.PiiEntityConfigProperty(
-                    type="NAME",
-                    action="ANONYMIZE",
-                    input_action="NONE",  # Allow names in input for patient lookup
-                    input_enabled=True,
-                    output_action="ANONYMIZE",  # Anonymize names in output for privacy
-                    output_enabled=True
-                ),
                 # AGE - Detect but allow (medical relevance)
                 bedrock.CfnGuardrail.PiiEntityConfigProperty(
                     type="AGE",

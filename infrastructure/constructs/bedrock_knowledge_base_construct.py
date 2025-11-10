@@ -32,18 +32,6 @@ class BedrockKnowledgeBaseConstruct(Construct):
         self.bedrock_user_secret = bedrock_user_secret
         self.db_init_resource = db_init_resource
 
-        # Create supplemental data storage bucket
-        self.supplemental_data_storage = s3.Bucket(
-            self,
-            "SupplementalDataStorage",
-            bucket_name=f"ab2-cerozob-supplemental-data-{self.region}",
-            versioned=False,
-            encryption=s3.BucketEncryption.S3_MANAGED,
-            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
-            enforce_ssl=True,
-            removal_policy=RemovalPolicy.DESTROY,
-            auto_delete_objects=True,
-        )
 
         # Create embeddings model
         self.embeddings_model = bedrock.FoundationModel.from_foundation_model_id(
@@ -66,7 +54,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
             "HealthcareWorkflowKnowledgeBase",
             knowledge_base_configuration=knowledge_base_config,
             storage_configuration=storage_config,
-            name="HealthcareWorkflowKnowledgeBase",
+            name="HealthcareWorkflowKnowledgeBaseV2",
             role_arn=self.knowledge_base_role.role_arn
         )
 
@@ -91,16 +79,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
                         embedding_data_type="FLOAT32"
                     )
                 ),
-                supplemental_data_storage_configuration=bedrock.CfnKnowledgeBase.SupplementalDataStorageConfigurationProperty(
-                    supplemental_data_storage_locations=[
-                        bedrock.CfnKnowledgeBase.SupplementalDataStorageLocationProperty(
-                            supplemental_data_storage_location_type="S3",
-                            s3_location=bedrock.CfnKnowledgeBase.S3LocationProperty(
-                                uri=f"s3://{self.supplemental_data_storage.bucket_name}"
-                            )
-                        )
-                    ],
-                ),
+                supplemental_data_storage_configuration=None # BDA takes care of this
             )
         )
 
@@ -140,12 +119,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
             vector_ingestion_configuration=bedrock.CfnDataSource.VectorIngestionConfigurationProperty(
                 custom_transformation_configuration=None,
                 context_enrichment_configuration=None,
-                parsing_configuration=bedrock.CfnDataSource.ParsingConfigurationProperty(
-                    parsing_strategy="BEDROCK_DATA_AUTOMATION",
-                    bedrock_data_automation_configuration=bedrock.CfnDataSource.BedrockDataAutomationConfigurationProperty(
-                        parsing_modality="MULTIMODAL",
-                    )
-                ),
+                parsing_configuration=None,
                 chunking_configuration=bedrock.CfnDataSource.ChunkingConfigurationProperty(
                     chunking_strategy="SEMANTIC",
                     semantic_chunking_configuration=bedrock.CfnDataSource.SemanticChunkingConfigurationProperty(
@@ -231,8 +205,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
                     "s3:ListBucket"
                 ],
                 resources=[
-                    self.processed_bucket.bucket_arn,
-                    self.supplemental_data_storage.bucket_arn
+                    self.processed_bucket.bucket_arn
                 ],
                 conditions={
                     "StringEquals": {
@@ -250,9 +223,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
                 ],
                 resources=[
                     self.processed_bucket.bucket_arn,
-                    self.supplemental_data_storage.bucket_arn,
-                    f"{self.processed_bucket.bucket_arn}/*",
-                    f"{self.supplemental_data_storage.bucket_arn}/*"
+                    f"{self.processed_bucket.bucket_arn}/*"
                 ],
                 conditions={
                     "StringEquals": {
@@ -262,39 +233,6 @@ class BedrockKnowledgeBaseConstruct(Construct):
             )
         )
 
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "s3:PutObject"
-                ],
-                resources=[
-                    f"{self.supplemental_data_storage.bucket_arn}/*"
-                ],
-                conditions={
-                    "StringEquals": {
-                        "aws:ResourceAccount": self.account
-                    }
-                }
-            )
-        )
-
-        knowledge_base_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "s3:DeleteObject"
-                ],
-                resources=[
-                    f"{self.supplemental_data_storage.bucket_arn}/*"
-                ],
-                conditions={
-                    "StringEquals": {
-                        "aws:ResourceAccount": self.account
-                    }
-                }
-            )
-        )
 
         return knowledge_base_role
 
@@ -302,11 +240,6 @@ class BedrockKnowledgeBaseConstruct(Construct):
     def knowledge_base_id(self) -> str:
         """Return the knowledge base ID."""
         return self.knowledge_base.attr_knowledge_base_id
-
-    @property
-    def supplemental_data_bucket_name(self) -> str:
-        """Return the supplemental data bucket name."""
-        return self.supplemental_data_storage.bucket_name
 
     @property
     def region(self) -> str:

@@ -263,16 +263,16 @@ export interface ChatRequest {
   }>;
   patientContext?: {
     currentPatientId?: string;
-    sessionContext?: any;
+    sessionContext?: Record<string, unknown>;
   };
 }
 
-// Chat response interface for normal messaging
+// Chat response interface for normal messaging (matches agentcore_response.json)
 export interface ChatResponse {
   sessionId: string;
   messageId: string;
   isComplete: boolean;
-  content: string;
+  content: string; // Changed from object to string to match agent response
   metadata?: {
     processingTimeMs?: number;
     agentUsed?: string;
@@ -280,27 +280,37 @@ export interface ChatResponse {
     requestId?: string;
     timestamp?: string;
     patientContext?: unknown;
+    // Additional fields from agent response
+    status?: string;
+    memoryEnabled?: boolean;
+    memoryId?: string;
+    metrics?: Record<string, unknown>;
+    uploadResults?: unknown[];
+    agentSessionId?: string;
     [key: string]: unknown;
   };
   patientContext?: {
     patientId?: string;
     patientName?: string;
     contextChanged?: boolean;
-    identificationSource?: string;
+    identificationSource?: 'tool_extraction' | 'agent_extraction' | 'content_extraction' | 'image_analysis' | 'document_analysis' | 'multimodal_analysis' | 'default';
+    fileOrganizationId?: string;
+    confidenceLevel?: string; // Added from agent schema
+    additionalIdentifiers?: Record<string, unknown>; // Added from agent schema
   };
   fileProcessingResults?: Array<{
     fileId: string;
     fileName: string;
     status: 'processed' | 'failed' | 'skipped';
     classification?: string;
-    analysisResults?: any;
+    analysisResults?: Record<string, unknown>;
     s3Location?: string;
     errorMessage?: string;
   }>;
   errors?: Array<{
     code: string;
     message: string;
-    details?: any;
+    details?: Record<string, unknown>;
   }>;
   success: boolean;
 }
@@ -355,7 +365,10 @@ export interface StructuredOutput {
     patientId?: string;
     patientName?: string;
     contextChanged: boolean;
-    identificationSource?: string;
+    identificationSource?: 'tool_extraction' | 'agent_extraction' | 'content_extraction' | 'image_analysis' | 'document_analysis' | 'multimodal_analysis' | 'default';
+    fileOrganizationId?: string;
+    confidenceLevel?: string;
+    additionalIdentifiers?: Record<string, unknown>;
   };
   fileProcessingResults?: Array<{
     fileId: string;

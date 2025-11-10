@@ -32,14 +32,36 @@ export interface AgentCoreResponse {
     patientId?: string;
     patientName?: string;
     contextChanged?: boolean;
-    identificationSource?: string;
+    identificationSource?: 'tool_extraction' | 'agent_extraction' | 'content_extraction' | 'image_analysis' | 'document_analysis' | 'multimodal_analysis' | 'default';
+    fileOrganizationId?: string;
+    confidenceLevel?: string;
+    additionalIdentifiers?: Record<string, unknown>;
   };
+  guardrailInterventions?: Array<{
+    source: 'INPUT' | 'OUTPUT';
+    action: 'GUARDRAIL_INTERVENED' | 'NONE';
+    content_preview?: string;
+    timestamp?: string;
+    violations: Array<{
+      type: 'topic_policy' | 'content_policy' | 'pii_entity' | 'pii_regex' | 'grounding_policy';
+      topic?: string;
+      content_type?: string;
+      pii_type?: string;
+      pattern?: string;
+      grounding_type?: string;
+      confidence?: string;
+      score?: number;
+      threshold?: number;
+      action?: string;
+      policy_type?: string;
+    }>;
+  }>;
   fileProcessingResults?: Array<{
     fileId: string;
     fileName: string;
     status: 'processed' | 'failed' | 'skipped';
     classification?: string;
-    analysisResults?: any;
+    analysisResults?: Record<string, unknown>;
     s3Location?: string;
     errorMessage?: string;
   }>;
@@ -52,6 +74,8 @@ export class AgentCoreService {
   private controlClient: BedrockAgentCoreControlClient | null = null;
   private agentRuntimeId: string;
   private agentRuntimeArn: string | null = null;
+  private mcpSessionId: string | null = null;  // Persistent MCP session ID
+  private runtimeSessionId: string | null = null;  // Persistent runtime session ID
 
   constructor() {
     this.agentRuntimeId = AGENTCORE_RUNTIME_ID || '';
@@ -166,6 +190,37 @@ export class AgentCoreService {
     return sessionId;
   }
 
+  /**
+   * Get or generate MCP session ID (persistent across requests)
+   */
+  private getMcpSessionId(): string {
+    if (!this.mcpSessionId) {
+      this.mcpSessionId = `mcp_${uuidv4()}`;
+      console.log(`🔑 Generated MCP Session ID: ${this.mcpSessionId}`);
+    }
+    return this.mcpSessionId;
+  }
+
+  /**
+   * Get or generate runtime session ID (persistent across requests)
+   */
+  private getRuntimeSessionId(): string {
+    if (!this.runtimeSessionId) {
+      this.runtimeSessionId = `runtime_${uuidv4()}`;
+      console.log(`🔑 Generated Runtime Session ID: ${this.runtimeSessionId}`);
+    }
+    return this.runtimeSessionId;
+  }
+
+  /**
+   * Reset session IDs (call when starting a new conversation)
+   */
+  public resetSessions(): void {
+    this.mcpSessionId = null;
+    this.runtimeSessionId = null;
+    console.log('🔄 Session IDs reset');
+  }
+
 
 
   /**
@@ -200,21 +255,34 @@ export class AgentCoreService {
       const runtimeArn = await this.getAgentRuntimeArn();
 
       // Build the payload in Strands format
+      // IMPORTANT: sessionId goes in TWO places:
+      // 1. In the payload (for Strands agent internal use)
+      // 2. As runtimeSessionId in the SDK call (for AgentCore session management)
       const agentCorePayload = {
         content: strandsRequest.content,
-        sessionId: validSessionId
+        sessionId: validSessionId  // Strands session ID (internal to agent)
       };
 
       console.log('🔍 HTTP Request Payload (Strands):');
       console.log('📦 Payload Size:', JSON.stringify(agentCorePayload).length, 'characters');
       console.log('📋 Content blocks:', strandsRequest.content.map(block => Object.keys(block)[0]));
 
+      // Get persistent session IDs for AgentCore SDK
+      const mcpSessionId = this.getMcpSessionId();
+      const runtimeSessionId = this.getRuntimeSessionId();
+
       // Prepare the request for HTTP (non-streaming)
       const input: InvokeAgentRuntimeCommandInput = {
         agentRuntimeArn: runtimeArn,
-        runtimeSessionId: validSessionId,
+        mcpSessionId: mcpSessionId,  // AgentCore session ID (MCP level) - persistent
+        runtimeSessionId: runtimeSessionId,  // AgentCore runtime session ID (SDK level) - persistent
         payload: new TextEncoder().encode(JSON.stringify(agentCorePayload))
       };
+
+      console.log('🔑 Session ID Configuration:');
+      console.log(`   • MCP Session ID: ${mcpSessionId}`);
+      console.log(`   • Runtime Session ID: ${runtimeSessionId}`);
+      console.log(`   • Strands Session ID (in payload): ${validSessionId}`);
 
       console.log('🚀 Sending HTTP request to AgentCore...');
       console.groupEnd();
@@ -237,13 +305,20 @@ export class AgentCoreService {
       const response: InvokeAgentRuntimeCommandOutput = await client.send(command);
 
       console.group('📥 AGENTCORE HTTP RESPONSE');
-      console.log('✅ Response received:', response);
+      console.log('✅ Response received');
+      
+      // Log session IDs from response to verify AgentCore is respecting them
+      console.log('🔑 Session ID Verification (Response):');
+      console.log(`   • MCP Session ID (sent): ${mcpSessionId}`);
+      console.log(`   • MCP Session ID (received): ${response.mcpSessionId || 'undefined'}`);
+      console.log(`   • MCP Match: ${response.mcpSessionId === mcpSessionId ? '✅' : '❌'}`);
+      console.log(`   • Runtime Session ID (sent): ${runtimeSessionId}`);
+      console.log(`   • Runtime Session ID (received): ${response.runtimeSessionId || 'undefined'}`);
+      console.log(`   • Runtime Match: ${response.runtimeSessionId === runtimeSessionId ? '✅' : '❌'}`);
 
       // Handle the response (should be complete, not streaming)
       let fullContent = '';
       const messageId = `agent_${Date.now()}`;
-      // Use the original session ID from the request to maintain consistency
-      const responseSessionId = validSessionId;
 
       console.log('📥 Processing AgentCore HTTP response...');
       console.log('Response keys:', Object.keys(response));
@@ -254,6 +329,20 @@ export class AgentCoreService {
 
         try {
           const parsedResponse = JSON.parse(responseText);
+          
+          console.log('🔑 Session ID Complete Analysis:');
+          console.log('   📤 Sent:');
+          console.log(`      • MCP Session ID: ${mcpSessionId}`);
+          console.log(`      • Runtime Session ID: ${runtimeSessionId}`);
+          console.log(`      • Strands Session ID (payload): ${validSessionId}`);
+          console.log('   📥 Received:');
+          console.log(`      • MCP Session ID: ${response.mcpSessionId || 'undefined'}`);
+          console.log(`      • Runtime Session ID: ${response.runtimeSessionId || 'undefined'}`);
+          console.log(`      • Strands Session ID (payload): ${parsedResponse.sessionId || 'undefined'}`);
+          console.log('   ✅ Verification:');
+          console.log(`      • MCP preserved: ${response.mcpSessionId === mcpSessionId ? '✅ YES' : '❌ NO'}`);
+          console.log(`      • Runtime preserved: ${response.runtimeSessionId === runtimeSessionId ? '✅ YES' : '❌ NO'}`);
+          console.log(`      • Strands preserved: ${parsedResponse.sessionId === validSessionId ? '✅ YES' : '❌ NO'}`);
           console.log('🔍 Parsed response structure:', Object.keys(parsedResponse));
           console.log('🔍 Full parsed response:', JSON.stringify(parsedResponse, null, 2));
           
@@ -288,8 +377,26 @@ export class AgentCoreService {
           console.log('🔍 Final content length:', fullContent.length);
 
           // Return structured response with proper field extraction
+          const strandsSessionId = parsedResponse.sessionId;  // From Strands agent (in payload)
+          const agentCoreRuntimeSessionId = validSessionId;   // From AgentCore SDK (runtimeSessionId)
+          const finalSessionId = strandsSessionId || validSessionId;
+          
+          console.log('🔑 Session ID Verification:');
+          console.log(`   • Frontend sent (runtimeSessionId): ${agentCoreRuntimeSessionId}`);
+          console.log(`   • Frontend sent (payload sessionId): ${validSessionId}`);
+          console.log(`   • Agent returned (Strands sessionId): ${strandsSessionId || 'NOT PROVIDED'}`);
+          console.log(`   • Final used: ${finalSessionId}`);
+          console.log(`   • Strands Match: ${strandsSessionId === validSessionId ? '✅' : '❌'}`);
+          console.log(`   • AgentCore Match: ${agentCoreRuntimeSessionId === validSessionId ? '✅' : '❌'}`);
+          
+          if (strandsSessionId !== validSessionId) {
+            console.warn('⚠️ WARNING: Strands sessionId mismatch!');
+            console.warn(`   Expected: ${validSessionId}`);
+            console.warn(`   Received: ${strandsSessionId}`);
+          }
+          
           const result: AgentCoreResponse = {
-            sessionId: validSessionId, // Always use the frontend session ID, not the agent response
+            sessionId: finalSessionId, // Use agent's session ID if available, fallback to frontend ID
             messageId: messageId,
             content: String(fullContent),
             metadata: {
@@ -302,10 +409,12 @@ export class AgentCoreService {
               memoryId: parsedResponse.memoryId,
               metrics: parsedResponse.metrics,
               uploadResults: parsedResponse.uploadResults,
-              // Store the original agent session ID for debugging
-              agentSessionId: parsedResponse.sessionId
+              // Store both session IDs for debugging
+              strandsSessionId: parsedResponse.sessionId,  // From Strands agent
+              agentCoreRuntimeSessionId: agentCoreRuntimeSessionId  // From AgentCore SDK
             },
             patientContext: parsedResponse.patientContext,
+            guardrailInterventions: parsedResponse.guardrailInterventions,
             fileProcessingResults: parsedResponse.uploadResults // Map uploadResults to fileProcessingResults for frontend compatibility
           };
 
@@ -321,7 +430,7 @@ export class AgentCoreService {
 
       // Fallback response
       const result: AgentCoreResponse = {
-        sessionId: validSessionId, // Always use the frontend session ID
+        sessionId: validSessionId, // Use frontend session ID as fallback when no parsed response
         messageId: messageId,
         content: String(fullContent || 'No response content received'),
         metadata: {
