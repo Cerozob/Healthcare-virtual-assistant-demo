@@ -2,5 +2,5 @@
     "enableHIPAAChecks": false,
     "enableAWSSolutionsChecks": false,
     "enableServerlessChecks": false,
-    "enableNagSuppressions": true
+    "enableNagSuppressions": false
 }
