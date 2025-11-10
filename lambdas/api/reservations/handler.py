@@ -225,23 +225,23 @@ def list_reservations(event: Dict[str, Any]) -> Dict[str, Any]:
         ]
         
         if query_params.get('status'):
-            where_conditions.append("status = :status")
+            where_conditions.append("r.status = :status")
             parameters.append(db_manager.create_parameter('status', query_params['status'], 'string'))
         
         if query_params.get('patient_id'):
-            where_conditions.append("patient_id = :patient_id")
+            where_conditions.append("r.patient_id = :patient_id")
             parameters.append(db_manager.create_parameter('patient_id', query_params['patient_id'], 'string'))
         
         if query_params.get('medic_id'):
-            where_conditions.append("medic_id = :medic_id")
+            where_conditions.append("r.medic_id = :medic_id")
             parameters.append(db_manager.create_parameter('medic_id', query_params['medic_id'], 'string'))
         
         if query_params.get('date_from'):
-            where_conditions.append("DATE(reservation_date) >= :date_from")
+            where_conditions.append("DATE(r.reservation_date) >= :date_from")
             parameters.append(db_manager.create_parameter('date_from', query_params['date_from'], 'string'))
         
         if query_params.get('date_to'):
-            where_conditions.append("DATE(reservation_date) <= :date_to")
+            where_conditions.append("DATE(r.reservation_date) <= :date_to")
             parameters.append(db_manager.create_parameter('date_to', query_params['date_to'], 'string'))
         
         where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""

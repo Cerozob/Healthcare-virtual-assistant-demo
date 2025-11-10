@@ -601,7 +601,7 @@ def handle_search_patient(search_criteria: Dict[str, Any], request_id: str = "un
                 "Returning successful search results",
                 request_id=request_id,
                 patient_count=len(patients),
-                message=message
+                response_message=message
             )
             
             return create_response(200, {

@@ -191,24 +191,26 @@ class GuardrailMonitoringHook(HookProvider):
             # Topic Policy violations
             if "topicPolicy" in assessment:
                 violations = self._log_topic_violations(assessment["topicPolicy"], source)
-                
+                if violations:
+                    intervention_data["violations"].extend(violations)
             
             # Content Policy violations
             if "contentPolicy" in assessment:
                 violations = self._log_content_violations(assessment["contentPolicy"], source)
-                
+                if violations:
+                    intervention_data["violations"].extend(violations)
             
             # Sensitive Information violations
             if "sensitiveInformationPolicy" in assessment:
                 violations = self._log_pii_violations(assessment["sensitiveInformationPolicy"], source)
-                
+                if violations:
+                    intervention_data["violations"].extend(violations)
             
             # Contextual Grounding violations
             if "contextualGroundingPolicy" in assessment:
                 violations = self._log_grounding_violations(assessment["contextualGroundingPolicy"], source)
-            
-            if violations:
-                intervention_data["violations"].extend(violations)
+                if violations:
+                    intervention_data["violations"].extend(violations)
 
         return intervention_data
 
