@@ -96,7 +96,6 @@ export class ChatService {
       content?: string;
       s3Key?: string;
       fileSize: number;
-      category?: string;
     }>,
     onLoadingStateChange?: (state: LoadingState) => void
   ): Promise<ChatResponse> {
@@ -113,7 +112,6 @@ export class ChatService {
         console.log(`   ${idx + 1}. ${att.fileName}:`);
         console.log(`      - fileSize: ${att.fileSize} bytes`);
         console.log(`      - fileType: ${att.fileType}`);
-        console.log(`      - category: ${att.category}`);
         console.log(`      - s3Key: ${att.s3Key}`);
         console.log(`      - mimeType: ${att.mimeType}`);
         console.log(`      - has content: ${!!att.content}`);
@@ -316,7 +314,6 @@ export class ChatService {
       content?: string;
       s3Key?: string;
       fileSize: number;
-      category?: string;
     }>
   ): SendMessageRequest {
     const content: any[] = [];

@@ -22,7 +22,7 @@ from shared.config import get_agent_config
 from shared.memory_logger import MemoryOperationLogger, MemoryDebugger
 from shared.models import HealthcareAgentResponse
 from shared.guardrail_monitoring_hook import create_guardrail_monitoring_hook
-from tools.multimodal_uploader import create_multimodal_uploader, MultimodalUploader
+# Multimodal uploader removed - using Lambda-based file upload tool instead
 from prompts import get_prompt
 
 logger = logging.getLogger("healthcare_agent")
@@ -86,7 +86,6 @@ class HealthcareAgent:
         self.session_id = session_id
         self.agent: Optional[Agent] = None
         self.session_manager = None
-        self.multimodal_uploader: Optional[MultimodalUploader] = None
 
     def initialize(self) -> None:
         """Initialize the healthcare agent."""
@@ -103,10 +102,8 @@ class HealthcareAgent:
             # Setup session manager
             self._setup_session_manager()
 
-            # Setup multimodal uploader
-            self._setup_multimodal_uploader()
-
             # Setup all tools (Strands tools + MCP tools + specialized agents)
+            # Note: File uploads are handled by the Lambda-based healthcare-files-api tool
             tools = self._setup_all_tools()
 
             # Create guardrail monitoring hook for shadow-mode monitoring
@@ -205,25 +202,8 @@ class HealthcareAgent:
             raise ValueError(
                 f"S3 session manager setup failed: {e}")
 
-    def _setup_multimodal_uploader(self) -> None:
-        """Setup multimodal content uploader for S3 storage."""
-        try:
-            # Create multimodal uploader if bucket is configured
-            self.multimodal_uploader = create_multimodal_uploader(
-                raw_bucket_name=self.config.raw_bucket_name,
-                aws_region=self.config.aws_region
-            )
-
-            if self.multimodal_uploader:
-                logger.info(
-                    f"✅ Multimodal uploader initialized for bucket: {self.config.raw_bucket_name}")
-            else:
-                logger.warning(
-                    "⚠️ Multimodal uploader not available - uploads disabled")
-
-        except Exception as e:
-            logger.error(f"❌ Failed to setup multimodal uploader: {e}")
-            self.multimodal_uploader = None
+    # Multimodal uploader removed - file uploads are now handled exclusively by the
+    # Lambda-based healthcare-files-api tool which has proper IAM permissions
 
     def _setup_all_tools(self) -> List[Any]:
         """Setup tools: specialized agents with semantic tool filtering."""
@@ -284,6 +264,36 @@ class HealthcareAgent:
 
         return combined_text
 
+    def _sanitize_document_name(self, name: str) -> str:
+        """
+        Sanitize document name to meet Bedrock Converse API requirements:
+        - Only alphanumeric characters, whitespace, hyphens, parentheses, and square brackets
+        - No consecutive whitespace characters
+        
+        Args:
+            name: Original document name
+            
+        Returns:
+            Sanitized document name
+        """
+        import re
+        
+        # Replace invalid characters with underscores
+        # Valid: alphanumeric, whitespace, hyphens, parentheses, square brackets
+        sanitized = re.sub(r'[^\w\s\-\(\)\[\].]', '_', name)
+        
+        # Replace consecutive whitespace with single space
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        
+        # Trim whitespace from start and end
+        sanitized = sanitized.strip()
+        
+        # Ensure we have a valid name
+        if not sanitized:
+            sanitized = "document.pdf"
+        
+        return sanitized
+    
     def _prepare_strands_content(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Prepare Strands content blocks by converting base64 strings to bytes.
@@ -328,6 +338,17 @@ class HealthcareAgent:
                     # Convert base64 string to actual bytes
                     doc_bytes = base64.b64decode(base64_data)
                     doc_block["document"]["source"]["bytes"] = doc_bytes
+                    
+                    # Sanitize document name to meet Bedrock requirements:
+                    # - Only alphanumeric, whitespace, hyphens, parentheses, square brackets
+                    # - No consecutive whitespace
+                    original_name = doc_block["document"].get("name", "document.pdf")
+                    sanitized_name = self._sanitize_document_name(original_name)
+                    
+                    if sanitized_name != original_name:
+                        logger.info(f"📝 Sanitized document name: '{original_name}' → '{sanitized_name}'")
+                    
+                    doc_block["document"]["name"] = sanitized_name
                     prepared_blocks.append(doc_block)
 
                 except Exception as e:
@@ -342,91 +363,36 @@ class HealthcareAgent:
 
     def _upload_multimodal_content(self, content_blocks: List[Dict[str, Any]], patient_context: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Upload multimodal content to S3 with patient context organization.
+        Track multimodal content for logging purposes.
+        
+        NOTE: Actual file uploads are handled by the Lambda-based healthcare-files-api tool,
+        which the agent calls automatically when needed. This method just logs what was sent.
 
         Args:
             content_blocks: List of content blocks (already prepared with bytes)
             patient_context: Patient context information from agent processing
 
         Returns:
-            List of upload results for tracking
+            Empty list (uploads are handled by Lambda tool)
         """
-        upload_results = []
-
-        # Check if uploader is available
-        if not self.multimodal_uploader:
-            logger.warning(
-                "⚠️ Multimodal uploader not available - skipping uploads")
-            return upload_results
-
-        # Determine patient ID for organizing uploads using AI identification
-        patient_id = "unknown_patient"
-        if patient_context:
-            # Use the AI-determined file organization ID if available
-            if patient_context.get('fileOrganizationId'):
-                patient_id = patient_context['fileOrganizationId']
-                logger.info(f"📁 Using AI file organization ID: {patient_id}")
-            elif patient_context.get('patientId'):
-                # Fallback to patientId with cleaning
-                raw_id = patient_context['patientId']
-                patient_id = raw_id.replace(
-                    '-', '').replace(' ', '_').replace('.', '')
-                logger.info(
-                    f"📁 Using cleaned patient ID: {patient_id} (from {raw_id})")
-
-            # Log AI identification details for debugging
-            if patient_context.get('aiIdentificationData'):
-                ai_data = patient_context['aiIdentificationData']
-                logger.info(
-                    f"🤖 AI Identification: {ai_data.get('primary_identifier_type')} with {ai_data.get('identification_confidence')} confidence")
-
-        logger.info(
-            f"📁 Uploading multimodal content for patient: {patient_id}")
-
-        # Check if there's any multimodal content to upload
+        # Check if there's any multimodal content
         has_multimodal = any(
             "image" in block or "document" in block for block in content_blocks)
 
-        if not has_multimodal:
-            logger.info("ℹ️ No multimodal content found - skipping uploads")
-            return upload_results
+        if has_multimodal:
+            multimodal_count = sum(1 for block in content_blocks if "image" in block or "document" in block)
+            logger.info(
+                f"📁 Detected {multimodal_count} multimodal content blocks - uploads handled by Lambda tool")
+            
+            # Log patient context if available
+            if patient_context:
+                patient_id = patient_context.get('fileOrganizationId') or patient_context.get('patientId')
+                logger.info(f"📁 Patient context: {patient_id}")
+        else:
+            logger.debug("ℹ️ No multimodal content in this request")
 
-        try:
-            # Upload all multimodal content
-            upload_results = self.multimodal_uploader.upload_multimodal_content(
-                patient_id=patient_id,
-                content_blocks=content_blocks
-            )
-
-            # Log upload summary
-            successful_uploads = [
-                r for r in upload_results if r.get('success')]
-            failed_uploads = [
-                r for r in upload_results if not r.get('success')]
-
-            if successful_uploads:
-                logger.info(
-                    f"✅ Successfully uploaded {len(successful_uploads)} files for patient {patient_id}")
-                for result in successful_uploads:
-                    logger.info(
-                        f"   📄 {result.get('content_type', 'file')}: {result.get('s3_url', 'unknown')}")
-
-            if failed_uploads:
-                logger.warning(
-                    f"⚠️ Failed to upload {len(failed_uploads)} files for patient {patient_id}")
-                for result in failed_uploads:
-                    logger.warning(
-                        f"   ❌ {result.get('content_type', 'file')}: {result.get('error', 'unknown error')}")
-
-        except Exception as e:
-            logger.error(f"❌ Error during multimodal content upload: {e}")
-            upload_results.append({
-                'success': False,
-                'error': str(e),
-                'patient_id': patient_id
-            })
-
-        return upload_results
+        # Return empty list - actual uploads are handled by the Lambda tool
+        return []
 
     def process_message(
         self,

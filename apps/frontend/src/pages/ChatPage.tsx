@@ -29,6 +29,13 @@ import { reservationService } from '../services/reservationService';
 
 import type { ChatMessage, Patient } from '../types/api';
 
+// File attachment metadata type
+interface FileAttachmentMetadata {
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+}
+
 // Guardrail intervention types
 interface GuardrailViolation {
   type: 'topic_policy' | 'content_policy' | 'pii_entity' | 'pii_regex' | 'grounding_policy';
@@ -164,7 +171,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   useEffect(() => {
     const timer = setTimeout(scrollChatToBottom, 100);
     return () => clearTimeout(timer);
-  }, [messages, scrollChatToBottom]); // Trigger when messages change
+  }, [scrollChatToBottom]); // Trigger when messages change
 
   // Debug state for troubleshooting
   const [debugInfo, setDebugInfo] = useState<{
@@ -184,12 +191,6 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
   // Prompt input state
   const [promptValue, setPromptValue] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [fileClassifications, setFileClassifications] = useState<Map<string, {
-    category: string;
-    confidence?: number;
-    autoClassified?: boolean;
-    processing?: boolean;
-  }>>(new Map());
   const [error, setError] = useState<string>('');
 
   // File dragging state
@@ -238,7 +239,16 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
       id: `user_${Date.now()}`,
       content: promptValue,
       type: 'user',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...(files.length > 0 && {
+        metadata: {
+          attachments: files.map(f => ({
+            fileName: f.name,
+            fileSize: f.size,
+            fileType: f.type
+          }))
+        }
+      })
     };
 
     // Add user message immediately to UI
@@ -247,11 +257,9 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     // Clear input immediately
     const messageContent = promptValue;
     const attachedFiles = [...files];
-    const attachedClassifications = new Map(fileClassifications);
 
     setPromptValue('');
     setFiles([]);
-    setFileClassifications(new Map());
 
     // Start loading process
     setIsLoading(true);
@@ -268,12 +276,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         const config = configService.getConfig();
 
         for (const file of attachedFiles) {
-          const fileKey = getFileKey(file);
-          const classification = attachedClassifications.get(fileKey);
-
           try {
-            const category = classification?.category || 'auto';
-
             // S3 path structure: 
             // With patient: {patient_id}/{filename}
             // Without patient: unassigned/{timestamp}/{filename} (for agent to process and assign)
@@ -284,12 +287,10 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             // Prepare metadata following document workflow guidelines
             const fileMetadata: { [key: string]: string } = selectedPatient ? {
               'patient-id': selectedPatient.patient_id,
-              'document-category': category,
               'workflow-stage': 'uploaded',
               'auto-classification-enabled': 'true',
               'uploaded-from': 'chat-interface'
             } : {
-              'document-category': category,
               'workflow-stage': 'pending-patient-assignment',
               'auto-classification-enabled': 'true',
               'uploaded-from': 'chat-interface',
@@ -306,20 +307,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
               metadata: fileMetadata
             });
 
-            const response = {
-              patient_id: selectedPatient?.patient_id || null,
-              s3_key: uploadResult.key,
-              message: selectedPatient
-                ? `File uploaded successfully for patient ${selectedPatient.full_name} following document workflow guidelines`
-                : `File uploaded to temporary location. Agent will help identify the patient and properly assign the file.`,
-              category: category,
-              workflow_info: {
-                next_stage: selectedPatient ? 'BDA processing and classification' : 'Patient identification and file assignment',
-                expected_processing_time: selectedPatient ? '2-5 minutes' : 'Depends on patient identification'
-              }
-            };
-
-            console.log(`Successfully uploaded ${file.name}${selectedPatient ? ` for patient ${selectedPatient.full_name}` : ' for patient identification'}:`, response);
+            console.log(`Successfully uploaded ${file.name}${selectedPatient ? ` for patient ${selectedPatient.full_name}` : ' for patient identification'}:`, uploadResult);
           } catch (uploadError) {
             console.error(`Error uploading ${file.name}:`, uploadError);
             setError(`Error al subir ${file.name}: ${uploadError instanceof Error ? uploadError.message : 'Error desconocido'}`);
@@ -342,22 +330,13 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         }
       }
 
-      // Add document classification context if files are attached
+      // Add document context if files are attached
       if (attachedFiles.length > 0) {
         const documentContext = attachedFiles.map(file => {
-          const fileKey = getFileKey(file);
-          const classification = attachedClassifications.get(fileKey);
-
-          if (classification && !classification.processing) {
-            const statusText = selectedPatient
-              ? 'Subido al flujo de documentos'
-              : 'Subido - REQUIERE IDENTIFICACIÓN DE PACIENTE';
-            return `- ${file.name}: ${getCategoryLabel(classification.category)}${classification.autoClassified && classification.confidence
-              ? ` (${classification.confidence.toFixed(0)}% confianza)`
-              : ''
-              } - ${statusText}`;
-          }
-          return `- ${file.name}: Procesando clasificación...`;
+          const statusText = selectedPatient
+            ? 'Subido al flujo de documentos'
+            : 'Subido - REQUIERE IDENTIFICACIÓN DE PACIENTE';
+          return `- ${file.name} - ${statusText}`;
         }).join('\n');
 
         const contextHeader = selectedPatient
@@ -387,9 +366,6 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
         // Include file information if available
         ...(attachedFiles.length > 0 && {
           attachments: await Promise.all(attachedFiles.map(async (file) => {
-            const fileKey = getFileKey(file);
-            const classification = attachedClassifications.get(fileKey);
-
             // For images and documents, include base64 content for AgentCore multi-modal support
             let content: string | undefined;
             let mimeType: string | undefined;
@@ -424,7 +400,6 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
               fileName: file.name,
               fileSize: file.size,
               fileType: file.type,
-              category: classification?.category || 'other',
               s3Key: selectedPatient
                 ? `${selectedPatient.patient_id}/${file.name}`
                 : `unassigned/${Date.now()}/${file.name}`,
@@ -459,8 +434,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           mimeType: att.mimeType || att.fileType,
           content: att.content,
           s3Key: att.s3Key,
-          fileSize: att.fileSize,
-          category: att.category
+          fileSize: att.fileSize
         })),
         // Loading state callback
         (loadingState) => {
@@ -575,118 +549,10 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
     });
   };
 
-  // Simulate auto-classification for uploaded files following document workflow guidelines
-  const simulateAutoClassification = async (file: File): Promise<{
-    category: string;
-    confidence: number;
-    autoClassified: boolean;
-  }> => {
-    // Simulate processing delay to mimic BDA processing
-    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 2500));
 
-    // Enhanced classification logic based on document workflow guidelines
-    const fileName = file.name.toLowerCase();
-    const fileType = file.type.toLowerCase();
-    const fileExtension = fileName.split('.').pop() || '';
 
-    let category = 'other';
-    let confidence = 60 + Math.random() * 35; // Random confidence between 60-95%
-
-    // Medical history documents
-    if (fileName.includes('historia') || fileName.includes('historial') || fileName.includes('medical') ||
-      fileName.includes('clinica') || fileName.includes('expediente')) {
-      category = 'medical-history';
-      confidence = 82 + Math.random() * 15;
-    }
-    // Exam results and lab reports
-    else if (fileName.includes('examen') || fileName.includes('resultado') || fileName.includes('lab') ||
-      fileName.includes('test') || fileName.includes('analisis') || fileName.includes('reporte')) {
-      category = 'exam-results';
-      confidence = 87 + Math.random() * 10;
-    }
-    // Medical images
-    else if (fileType.includes('image') || fileName.includes('radiografia') || fileName.includes('ecografia') ||
-      fileName.includes('tomografia') || fileName.includes('resonancia') || fileName.includes('rx') ||
-      ['jpg', 'jpeg', 'png', 'tiff', 'tif', 'dcm'].includes(fileExtension)) {
-      category = 'medical-images';
-      confidence = 91 + Math.random() * 8;
-    }
-    // Identification documents
-    else if (fileName.includes('cedula') || fileName.includes('dni') || fileName.includes('id') ||
-      fileName.includes('identidad') || fileName.includes('pasaporte') || fileName.includes('licencia')) {
-      category = 'identification';
-      confidence = 94 + Math.random() * 5;
-    }
-    // PDF documents might be various types
-    else if (fileType.includes('pdf')) {
-      // PDFs could be any category, lower confidence
-      const categories = ['medical-history', 'exam-results', 'other'];
-      category = categories[Math.floor(Math.random() * categories.length)];
-      confidence = 65 + Math.random() * 20;
-    }
-
-    // Apply confidence threshold (80%) as per document workflow guidelines
-    if (confidence < 80) {
-      category = 'not-identified';
-      console.log(`Document ${fileName} classified as 'not-identified' due to low confidence (${confidence.toFixed(1)}%)`);
-    } else {
-      console.log(`Document ${fileName} auto-classified as '${category}' with ${confidence.toFixed(1)}% confidence`);
-    }
-
-    return {
-      category,
-      confidence: Math.min(confidence, 100),
-      autoClassified: true
-    };
-  };
-
-  const handleFileChange = async (newFiles: File[]) => {
+  const handleFileChange = (newFiles: File[]) => {
     setFiles(newFiles);
-
-    // Process classification for new files
-    const newClassifications = new Map(fileClassifications);
-
-    for (const file of newFiles) {
-      const fileKey = `${file.name}_${file.size}_${file.lastModified}`;
-
-      if (!newClassifications.has(fileKey)) {
-        // Mark as processing
-        newClassifications.set(fileKey, {
-          category: 'other',
-          processing: true
-        });
-        setFileClassifications(new Map(newClassifications));
-
-        try {
-          const classification = await simulateAutoClassification(file);
-          newClassifications.set(fileKey, classification);
-          setFileClassifications(new Map(newClassifications));
-        } catch (error) {
-          console.error('Classification failed:', error);
-          newClassifications.set(fileKey, {
-            category: 'not-identified',
-            confidence: 0,
-            autoClassified: false
-          });
-          setFileClassifications(new Map(newClassifications));
-        }
-      }
-    }
-  };
-
-  const getFileKey = (file: File) => `${file.name}_${file.size}_${file.lastModified}`;
-
-  const getCategoryLabel = (category: string): string => {
-    const labels: Record<string, string> = {
-      'auto': 'Clasificación automática',
-      'medical-history': 'Historia clínica',
-      'exam-results': 'Resultados de exámenes',
-      'medical-images': 'Imágenes médicas',
-      'identification': 'Documentos de identidad',
-      'other': 'Otros',
-      'not-identified': 'No identificado'
-    };
-    return labels[category] || 'Sin categoría';
   };
 
 
@@ -848,7 +714,22 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                               Procesando consulta...
                             </Box>
                           ) : (
-                            <MarkdownRenderer content={message.content} />
+                            <>
+                              <MarkdownRenderer content={message.content} />
+                              {isUser && message.metadata?.attachments && Array.isArray(message.metadata.attachments) && message.metadata.attachments.length > 0 && (
+                                <Box margin={{ top: 'xs' }} fontSize="body-s" color="text-body-secondary">
+                                  <SpaceBetween size="xxs" direction="horizontal">
+                                    <Icon name="file" />
+                                    <span>
+                                      {message.metadata.attachments.length} {message.metadata.attachments.length === 1 ? 'archivo adjunto' : 'archivos adjuntos'}
+                                      {message.metadata.attachments.length <= 3 && (
+                                        <>: {(message.metadata.attachments as FileAttachmentMetadata[]).map(att => att.fileName).join(', ')}</>
+                                      )}
+                                    </span>
+                                  </SpaceBetween>
+                                </Box>
+                              )}
+                            </>
                           )}
                         </ChatBubble>
                       </div>
@@ -970,39 +851,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
                           }}
                         />
 
-                        {/* Classification Information */}
-                        <Box>
-                          <SpaceBetween size="xs">
-                            {files.map((file) => {
-                              const fileKey = getFileKey(file);
-                              const classification = fileClassifications.get(fileKey);
 
-                              if (!classification) return null;
-
-                              return (
-                                <Box key={fileKey} fontSize="body-s" color="text-body-secondary">
-                                  <strong>{file.name}:</strong>{' '}
-                                  {classification.processing ? (
-                                    <span>Clasificando...</span>
-                                  ) : (
-                                    <span>
-                                      {getCategoryLabel(classification.category)}
-                                      {classification.autoClassified && classification.confidence && (
-                                        <span> ({classification.confidence.toFixed(0)}% confianza)</span>
-                                      )}
-                                      {classification.category === 'not-identified' && (
-                                        <span style={{ color: '#d91515' }}> - Requiere clasificación manual</span>
-                                      )}
-                                      {!selectedPatient && (
-                                        <span style={{ color: '#0972d3' }}> - Requiere identificación de paciente</span>
-                                      )}
-                                    </span>
-                                  )}
-                                </Box>
-                              );
-                            })}
-                          </SpaceBetween>
-                        </Box>
                       </SpaceBetween>
                     )
                   )
