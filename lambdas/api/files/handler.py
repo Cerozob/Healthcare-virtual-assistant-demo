@@ -36,20 +36,47 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Supports both HTTP API Gateway and AgentCore Gateway routing.
     """
     try:
+        logger.info(f"Files Lambda invoked with event keys: {list(event.keys())}")
+        logger.info(f"Full event for debugging: {json.dumps(event, default=str)}")
+        
         # Parse request body once
         body = parse_event_body(event)
         
+        # Debug logging
+        event_action = event.get('action')
+        body_action = body.get('action') if body else None
+        logger.info(f"Event has 'action': {event_action} (type: {type(event_action).__name__})")
+        logger.info(f"Body has 'action': {body_action} (type: {type(body_action).__name__ if body_action else 'None'})")
+        
+        # Check if the event itself contains the action (direct AgentCore Gateway invocation)
+        if event_action:
+            logger.info(f"Using AgentCore Gateway routing (direct event) with action: {event.get('action')}")
+            return handle_action_request(event)
+        
         # Determine routing type and dispatch
         if body and body.get('action'):
-            # AgentCore Gateway: action-based routing
+            # AgentCore Gateway: action-based routing (body)
+            logger.info(f"Using AgentCore Gateway routing (body) with action: {body.get('action')}")
             return handle_action_request(body)
         else:
-            # HTTP API Gateway: method/path-based routing  
+            # HTTP API Gateway: method/path-based routing
+            method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
+            path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
+            
+            if not method and not path:
+                logger.warning("No action, method, or path found in request - unable to route")
+                return create_response(400, {
+                    'error': 'Invalid request format',
+                    'message': 'Request must include either an action field or HTTP method/path',
+                    'received_keys': list(event.keys())
+                })
+            
+            logger.info(f"Using HTTP API Gateway routing: {method} {path}")
             return handle_http_request(event)
             
     except Exception as e:
-        logger.error(f"Unhandled error in files API: {str(e)}")
-        return create_response(500, {'error': 'Internal server error'})
+        logger.error(f"Unhandled error in files API: {str(e)}", exc_info=True)
+        return create_response(500, {'error': 'Internal server error', 'details': str(e)})
 
 
 def handle_action_request(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,7 +103,7 @@ def handle_http_request(event: Dict[str, Any]) -> Dict[str, Any]:
     method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', '')
     path = event.get('path') or event.get('requestContext', {}).get('http', {}).get('path', '')
     
-    logger.info(f"Processing {method} request to {path}")
+    logger.info(f"Processing {method} request to {path or '(no path)'}")
     
     if method == 'GET' and '/files' in path:
         query_params = event.get('queryStringParameters') or {}

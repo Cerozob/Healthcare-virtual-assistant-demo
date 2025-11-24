@@ -354,6 +354,15 @@ https://calculator.aws/#/estimate?id=af1af2243a65549ed9e32644fb573b06b5f2b979
 
 * Document Analysis: $0.040 per page on custom output × 24M pages = $960000
 * Alternative:  $0.010 per page on standard output × 24M pages = $240000 -> 24 usd per medic -> 0.05 per document
+* Alts for pages in documents:
+
+|pages per document|total pages| total cost ||
+|---|---|---|---|
+|5|24M|960K||
+|4|19.2M|768K||
+|3|14.4M|576K||
+|2|9.6M|384K||
+|1|4.8|192K||
 
 ### Amazon EventBridge
 
