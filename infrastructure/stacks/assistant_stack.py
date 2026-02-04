@@ -82,7 +82,7 @@ class AssistantStack(Stack):
         # No need to create a separate CloudWatch log group
 
         print(
-            f"building from {str(Path(__file__).parent.parent.parent / "agents")}")
+            f"building from {str(Path(__file__).parent.parent.parent / 'agents')}")
         # Create ECR asset for agent container
         self.agent_runtime_artifact = agentcore_alpha.AgentRuntimeArtifact.from_asset(
             directory=str(Path(__file__).parent.parent.parent / "agents"),

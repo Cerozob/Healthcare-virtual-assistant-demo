@@ -117,7 +117,7 @@ def get_raw_bucket_name() -> str:
         print(f"Could not get raw bucket from SSM: {e}")
         # Fallback to default naming convention
         region = boto3.Session().region_name
-        return f"ab2-cerozob-rawdata-{region}"
+        return f"demo-healthcareva-dfx5-rawdata-{region}"
 
 
 def find_sample_documents() -> List[Dict[str, str]]:
@@ -226,7 +226,7 @@ def check_prerequisites():
     try:
         s3 = boto3.client('s3')
         region = boto3.Session().region_name
-        bucket_name = f"ab2-cerozob-sampledata-{region}"
+        bucket_name = f"demo-healthcareva-dfx5-sampledata-{region}"
 
         s3.head_bucket(Bucket=bucket_name)
         print(f"✅ Sample data bucket found: {bucket_name}")

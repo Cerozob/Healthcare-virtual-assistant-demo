@@ -27,13 +27,13 @@ const customBucketStack = backend.createStack('custom-s3-bucket-stack');
 const existingRawBucket = Bucket.fromBucketName(
   customBucketStack,
   'ExistingHealthcareRawBucket',
-  'ab2-cerozob-rawdata-us-east-1'
+  process.env.VITE_S3_BUCKET_NAME || 'demo-healthcareva-dfx5-rawdata-us-east-1'
 );
 
 const existingProcessedBucket = Bucket.fromBucketName(
   customBucketStack,
   'ExistingHealthcareProcessedBucket',
-  'ab2-cerozob-processeddata-us-east-1'
+  process.env.VITE_S3_PROCESSED_BUCKET_NAME || 'demo-healthcareva-dfx5-processeddata-us-east-1'
 );
 
 

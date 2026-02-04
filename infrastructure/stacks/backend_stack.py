@@ -172,8 +172,8 @@ class BackendStack(Stack):
                                           retention=Duration.days(7)),
                                       removal_policy=RemovalPolicy.DESTROY,
                                       deletion_protection=False,
-                                      #   serverless_v2_auto_pause_duration=Duration.minutes(5),
-                                      serverless_v2_min_capacity=0.5,
+                                      serverless_v2_auto_pause_duration=Duration.minutes(5),
+                                      serverless_v2_min_capacity=0,
                                       serverless_v2_max_capacity=40,
                                       storage_encrypted=True,
                                       iam_authentication=True
@@ -227,7 +227,7 @@ class BackendStack(Stack):
         sample_bucket = s3.Bucket(
             self,
             "SampleDataBucket",
-            bucket_name="ab2-cerozob-sampledata-us-east-1",
+            bucket_name="demo-healthcareva-dfx5-sampledata-us-east-1",
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,

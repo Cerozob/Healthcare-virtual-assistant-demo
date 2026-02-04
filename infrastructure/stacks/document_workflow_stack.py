@@ -46,7 +46,7 @@ class DocumentWorkflowStack(Stack):
         self.raw_bucket = s3.Bucket(
             self,
             "RawBucket",
-            bucket_name=f"ab2-cerozob-rawdata-{self.region}",
+            bucket_name=f"demo-healthcareva-dfx5-rawdata-{self.region}",
             versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -92,7 +92,7 @@ class DocumentWorkflowStack(Stack):
         self.processed_bucket = s3.Bucket(
             self,
             "ProcessedBucket",
-            bucket_name=f"ab2-cerozob-processeddata-{self.region}",
+            bucket_name=f"demo-healthcareva-dfx5-processeddata-{self.region}",
             versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
