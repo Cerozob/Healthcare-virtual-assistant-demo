@@ -19,6 +19,8 @@ from infrastructure.stacks.assistant_stack import AssistantStack
 from infrastructure.stacks.document_workflow_stack import DocumentWorkflowStack
 from infrastructure.stacks.backend_stack import BackendStack
 from infrastructure.stacks.api_stack import ApiStack
+from infrastructure.stacks.frontend_stack import FrontendStack
+
 
 from pathlib import Path
 
@@ -199,6 +201,15 @@ api_stack = ApiStack(
     stack_name="AWSomeBuilder2-ApiStack",
     description="API Gateway for healthcare system",
 )
+
+frontendStack = FrontendStack(
+    app,
+    "frontendstack",
+    
+    stack_name="AWSomeBuilder2-FrontendStack",
+    description="Amplify service role for frontend",
+)
+
 
 
 # Add stack dependencies - API stack now depends on backend and assistant stacks
