@@ -3,11 +3,12 @@
 -- Tables will be created automatically when first accessed by the application
 
 -- Patients table (simplified for demo)
+-- cedula: National ID number (nullable for existing records)
 CREATE TABLE IF NOT EXISTS patients (
     patient_id VARCHAR(255) PRIMARY KEY,
     full_name VARCHAR(200) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
-    cedula VARCHAR(50) UNIQUE, -- National ID number (nullable for existing records)
+    cedula VARCHAR(50) UNIQUE,
     date_of_birth DATE,
     phone VARCHAR(20),
     address JSONB,

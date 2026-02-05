@@ -659,24 +659,23 @@ def parse_sql_statements(sql_content: str) -> list:
     in_comment_block = False
 
     for line in sql_content.split('\n'):
-        line = line.strip()
-
-        # Skip empty lines
-        if not line:
-            continue
-
         # Handle multi-line comments
-        if line.startswith('/*'):
+        if '/*' in line:
             in_comment_block = True
-            continue
-        if line.endswith('*/'):
+        if '*/' in line:
             in_comment_block = False
             continue
         if in_comment_block:
             continue
 
-        # Skip single-line comments
-        if line.startswith('--'):
+        # Remove inline comments (-- comments after SQL code)
+        if '--' in line:
+            line = line.split('--')[0]
+        
+        line = line.strip()
+
+        # Skip empty lines
+        if not line:
             continue
 
         # Add line to current statement

@@ -89,7 +89,7 @@ class AssistantStack(Stack):
             platform=ecr_assets.Platform.LINUX_ARM64,
         )
 
-        self.inference_profile = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        self.inference_profile = "global.amazon.nova-2-lite-v1:0"
 
         agentcore_gateway_role = iam.Role(
             self,

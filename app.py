@@ -205,9 +205,14 @@ api_stack = ApiStack(
 frontendStack = FrontendStack(
     app,
     "frontendstack",
-    
     stack_name="AWSomeBuilder2-FrontendStack",
     description="Amplify service role for frontend",
+    agentcore_runtime_id=assistant_stack.agent_runtime.agent_runtime_id,
+    raw_s3_bucket_name=document_workflow_stack.raw_bucket.bucket_name,
+    processed_s3_bucket_name=document_workflow_stack.processed_bucket.bucket_name,
+    api_base_url=f"{api_stack.api.api_endpoint}/v1",
+    env=env,
+
 )
 
 
