@@ -171,6 +171,12 @@ class ApiClient {
         lastError = error as Error;
         this.recordFailure();
 
+        // Don't retry on DatabaseResumingException - user needs to wait
+        if (error instanceof ApiError && error.errorCode === 'DatabaseResumingException') {
+          console.error(`⏸️ ApiClient: Database is resuming, not retrying`);
+          throw error;
+        }
+
         // Don't retry on client errors (4xx) or AbortError
         if (error instanceof ApiError && error.statusCode >= 400 && error.statusCode < 500) {
           console.error(`🚫 ApiClient: Client error, not retrying:`, error.statusCode);
@@ -201,6 +207,25 @@ class ApiClient {
   private async parseErrorResponse(response: Response): Promise<{ message: string; errorCode?: string }> {
     try {
       const errorData = await response.json();
+      
+      // Handle nested error structure from Lambda
+      if (errorData.message && typeof errorData.message === 'object') {
+        const nestedError = errorData.message;
+        
+        // Check for DatabaseResumingException
+        if (nestedError.code === 'DatabaseResumingException') {
+          return {
+            message: 'La base de datos se está reanudando. Por favor, intenta de nuevo en 30-45 segundos.',
+            errorCode: 'DatabaseResumingException'
+          };
+        }
+        
+        return {
+          message: nestedError.message || 'Error en la base de datos',
+          errorCode: nestedError.code
+        };
+      }
+      
       return {
         message: errorData.message || errorData.error || 'Unknown error',
         errorCode: errorData.errorCode

@@ -49,6 +49,9 @@ export function DatabaseSettings() {
         throw new Error('No se pudieron obtener las credenciales de AWS');
       }
 
+      console.log('🔍 DatabaseSettings: Checking database status...');
+      console.log('📍 Region:', import.meta.env.VITE_AWS_REGION || 'us-east-1');
+
       // Create CloudWatch client
       const cloudwatch = new CloudWatchClient({
         region: import.meta.env.VITE_AWS_REGION || 'us-east-1',
@@ -63,7 +66,8 @@ export function DatabaseSettings() {
       const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
 
       // Get cluster identifier from environment or config
-      const clusterIdentifier = import.meta.env.VITE_DB_CLUSTER_IDENTIFIER || 'awsomebuilder2-backendsta-healthcaredatabaseea441f-gykibhslzi2l';
+      const clusterIdentifier = import.meta.env.VITE_DB_CLUSTER_IDENTIFIER
+      console.log('🗄️ Cluster ID:', clusterIdentifier);
 
       // Query ServerlessDatabaseCapacity metric (most reliable for pause detection)
       const capacityCommand = new GetMetricStatisticsCommand({
@@ -81,8 +85,16 @@ export function DatabaseSettings() {
         Statistics: ['Average']
       });
 
+      console.log('📊 Querying ServerlessDatabaseCapacity...');
       const capacityResponse = await cloudwatch.send(capacityCommand);
-      const latestCapacity = capacityResponse.Datapoints?.[capacityResponse.Datapoints.length - 1];
+      console.log('📊 Capacity response:', capacityResponse);
+      console.log('📊 Datapoints:', capacityResponse.Datapoints);
+      
+      const latestCapacity = capacityResponse.Datapoints && capacityResponse.Datapoints.length > 0
+        ? capacityResponse.Datapoints[capacityResponse.Datapoints.length - 1]
+        : null;
+      
+      console.log('📊 Latest capacity datapoint:', latestCapacity);
 
       // Query ACUUtilization metric
       const acuCommand = new GetMetricStatisticsCommand({
@@ -100,8 +112,15 @@ export function DatabaseSettings() {
         Statistics: ['Average']
       });
 
+      console.log('📊 Querying ACUUtilization...');
       const acuResponse = await cloudwatch.send(acuCommand);
-      const latestAcu = acuResponse.Datapoints?.[acuResponse.Datapoints.length - 1];
+      console.log('📊 ACU response:', acuResponse);
+      
+      const latestAcu = acuResponse.Datapoints && acuResponse.Datapoints.length > 0
+        ? acuResponse.Datapoints[acuResponse.Datapoints.length - 1]
+        : null;
+      
+      console.log('📊 Latest ACU datapoint:', latestAcu);
 
       // Determine status based on metrics
       // Per AWS docs: Paused instances show 0% for CPUUtilization and ACUUtilization, and 0 for ServerlessDatabaseCapacity
@@ -109,6 +128,9 @@ export function DatabaseSettings() {
       
       if (latestCapacity && latestCapacity.Average !== undefined) {
         status = latestCapacity.Average === 0 ? 'paused' : 'active';
+        console.log('✅ Status determined from capacity:', status);
+      } else {
+        console.warn('⚠️ No capacity datapoints found');
       }
 
       setDbStatus({
@@ -119,8 +141,19 @@ export function DatabaseSettings() {
         lastUpdated: new Date()
       });
 
+      console.log('✅ Database status updated:', {
+        status,
+        capacity: latestCapacity?.Average,
+        acu: latestAcu?.Average
+      });
+
     } catch (err) {
-      console.error('Error checking database status:', err);
+      console.error('❌ Error checking database status:', err);
+      console.error('❌ Error details:', {
+        name: err instanceof Error ? err.name : 'Unknown',
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      });
       setError(err instanceof Error ? err.message : 'Error al verificar el estado de la base de datos');
     } finally {
       setLoading(false);

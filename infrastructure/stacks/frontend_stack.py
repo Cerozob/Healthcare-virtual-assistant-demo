@@ -14,6 +14,7 @@ class FrontendStack(Stack):
                  raw_s3_bucket_name: str,
                  processed_s3_bucket_name: str,
                  api_base_url: str,
+                 db_cluster_identifier: str,
                  **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -59,6 +60,9 @@ class FrontendStack(Stack):
                 amplify.CfnApp.EnvironmentVariableProperty(
                     name="AMPLIFY_MONOREPO_APP_ROOT",
                 value="apps/frontend"),
+                amplify.CfnApp.EnvironmentVariableProperty(
+                    name="VITE_DB_CLUSTER_IDENTIFIER",
+                value=db_cluster_identifier)
             ]
                 ),
         )

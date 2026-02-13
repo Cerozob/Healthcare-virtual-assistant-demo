@@ -211,6 +211,7 @@ frontendStack = FrontendStack(
     raw_s3_bucket_name=document_workflow_stack.raw_bucket.bucket_name,
     processed_s3_bucket_name=document_workflow_stack.processed_bucket.bucket_name,
     api_base_url=f"{api_stack.api.api_endpoint}/v1",
+    db_cluster_identifier=backend_stack.db_cluster.cluster_identifier,
     env=env,
 
 )

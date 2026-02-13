@@ -68,6 +68,25 @@ const customBucketPolicy = new Policy(customBucketStack, 'CustomHealthcareS3Poli
         `${existingProcessedBucket.bucketArn}/*`,
       ],
     }),
+    // Allow CloudWatch read access for database status monitoring
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: [
+        'cloudwatch:GetMetricStatistics',
+        'cloudwatch:ListMetrics',
+        'cloudwatch:GetMetricData'
+      ],
+      resources: ['*'], // CloudWatch metrics don't support resource-level permissions
+    }),
+    // Allow RDS describe access to get cluster information
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: [
+        'rds:DescribeDBClusters',
+        'rds:DescribeDBInstances'
+      ],
+      resources: ['*'], // RDS describe operations require wildcard
+    }),
   ],
 });
 
