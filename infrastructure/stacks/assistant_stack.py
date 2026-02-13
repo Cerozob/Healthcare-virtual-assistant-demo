@@ -42,7 +42,7 @@ class AssistantStack(Stack):
         processed_bucket: s3.Bucket = None,
         raw_bucket: s3.Bucket = None,
         database_cluster: rds.DatabaseCluster = None,
-        db_init_resource: CustomResource = None,
+        db_init_function: lambda_.Function = None,
         lambda_functions: Dict = None,
 
         **kwargs
@@ -53,7 +53,7 @@ class AssistantStack(Stack):
         self.processed_bucket = processed_bucket
         self.raw_bucket = raw_bucket
         self.database_cluster = database_cluster
-        self.db_init_resource = db_init_resource
+        self.db_init_function = db_init_function
         self.bedrock_user_secret = bedrock_user_secret
         self.lambda_functions = lambda_functions or {}
 
@@ -67,7 +67,7 @@ class AssistantStack(Stack):
             processed_bucket=processed_bucket,
             database_cluster=database_cluster,
             bedrock_user_secret=bedrock_user_secret,
-            db_init_resource=db_init_resource
+            db_init_function=db_init_function
         )
 
         # Create Bedrock Guardrail construct
@@ -91,7 +91,7 @@ class AssistantStack(Stack):
 
         self.inference_profile = "global.amazon.nova-2-lite-v1:0"
 
-        agentcore_gateway_role = iam.Role(
+        self.agentcore_gateway_role = iam.Role(
             self,
             "AgentcoreGatewayRuntimeRole",
             assumed_by=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
@@ -103,22 +103,23 @@ class AssistantStack(Stack):
         )
 
         # Enhanced Gateway Role permissions for Lambda invocation
-        agentcore_gateway_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "lambda:InvokeFunction",
-                    "lambda:GetFunction"
-                ],
-                resources=[
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:healthcare-*",
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:PatientLookupFunction"
-                ]
+        # Grant permission to invoke all Lambda functions passed to this stack
+        self.lambda_arns = [fn.function_arn for fn in self.lambda_functions.values() if fn]
+        
+        if self.lambda_arns:
+            self.agentcore_gateway_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "lambda:InvokeFunction",
+                        "lambda:GetFunction"
+                    ],
+                    resources=self.lambda_arns
+                )
             )
-        )
 
         # Enhanced Gateway Role permissions for credential management
-        agentcore_gateway_role.add_to_policy(
+        self.agentcore_gateway_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
@@ -130,7 +131,7 @@ class AssistantStack(Stack):
         )
 
         # Required permission for semantic search gateway creation
-        agentcore_gateway_role.add_to_policy(
+        self.agentcore_gateway_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
@@ -141,7 +142,7 @@ class AssistantStack(Stack):
         )
 
         # Additional Gateway permissions for comprehensive functionality
-        agentcore_gateway_role.add_to_policy(
+        self.agentcore_gateway_role.add_to_policy(
             iam.PolicyStatement(
                 effect=iam.Effect.ALLOW,
                 actions=[
@@ -163,7 +164,7 @@ class AssistantStack(Stack):
             authorizer_type="AWS_IAM",
             name="agentcoregateway",
             protocol_type="MCP",
-            role_arn=agentcore_gateway_role.role_arn,
+            role_arn=self.agentcore_gateway_role.role_arn,
             exception_level='DEBUG',
             protocol_configuration=agentcore.CfnGateway.GatewayProtocolConfigurationProperty(
                 mcp=agentcore.CfnGateway.MCPGatewayConfigurationProperty(
@@ -282,6 +283,9 @@ class AssistantStack(Stack):
         for lambda_name, lambda_function in self.lambda_functions.items():
 
             tool_schema = lambda_tool_mapping[lambda_name]
+            
+            # Grant the gateway role permission to invoke this Lambda function
+            lambda_function.grant_invoke(self.agentcore_gateway_role)
 
             # Create individual gateway target for this Lambda
             gateway_target = agentcore.CfnGatewayTarget(
@@ -605,20 +609,19 @@ class AssistantStack(Stack):
         )
 
         # Lambda invoke permissions for gateway targets - Enhanced for flexibility
-        agent_runtime_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "lambda:InvokeFunction",
-                    "lambda:GetFunction",
-                    "lambda:ListFunctions"
-                ],
-                resources=[
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:healthcare-*",
-                    f"arn:aws:lambda:{self.region}:{self.account}:function:PatientLookupFunction"
-                ]
+        # Grant permission to invoke all Lambda functions passed to this stack
+        if self.lambda_arns:
+            agent_runtime_role.add_to_policy(
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=[
+                        "lambda:InvokeFunction",
+                        "lambda:GetFunction",
+                        "lambda:ListFunctions"
+                    ],
+                    resources=self.lambda_arns
+                )
             )
-        )
 
         # Add specific permission to invoke the gateway (IAM-based authorization)
         agent_runtime_role.add_to_policy(

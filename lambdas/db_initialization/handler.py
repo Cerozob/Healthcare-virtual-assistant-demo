@@ -11,8 +11,11 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-def wait_for_database_ready(rds_data, cluster_arn: str, secret_arn: str, database_name: str, max_retries: int = 10):
-    """Wait for database to be ready after auto-pause resume."""
+def wait_for_database_ready(rds_data, cluster_arn: str, secret_arn: str, database_name: str, max_retries: int = 5):
+    """
+    Quick check that database is ready to accept connections.
+    Since this is triggered by EventBridge after RDS events, we only need a short wait.
+    """
     for attempt in range(max_retries):
         try:
             # Simple query to test database readiness
@@ -25,351 +28,352 @@ def wait_for_database_ready(rds_data, cluster_arn: str, secret_arn: str, databas
             logger.info(f"Database ready after {attempt + 1} attempts")
             return
         except Exception as e:
-            if "DatabaseResumingException" in str(e) or "resuming after being auto-paused" in str(e):
-                # Exponential backoff, max 30s
-                wait_time = min(5 + (attempt * 2), 30)
-                logger.info(
-                    f"Database resuming, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
+            error_str = str(e)
+            if any(phrase in error_str for phrase in ["DatabaseResumingException", "resuming", "Cannot find DBInstance", "DatabaseNotFoundException"]):
+                wait_time = 5
+                logger.info(f"Database not ready yet, waiting {wait_time}s (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
             else:
-                raise e
+                logger.error(f"Unexpected error checking database readiness: {e}")
+                raise
 
-    raise Exception("Database did not become ready after maximum retries")
+    raise Exception(f"Database did not become ready after {max_retries} attempts")
 
 
 def lambda_handler(event, context):
+    """
+    Lambda handler for database initialization.
+    Can be triggered by:
+    1. EventBridge RDS events (RDS-EVENT-0005 or RDS-EVENT-0170)
+    2. Manual invocation for testing
+    """
     try:
-        request_type = event['RequestType']
+        logger.info(f"Database initialization triggered. Event: {json.dumps(event)}")
+        
+        # Get database connection details from environment variables
+        cluster_arn = os.environ.get('DATABASE_CLUSTER_ARN')
+        secret_arn = os.environ.get('DATABASE_SECRET_ARN')
+        database_name = os.environ.get('DATABASE_NAME', 'healthcare')
+        table_name = os.environ.get('TABLE_NAME', 'ab2_knowledge_base')
+        
+        if not all([cluster_arn, secret_arn]):
+            raise ValueError("Missing required environment variables: DATABASE_CLUSTER_ARN, DATABASE_SECRET_ARN")
+        
+        # Check if this is an EventBridge event
+        event_source = event.get('source', '')
+        is_rds_event = event_source == 'aws.rds'
+        
+        if is_rds_event:
+            event_id = event.get('detail', {}).get('EventID', '')
+            source_arn = event.get('detail', {}).get('SourceArn', '')
+            logger.info(f"RDS Event received: {event_id} from {source_arn}")
+            
+            # Only process if it's our cluster
+            if cluster_arn not in source_arn:
+                logger.info(f"Event is not for our cluster, ignoring")
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps({'message': 'Event not for this cluster'})
+                }
+        
+        # Use RDS Data API
+        rds_data = boto3.client('rds-data')
 
-        if request_type == 'Create' or request_type == 'Update':
-            # Get database connection details from event
-            secret_arn = event['ResourceProperties']['SecretArn']
-            cluster_arn = event['ResourceProperties']['ClusterArn']
-            database_name = event['ResourceProperties']['DatabaseName']
-            table_name = event['ResourceProperties']['TableName']
+        # Wait for database to be ready (shorter wait since EventBridge already waited)
+        wait_for_database_ready(rds_data, cluster_arn, secret_arn, database_name, max_retries=5)
 
-            # Use RDS Data API
-            rds_data = boto3.client('rds-data')
+        # Enable pgvector extension with retry logic
+        try:
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql="CREATE EXTENSION IF NOT EXISTS vector;"
+            )
+            logger.info("pgvector extension enabled")
+        except Exception as e:
+            logger.warning(f"pgvector extension may already exist: {e}")
 
-            # Enable pgvector extension with retry logic
-            try:
-                wait_for_database_ready(
-                    rds_data, cluster_arn, secret_arn, database_name)
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="CREATE EXTENSION IF NOT EXISTS vector;"
-                )
-                logger.info("pgvector extension enabled")
-            except Exception as e:
-                logger.warning(f"pgvector extension may already exist: {e}")
+        # Create all healthcare system tables
+        create_healthcare_tables(rds_data, cluster_arn, secret_arn, database_name)
 
-            # Create all healthcare system tables
-            create_healthcare_tables(
-                rds_data, cluster_arn, secret_arn, database_name)
+        # Create Bedrock integration schema and user
+        setup_bedrock_integration(rds_data, cluster_arn, secret_arn, database_name)
 
-            # Create Bedrock integration schema and user following AWS blog post requirements
-            # https://aws.amazon.com/blogs/database/build-generative-ai-applications-with-amazon-aurora-and-amazon-bedrock-knowledge-bases/
-            try:
-                # Create bedrock_integration schema
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="CREATE SCHEMA IF NOT EXISTS bedrock_integration;"
-                )
-                logger.info("Created bedrock_integration schema")
-            except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.info("Bedrock schema already exists")
-                else:
-                    logger.error(f"Failed to create bedrock schema: {e}")
+        # Create the knowledge base table
+        create_knowledge_base_table(rds_data, cluster_arn, secret_arn, database_name, table_name)
 
-            try:
-                # Create bedrock_user role
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="CREATE ROLE bedrock_user LOGIN;"
-                )
-                logger.info("Created bedrock_user role")
-            except Exception as e:
-                if "already exists" in str(e).lower():
-                    logger.info("Bedrock user already exists")
-                else:
-                    logger.error(f"Failed to create bedrock user: {e}")
+        logger.info(f"Successfully initialized database with tables and indexes")
 
-            try:
-                # Set password for bedrock_user using the dedicated secret
-                bedrock_secret_arn = os.environ.get('BEDROCK_USER_SECRET_ARN')
-                if bedrock_secret_arn:
-                    # Get the password from the bedrock user secret
-                    secretsmanager = boto3.client('secretsmanager')
-                    bedrock_secret_response = secretsmanager.get_secret_value(
-                        SecretId=bedrock_secret_arn)
-                    bedrock_secret_data = json.loads(
-                        bedrock_secret_response['SecretString'])
-                    bedrock_password = bedrock_secret_data['password']
-
-                    rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=f"ALTER USER bedrock_user PASSWORD '{bedrock_password}';"
-                    )
-                    logger.info(
-                        "Set password for bedrock_user using dedicated secret")
-                else:
-                    logger.warning(
-                        "BEDROCK_USER_SECRET_ARN not provided, skipping password setup")
-            except Exception as e:
-                logger.warning(f"Failed to set bedrock_user password: {e}")
-
-            try:
-                # Grant permissions to bedrock_user
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="GRANT ALL ON SCHEMA bedrock_integration TO bedrock_user;"
-                )
-                logger.info(
-                    "Granted bedrock_integration schema permissions to bedrock_user")
-
-                # Grant usage on public schema
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="GRANT USAGE ON SCHEMA public TO bedrock_user;"
-                )
-                logger.info("Granted public schema usage to bedrock_user")
-
-                # Grant permissions on all tables in public schema
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bedrock_user;"
-                )
-                logger.info(
-                    "Granted table permissions on public schema to bedrock_user")
-
-                # Grant permissions on future tables in public schema
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bedrock_user;"
-                )
-                logger.info(
-                    "Granted default privileges on future tables to bedrock_user")
-
-                # Grant usage on sequences (for auto-generated IDs)
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO bedrock_user;"
-                )
-                logger.info("Granted sequence usage to bedrock_user")
-
-                # Grant default privileges on future sequences
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO bedrock_user;"
-                )
-                logger.info(
-                    "Granted default sequence privileges to bedrock_user")
-
-            except Exception as e:
-                logger.warning(f"Failed to grant permissions: {e}")
-
-            # Create the knowledge base table following AWS documentation structure
-            # https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base-setup.html
-            try:
-                # First check if vector extension is available
-                vector_check = rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql="SELECT 1 FROM pg_extension WHERE extname = 'vector';"
-                )
-
-                if not vector_check.get('records'):
-                    logger.error(
-                        "Vector extension is not installed - knowledge base table creation will fail")
-                    raise Exception("Vector extension not available")
-
-                logger.info("Vector extension confirmed available")
-
-                # Check if table exists with wrong schema and drop it
-                try:
-                    # Check for old column names (id, embedding, chunks)
-                    check_old_columns = rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name IN ('id', 'embedding', 'chunks');"
-                    )
-
-                    # Check for wrong data type on pk column (should be uuid, not varchar)
-                    check_pk_type = rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=f"SELECT data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name = 'pk' AND data_type != 'uuid';"
-                    )
-
-                    if check_old_columns.get('records') or check_pk_type.get('records'):
-                        logger.info(
-                            f"Table {table_name} exists with incorrect schema (old columns or wrong pk type), dropping and recreating")
-                        rds_data.execute_statement(
-                            resourceArn=cluster_arn,
-                            secretArn=secret_arn,
-                            database=database_name,
-                            sql=f"DROP TABLE IF EXISTS {table_name};"
-                        )
-                        logger.info(f"Dropped existing table {table_name} with incorrect schema")
-                except Exception as e:
-                    logger.info(
-                        f"Table schema check failed (table may not exist): {e}")
-
-                create_table_sql = f'''
-                CREATE TABLE IF NOT EXISTS {table_name} (
-                    pk uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                    vector vector(1024),
-                    text text,
-                    metadata jsonb,
-                    custom_metadata jsonb
-                );
-                '''
-
-                logger.info(
-                    f"Creating knowledge base table with SQL: {create_table_sql}")
-
-                rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql=create_table_sql
-                )
-                logger.info(
-                    f"Knowledge base table {table_name} created successfully with AWS blog post structure")
-
-                # Verify table was created with correct columns
-                verify_sql = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY ordinal_position;"
-                verify_result = rds_data.execute_statement(
-                    resourceArn=cluster_arn,
-                    secretArn=secret_arn,
-                    database=database_name,
-                    sql=verify_sql
-                )
-
-                columns = []
-                for record in verify_result.get('records', []):
-                    column_name = record[0].get('stringValue', '')
-                    data_type = record[1].get('stringValue', '')
-                    columns.append(f"{column_name}({data_type})")
-
-                logger.info(
-                    f"Knowledge base table columns verified: {', '.join(columns)}")
-
-                # Grant specific permissions on the knowledge base table to bedrock_user
-                try:
-                    rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table_name} TO bedrock_user;"
-                    )
-                    logger.info(
-                        f"Granted permissions on {table_name} to bedrock_user")
-                except Exception as e:
-                    logger.warning(f"Failed to grant table permissions: {e}")
-
-                # Create required indexes as per AWS documentation
-                # 1. HNSW index for vector similarity search (required)
-                try:
-                    vector_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_vector_hnsw_idx ON {table_name} USING hnsw (vector vector_cosine_ops);"
-
-                    rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=vector_index_sql
-                    )
-                    logger.info("HNSW vector index created (required)")
-                except Exception as e:
-                    logger.warning(f"Failed to create vector index: {e}")
-
-                # 2. GIN index for text search (required)
-                try:
-                    text_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_text_gin_idx ON {table_name} USING gin (to_tsvector('simple', text));"
-
-                    rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=text_index_sql
-                    )
-                    logger.info("GIN text index created (required)")
-                except Exception as e:
-                    logger.warning(f"Failed to create text index: {e}")
-
-                # 3. GIN index for custom metadata (optional but recommended)
-                try:
-                    metadata_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_custom_metadata_gin_idx ON {table_name} USING gin (custom_metadata);"
-
-                    rds_data.execute_statement(
-                        resourceArn=cluster_arn,
-                        secretArn=secret_arn,
-                        database=database_name,
-                        sql=metadata_index_sql
-                    )
-                    logger.info("GIN custom metadata index created (optional)")
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to create custom metadata index: {e}")
-
-            except Exception as e:
-                if "type \"vector\" does not exist" in str(e) or "does not exist" in str(e):
-                    logger.error(
-                        f"Vector extension not available. Knowledge base table creation failed: {e}")
-                    # This will cause the knowledge base creation to fail, which is expected
-                    raise
-                else:
-                    logger.warning(
-                        f"Knowledge base table creation failed: {e}")
-
-            logger.info(
-                f"Successfully initialized database with tables and indexes")
-
-            return {
-                'Status': 'SUCCESS',
-                'PhysicalResourceId': f'{table_name}-initialization',
-                'Data': {'TableName': table_name}
-            }
-
-        elif request_type == 'Delete':
-            # Optionally clean up the table on stack deletion
-            logger.info("Delete request - no action needed")
-            return {
-                'Status': 'SUCCESS',
-                'PhysicalResourceId': event.get('PhysicalResourceId', 'default')
-            }
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'message': 'Database initialization completed successfully',
+                'table_name': table_name
+            })
+        }
 
     except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
+        logger.error(f"Error initializing database: {str(e)}", exc_info=True)
         return {
-            'Status': 'FAILED',
-            'Reason': str(e),
-            'PhysicalResourceId': event.get('PhysicalResourceId', 'default')
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': str(e)
+            })
         }
+
+
+def setup_bedrock_integration(rds_data, cluster_arn: str, secret_arn: str, database_name: str):
+    """Create Bedrock integration schema and user following AWS best practices."""
+    
+    try:
+        # Create bedrock_integration schema
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="CREATE SCHEMA IF NOT EXISTS bedrock_integration;"
+        )
+        logger.info("Created bedrock_integration schema")
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            logger.info("Bedrock schema already exists")
+        else:
+            logger.error(f"Failed to create bedrock schema: {e}")
+
+    try:
+        # Create bedrock_user role
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="CREATE ROLE bedrock_user LOGIN;"
+        )
+        logger.info("Created bedrock_user role")
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            logger.info("Bedrock user already exists")
+        else:
+            logger.error(f"Failed to create bedrock user: {e}")
+
+    try:
+        # Set password for bedrock_user using the dedicated secret
+        bedrock_secret_arn = os.environ.get('BEDROCK_USER_SECRET_ARN')
+        if bedrock_secret_arn:
+            secretsmanager = boto3.client('secretsmanager')
+            bedrock_secret_response = secretsmanager.get_secret_value(
+                SecretId=bedrock_secret_arn)
+            bedrock_secret_data = json.loads(
+                bedrock_secret_response['SecretString'])
+            bedrock_password = bedrock_secret_data['password']
+
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=f"ALTER USER bedrock_user PASSWORD '{bedrock_password}';"
+            )
+            logger.info("Set password for bedrock_user using dedicated secret")
+        else:
+            logger.warning("BEDROCK_USER_SECRET_ARN not provided, skipping password setup")
+    except Exception as e:
+        logger.warning(f"Failed to set bedrock_user password: {e}")
+
+    try:
+        # Grant permissions to bedrock_user
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="GRANT ALL ON SCHEMA bedrock_integration TO bedrock_user;"
+        )
+        logger.info("Granted bedrock_integration schema permissions to bedrock_user")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="GRANT USAGE ON SCHEMA public TO bedrock_user;"
+        )
+        logger.info("Granted public schema usage to bedrock_user")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bedrock_user;"
+        )
+        logger.info("Granted table permissions on public schema to bedrock_user")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bedrock_user;"
+        )
+        logger.info("Granted default privileges on future tables to bedrock_user")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO bedrock_user;"
+        )
+        logger.info("Granted sequence usage to bedrock_user")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO bedrock_user;"
+        )
+        logger.info("Granted default sequence privileges to bedrock_user")
+
+    except Exception as e:
+        logger.warning(f"Failed to grant permissions: {e}")
+
+
+def create_knowledge_base_table(rds_data, cluster_arn: str, secret_arn: str, database_name: str, table_name: str):
+    """Create the knowledge base table following AWS documentation structure."""
+    
+    try:
+        # First check if vector extension is available
+        vector_check = rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql="SELECT 1 FROM pg_extension WHERE extname = 'vector';"
+        )
+
+        if not vector_check.get('records'):
+            logger.error("Vector extension is not installed - knowledge base table creation will fail")
+            raise Exception("Vector extension not available")
+
+        logger.info("Vector extension confirmed available")
+
+        # Check if table exists with wrong schema and drop it
+        try:
+            check_old_columns = rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name IN ('id', 'embedding', 'chunks');"
+            )
+
+            check_pk_type = rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=f"SELECT data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND column_name = 'pk' AND data_type != 'uuid';"
+            )
+
+            if check_old_columns.get('records') or check_pk_type.get('records'):
+                logger.info(f"Table {table_name} exists with incorrect schema, dropping and recreating")
+                rds_data.execute_statement(
+                    resourceArn=cluster_arn,
+                    secretArn=secret_arn,
+                    database=database_name,
+                    sql=f"DROP TABLE IF EXISTS {table_name};"
+                )
+                logger.info(f"Dropped existing table {table_name} with incorrect schema")
+        except Exception as e:
+            logger.info(f"Table schema check failed (table may not exist): {e}")
+
+        create_table_sql = f'''
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            pk uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            vector vector(1024),
+            text text,
+            metadata jsonb,
+            custom_metadata jsonb
+        );
+        '''
+
+        logger.info(f"Creating knowledge base table with SQL: {create_table_sql}")
+
+        rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql=create_table_sql
+        )
+        logger.info(f"Knowledge base table {table_name} created successfully")
+
+        # Verify table was created with correct columns
+        verify_sql = f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' ORDER BY ordinal_position;"
+        verify_result = rds_data.execute_statement(
+            resourceArn=cluster_arn,
+            secretArn=secret_arn,
+            database=database_name,
+            sql=verify_sql
+        )
+
+        columns = []
+        for record in verify_result.get('records', []):
+            column_name = record[0].get('stringValue', '')
+            data_type = record[1].get('stringValue', '')
+            columns.append(f"{column_name}({data_type})")
+
+        logger.info(f"Knowledge base table columns verified: {', '.join(columns)}")
+
+        # Grant specific permissions on the knowledge base table to bedrock_user
+        try:
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table_name} TO bedrock_user;"
+            )
+            logger.info(f"Granted permissions on {table_name} to bedrock_user")
+        except Exception as e:
+            logger.warning(f"Failed to grant table permissions: {e}")
+
+        # Create required indexes as per AWS documentation
+        # 1. HNSW index for vector similarity search (required)
+        try:
+            vector_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_vector_hnsw_idx ON {table_name} USING hnsw (vector vector_cosine_ops);"
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=vector_index_sql
+            )
+            logger.info("HNSW vector index created (required)")
+        except Exception as e:
+            logger.warning(f"Failed to create vector index: {e}")
+
+        # 2. GIN index for text search (required)
+        try:
+            text_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_text_gin_idx ON {table_name} USING gin (to_tsvector('simple', text));"
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=text_index_sql
+            )
+            logger.info("GIN text index created (required)")
+        except Exception as e:
+            logger.warning(f"Failed to create text index: {e}")
+
+        # 3. GIN index for custom metadata (optional but recommended)
+        try:
+            metadata_index_sql = f"CREATE INDEX IF NOT EXISTS {table_name}_custom_metadata_gin_idx ON {table_name} USING gin (custom_metadata);"
+            rds_data.execute_statement(
+                resourceArn=cluster_arn,
+                secretArn=secret_arn,
+                database=database_name,
+                sql=metadata_index_sql
+            )
+            logger.info("GIN custom metadata index created (optional)")
+        except Exception as e:
+            logger.warning(f"Failed to create custom metadata index: {e}")
+
+    except Exception as e:
+        if "type \"vector\" does not exist" in str(e) or "does not exist" in str(e):
+            logger.error(f"Vector extension not available. Knowledge base table creation failed: {e}")
+            raise
+        else:
+            logger.warning(f"Knowledge base table creation failed: {e}")
 
 
 def create_healthcare_tables(rds_data, cluster_arn: str, secret_arn: str, database_name: str):

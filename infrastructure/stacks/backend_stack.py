@@ -14,6 +14,8 @@ from aws_cdk import aws_s3_assets as s3_assets
 from aws_cdk import aws_s3_deployment as s3_deployment
 from aws_cdk import aws_secretsmanager as secretsmanager
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_events as events
+from aws_cdk import aws_events_targets as targets
 from aws_cdk import custom_resources as cr
 from constructs import Construct
 from typing import Optional
@@ -46,8 +48,11 @@ class BackendStack(Stack):
         # Create Aurora Postgres cluster
         self.db_cluster = self._create_database()
 
-        # Initialize database with schema only (no sample data)
-        self.db_init_resource = self._create_database_initialization()
+        # Initialize database with schema (using AwsCustomResource pattern)
+        self.db_init_function = self._create_database_initialization()
+        
+        # Create custom resource trigger for database initialization
+        self.db_init_custom_resource = self._create_database_initialization_trigger()
 
         # Create separate data loading function
         self.data_loader_function = self._create_data_loader_function()
@@ -172,9 +177,9 @@ class BackendStack(Stack):
                                           retention=Duration.days(7)),
                                       removal_policy=RemovalPolicy.DESTROY,
                                       deletion_protection=False,
-                                      serverless_v2_auto_pause_duration=Duration.minutes(5),
-                                      serverless_v2_min_capacity=0,
-                                      serverless_v2_max_capacity=40,
+                                      serverless_v2_auto_pause_duration=Duration.minutes(10),  # Auto-pause after 10 minutes of inactivity
+                                      serverless_v2_min_capacity=0,  # Allow scaling to 0 ACUs when paused
+                                      serverless_v2_max_capacity=2,
                                       storage_encrypted=True,
                                       iam_authentication=True
                                       )
@@ -342,25 +347,28 @@ class BackendStack(Stack):
         # Note: Private subnet IDs parameter removed - Lambda functions don't use VPC
         # Database uses isolated subnets but doesn't need the parameter exposed
 
-    def _create_database_initialization(self) -> CustomResource:
+    def _create_database_initialization(self) -> lambda_.Function:
         """
-        Create a Lambda function to initialize the database with schema and sample data.
+        Create a Lambda function to initialize the database with schema.
+        This will be invoked by an AwsCustomResource during stack creation.
         """
         # Lambda function to initialize the database
         db_init_lambda = lambda_.Function(
             self,
             "DatabaseInitializationFunction",
             runtime=lambda_.Runtime.PYTHON_3_11,
-            # Reduced timeout since no data loading
             timeout=Duration.minutes(5),
-            memory_size=128,  # Optimized based on actual usage metrics
+            memory_size=128,
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="db_initialization.handler.lambda_handler",
-
             environment={
                 'LOG_LEVEL': 'INFO',
-                'BEDROCK_USER_SECRET_ARN': self.bedrock_user_secret.secret_arn
+                'BEDROCK_USER_SECRET_ARN': self.bedrock_user_secret.secret_arn,
+                'DATABASE_CLUSTER_ARN': self.db_cluster.cluster_arn,
+                'DATABASE_SECRET_ARN': self.db_cluster.secret.secret_arn,
+                'DATABASE_NAME': 'healthcare',
+                'TABLE_NAME': 'ab2_knowledge_base'
             }
         )
 
@@ -373,9 +381,13 @@ class BackendStack(Stack):
                     "rds-data:BatchExecuteStatement",
                     "rds-data:BeginTransaction",
                     "rds-data:CommitTransaction",
-                    "rds:DescribeDBClusters"
+                    "rds:DescribeDBClusters",
+                    "rds:DescribeDBInstances"
                 ],
-                resources=[self.db_cluster.cluster_arn]
+                resources=[
+                    self.db_cluster.cluster_arn,
+                    f"arn:aws:rds:{self.region}:{self.account}:db:*"
+                ]
             )
         )
 
@@ -392,31 +404,96 @@ class BackendStack(Stack):
             )
         )
 
-        # Create custom resource to trigger the Lambda
-        db_init_provider = cr.Provider(
-            self,
-            "DatabaseInitProvider",
-            on_event_handler=db_init_lambda
-        )
+        return db_init_lambda
 
-        custom_resource = CustomResource(
-            self,
-            "DatabaseInitialization",
-            service_token=db_init_provider.service_token,
-            properties={
-                'SecretArn': self.db_cluster.secret.secret_arn,
-                'ClusterArn': self.db_cluster.cluster_arn,
-                'DatabaseName': 'healthcare',
-                'TableName': 'ab2_knowledge_base',
-                # Forces re-execution on each deployment
-                'TriggerUpdate': str(uuid.uuid4())
+    def _create_database_initialization_trigger(self) -> cr.AwsCustomResource:
+        """
+        Create AwsCustomResource to invoke the database initialization Lambda.
+        This follows the AWS blog pattern for RDS initialization.
+        """
+        import hashlib
+        import json
+        
+        # Create payload for Lambda invocation
+        payload = {
+            "params": {
+                "config": {
+                    "cluster_arn": self.db_cluster.cluster_arn,
+                    "secret_arn": self.db_cluster.secret.secret_arn,
+                    "database_name": "healthcare",
+                    "table_name": "ab2_knowledge_base"
+                }
             }
+        }
+        
+        # Create hash of payload to force updates when config changes
+        payload_str = json.dumps(payload)
+        payload_hash = hashlib.md5(payload_str.encode()).hexdigest()[:6]
+        
+        # Create IAM role for the custom resource
+        custom_resource_role = iam.Role(
+            self,
+            "DbInitCustomResourceRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ]
         )
-
-        # Ensure database initialization waits for sample data to be uploaded
-        custom_resource.node.add_dependency(self.sample_data_deployment)
-
-        return custom_resource
+        
+        # Grant permission to invoke the initialization function
+        custom_resource_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["lambda:InvokeFunction"],
+                resources=[self.db_init_function.function_arn]
+            )
+        )
+        
+        # Create the custom resource that invokes the Lambda
+        db_init_custom_resource = cr.AwsCustomResource(
+            self,
+            "DatabaseInitializationCustomResource",
+            on_create=cr.AwsSdkCall(
+                service="Lambda",
+                action="invoke",
+                parameters={
+                    "FunctionName": self.db_init_function.function_name,
+                    "Payload": payload_str
+                },
+                physical_resource_id=cr.PhysicalResourceId.of(
+                    f"DbInit-{self.db_init_function.current_version.version}-{payload_hash}"
+                )
+            ),
+            on_update=cr.AwsSdkCall(
+                service="Lambda",
+                action="invoke",
+                parameters={
+                    "FunctionName": self.db_init_function.function_name,
+                    "Payload": payload_str
+                },
+                physical_resource_id=cr.PhysicalResourceId.of(
+                    f"DbInit-{self.db_init_function.current_version.version}-{payload_hash}"
+                )
+            ),
+            policy=cr.AwsCustomResourcePolicy.from_statements([
+                iam.PolicyStatement(
+                    effect=iam.Effect.ALLOW,
+                    actions=["lambda:InvokeFunction"],
+                    resources=[self.db_init_function.function_arn]
+                )
+            ]),
+            timeout=Duration.minutes(10),
+            role=custom_resource_role
+        )
+        
+        # Add dependencies to ensure proper order
+        db_init_custom_resource.node.add_dependency(self.db_cluster)
+        db_init_custom_resource.node.add_dependency(self.db_init_function)
+        db_init_custom_resource.node.add_dependency(self.sample_data_deployment)
+        
+        return db_init_custom_resource
 
     def _create_data_loader_function(self) -> lambda_.Function:
         """
@@ -534,7 +611,6 @@ class BackendStack(Stack):
         self.patients_function = lambda_.Function(
             self,
             "PatientsFunction",
-            function_name="healthcare-patients",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.patients.handler.lambda_handler",
@@ -548,7 +624,6 @@ class BackendStack(Stack):
         self.medics_function = lambda_.Function(
             self,
             "MedicsFunction",
-            function_name="healthcare-medics",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.medics.handler.lambda_handler",
@@ -562,7 +637,6 @@ class BackendStack(Stack):
         self.exams_function = lambda_.Function(
             self,
             "ExamsFunction",
-            function_name="healthcare-exams",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.exams.handler.lambda_handler",
@@ -576,7 +650,6 @@ class BackendStack(Stack):
         self.reservations_function = lambda_.Function(
             self,
             "ReservationsFunction",
-            function_name="healthcare-reservations",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.reservations.handler.lambda_handler",
@@ -600,7 +673,6 @@ class BackendStack(Stack):
         self.files_function = lambda_.Function(
             self,
             "FilesFunction",
-            function_name="healthcare-files",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="api.files.handler.lambda_handler",
@@ -677,7 +749,6 @@ class BackendStack(Stack):
         self.patient_lookup_function = lambda_.Function(
             self,
             "PatientLookupFunction",
-            function_name="PatientLookupFunction",
             code=lambda_.Code.from_asset(
                 "lambdas", exclude=["**/__pycache__/**"]),
             handler="patient_lookup.index.lambda_handler",

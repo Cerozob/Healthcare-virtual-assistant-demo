@@ -154,20 +154,28 @@ def upsert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
     # Use PostgreSQL UPSERT with ON CONFLICT
     upsert_sql = """
     INSERT INTO patients (
-        patient_id, full_name, email, cedula, date_of_birth, phone,
+        patient_id, first_name, last_name, full_name, email, cedula, date_of_birth, phone,
+        age, gender, document_type, document_number,
         address, medical_history, lab_results, source_scan, created_at, updated_at
     ) VALUES (
-        :patient_id, :full_name, :email, :cedula, :date_of_birth::date, :phone,
+        :patient_id, :first_name, :last_name, :full_name, :email, :cedula, :date_of_birth::date, :phone,
+        :age, :gender, :document_type, :document_number,
         :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan,
         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
     )
     ON CONFLICT (patient_id) 
     DO UPDATE SET
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
         full_name = EXCLUDED.full_name,
         email = EXCLUDED.email,
-        cedula = COALESCE(EXCLUDED.cedula, patients.cedula), -- Keep existing cedula if new one is null
+        cedula = COALESCE(EXCLUDED.cedula, patients.cedula),
         date_of_birth = EXCLUDED.date_of_birth,
         phone = EXCLUDED.phone,
+        age = EXCLUDED.age,
+        gender = EXCLUDED.gender,
+        document_type = EXCLUDED.document_type,
+        document_number = EXCLUDED.document_number,
         address = EXCLUDED.address,
         medical_history = EXCLUDED.medical_history,
         lab_results = EXCLUDED.lab_results,
@@ -181,6 +189,8 @@ def upsert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
             param_value = {'isNull': True}
         elif key == 'date_of_birth' and value is not None:
             param_value = {'stringValue': str(value)}
+        elif key == 'age' and value is not None:
+            param_value = {'longValue': int(value)}
         else:
             param_value = {'stringValue': str(value) if value is not None else None}
         
@@ -205,19 +215,27 @@ def upsert_patient_to_database(rds_data, cluster_arn: str, secret_arn: str,
                 # Retry without cedula
                 upsert_sql_no_cedula = """
                 INSERT INTO patients (
-                    patient_id, full_name, email, date_of_birth, phone,
+                    patient_id, first_name, last_name, full_name, email, date_of_birth, phone,
+                    age, gender, document_type, document_number,
                     address, medical_history, lab_results, source_scan, created_at, updated_at
                 ) VALUES (
-                    :patient_id, :full_name, :email, :date_of_birth::date, :phone,
+                    :patient_id, :first_name, :last_name, :full_name, :email, :date_of_birth::date, :phone,
+                    :age, :gender, :document_type, :document_number,
                     :address::jsonb, :medical_history::jsonb, :lab_results::jsonb, :source_scan,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (patient_id) 
                 DO UPDATE SET
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
                     full_name = EXCLUDED.full_name,
                     email = EXCLUDED.email,
                     date_of_birth = EXCLUDED.date_of_birth,
                     phone = EXCLUDED.phone,
+                    age = EXCLUDED.age,
+                    gender = EXCLUDED.gender,
+                    document_type = EXCLUDED.document_type,
+                    document_number = EXCLUDED.document_number,
                     address = EXCLUDED.address,
                     medical_history = EXCLUDED.medical_history,
                     lab_results = EXCLUDED.lab_results,
@@ -249,6 +267,20 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
     
     personal_info = profile.get('personal_info', {})
     
+    # Parse full name into first_name and last_name
+    full_name = personal_info.get('nombre_completo', '')
+    first_name = ''
+    last_name = ''
+    
+    if full_name:
+        name_parts = full_name.split()
+        if len(name_parts) >= 2:
+            first_name = name_parts[0]
+            last_name = ' '.join(name_parts[1:])
+        elif len(name_parts) == 1:
+            first_name = name_parts[0]
+            last_name = ''
+    
     # Parse date of birth
     fecha_nacimiento = personal_info.get('fecha_nacimiento', '')
     date_of_birth = None
@@ -266,15 +298,19 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
         except Exception as e:
             logger.warning(f"Could not parse date of birth '{fecha_nacimiento}': {e}")
     
-    # Extract cedula from document number if document type is cedula/ID
-    cedula = None
-    document_type = personal_info.get('tipo_documento', '').lower().strip()
+    # Extract age and gender
+    age = personal_info.get('edad')
+    gender = personal_info.get('sexo')
+    
+    # Extract document type and number
+    document_type = personal_info.get('tipo_documento', '').strip()
     document_number = personal_info.get('numero_documento', '').strip()
     
-    # Map various document types to cedula
+    # Extract cedula from document number if document type is cedula/ID
+    cedula = None
     cedula_types = ['cedula', 'cédula', 'id', 'dni', 'cc', 'ci', 'rut', 'curp', 'dui']
     
-    if document_type in cedula_types and document_number:
+    if document_type.lower() in cedula_types and document_number:
         # Clean the document number (remove any non-alphanumeric characters except hyphens)
         import re
         cedula = re.sub(r'[^\w\-]', '', document_number)
@@ -284,10 +320,10 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
     enhanced_medical_history = profile.get('medical_history', {})
     
     # Add demographic info to medical history for context
-    if personal_info.get('edad'):
-        enhanced_medical_history['age'] = personal_info.get('edad')
-    if personal_info.get('sexo'):
-        enhanced_medical_history['gender'] = personal_info.get('sexo')
+    if age:
+        enhanced_medical_history['age'] = age
+    if gender:
+        enhanced_medical_history['gender'] = gender
     if document_type and document_number:
         enhanced_medical_history['document'] = {
             'type': document_type,
@@ -296,11 +332,17 @@ def convert_patient_profile_to_db_format(profile: Dict[str, Any]) -> Dict[str, A
     
     return {
         'patient_id': profile.get('patient_id', str(uuid.uuid4())),
-        'full_name': personal_info.get('nombre_completo', ''),
+        'first_name': first_name,
+        'last_name': last_name,
+        'full_name': full_name,
         'email': personal_info.get('email', ''),
-        'cedula': cedula,  # New field for national ID
+        'cedula': cedula,
         'phone': personal_info.get('telefono', ''),
         'date_of_birth': date_of_birth,
+        'age': age,
+        'gender': gender,
+        'document_type': document_type,
+        'document_number': document_number,
         'address': json.dumps(personal_info.get('direccion', {})),
         'medical_history': json.dumps(enhanced_medical_history),
         'lab_results': json.dumps(profile.get('lab_results', [])),
@@ -314,7 +356,7 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
     sample_medics = [
         {
             'medic_id': str(uuid.uuid4()),
-            'full_name': 'Dr. Sarah Wilson',
+            'first_name': 'Dr. Sarah Wilson',
             'email': 'sarah.wilson@hospital.com',
             'phone': '+1-555-0101',
             'specialization': 'Cardiology',
@@ -323,7 +365,7 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
         },
         {
             'medic_id': str(uuid.uuid4()),
-            'full_name': 'Dr. Michael Brown',
+            'first_name': 'Dr. Michael Brown',
             'email': 'michael.brown@hospital.com',
             'phone': '+1-555-0102',
             'specialization': 'Radiology',
@@ -332,7 +374,7 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
         },
         {
             'medic_id': str(uuid.uuid4()),
-            'full_name': 'Dr. Emily Davis',
+            'first_name': 'Dr. Emily Davis',
             'email': 'emily.davis@hospital.com',
             'phone': '+1-555-0103',
             'specialization': 'General Medicine',
@@ -346,15 +388,15 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
             # Use UPSERT for medics
             upsert_sql = """
             INSERT INTO medics (
-                medic_id, full_name, email, phone,
+                medic_id, first_name, email, phone,
                 specialization, license_number, department, created_at, updated_at
             ) VALUES (
-                :medic_id, :full_name, :email, :phone,
+                :medic_id, :first_name, :email, :phone,
                 :specialization, :license_number, :department, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             ON CONFLICT (email) 
             DO UPDATE SET
-                full_name = EXCLUDED.full_name,
+                first_name = EXCLUDED.first_name,
                 phone = EXCLUDED.phone,
                 specialization = EXCLUDED.specialization,
                 license_number = EXCLUDED.license_number,
@@ -375,10 +417,10 @@ def insert_sample_medics(rds_data, cluster_arn: str, secret_arn: str, database_n
                 parameters=parameters
             )
 
-            logger.info(f"Upserted medic: {medic['full_name']}")
+            logger.info(f"Upserted medic: {medic['first_name']}")
 
         except Exception as e:
-            logger.error(f"Failed to insert medic {medic['full_name']}: {e}")
+            logger.error(f"Failed to insert medic {medic['first_name']}: {e}")
 
 
 def insert_sample_exams(rds_data, cluster_arn: str, secret_arn: str, database_name: str):

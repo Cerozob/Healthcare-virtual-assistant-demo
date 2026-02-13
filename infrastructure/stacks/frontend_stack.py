@@ -2,6 +2,7 @@ from aws_cdk import (
     Stack,
     CfnOutput,
     aws_iam as iam,
+    SecretValue,
     aws_amplify as amplify
 )
 from constructs import Construct
@@ -30,7 +31,16 @@ class FrontendStack(Stack):
             name="HealthCareAssistantDemo",
             iam_service_role=amplify_service_role.role_arn,
             platform="WEB",
-            environment_variables=[
+            repository="https://github.com/Cerozob/Healthcare-virtual-assistant-demo.git",
+            access_token= SecretValue.secrets_manager("github_access_token_demo").unsafe_unwrap(),
+            auto_branch_creation_config=
+                amplify.CfnApp.AutoBranchCreationConfigProperty(
+                    enable_auto_branch_creation=True,
+                    enable_auto_build=True,
+                    framework="REACT",
+                    auto_branch_creation_patterns=["main"],
+
+                    environment_variables=[
                 amplify.CfnApp.EnvironmentVariableProperty(
                     name="VITE_AGENTCORE_RUNTIME_ID",
                 value=agentcore_runtime_id),
@@ -46,13 +56,18 @@ class FrontendStack(Stack):
                 amplify.CfnApp.EnvironmentVariableProperty(
                     name="VITE_S3_PROCESSED_BUCKET_NAME",
                 value=processed_s3_bucket_name),
-            ],
+                amplify.CfnApp.EnvironmentVariableProperty(
+                    name="AMPLIFY_MONOREPO_APP_ROOT",
+                value="apps/frontend"),
+            ]
+                ),
         )
 
         branch = amplify.CfnBranch(
             self, "MainBranch",
             app_id=app.attr_app_id,
             branch_name="prod",
+            
             environment_variables=[
                 amplify.CfnBranch.EnvironmentVariableProperty(
                     name="VITE_AGENTCORE_RUNTIME_ID",

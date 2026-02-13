@@ -16,7 +16,7 @@ export interface RequestOptions {
 
 class ApiClient {
   private baseUrl: string | null = null;
-  private defaultTimeout: number = 30000;
+  private defaultTimeout: number = 45000; // 45 seconds - increased for Aurora Serverless v2 auto-pause
   private defaultRetries: number = 3;
   private configPromise: Promise<void> | null = null;
 

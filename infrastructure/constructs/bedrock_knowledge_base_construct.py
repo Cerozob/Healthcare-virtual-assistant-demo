@@ -7,6 +7,7 @@ from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_rds as rds
+from aws_cdk import aws_lambda as lambda_
 from constructs import Construct
 
 
@@ -22,7 +23,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
         processed_bucket: s3.Bucket,
         database_cluster: rds.DatabaseCluster,
         bedrock_user_secret,
-        db_init_resource: CustomResource = None,
+        db_init_function: lambda_.Function = None,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -30,7 +31,7 @@ class BedrockKnowledgeBaseConstruct(Construct):
         self.processed_bucket = processed_bucket
         self.database_cluster = database_cluster
         self.bedrock_user_secret = bedrock_user_secret
-        self.db_init_resource = db_init_resource
+        self.db_init_function = db_init_function
 
 
         # Create embeddings model
@@ -59,8 +60,9 @@ class BedrockKnowledgeBaseConstruct(Construct):
         )
 
         # Add dependencies
-        if self.db_init_resource:
-            self.knowledge_base.node.add_dependency(self.db_init_resource)
+        # Knowledge base depends on database cluster and init function
+        if self.db_init_function:
+            self.knowledge_base.node.add_dependency(self.db_init_function)
         self.knowledge_base.node.add_dependency(self.database_cluster)
         self.knowledge_base.node.add_dependency(self.knowledge_base_role)
 

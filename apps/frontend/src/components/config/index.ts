@@ -29,3 +29,5 @@ export type { FilePreviewModalProps } from './FilePreviewModal';
 
 export { FileSizeWarning } from './FileSizeWarning';
 export type { FileSizeWarningProps } from './FileSizeWarning';
+
+export { DatabaseSettings } from './DatabaseSettings';

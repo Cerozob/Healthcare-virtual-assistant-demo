@@ -6,11 +6,17 @@
 -- cedula: National ID number (nullable for existing records)
 CREATE TABLE IF NOT EXISTS patients (
     patient_id VARCHAR(255) PRIMARY KEY,
+    first_name VARCHAR(200),
+    last_name VARCHAR(200),
     full_name VARCHAR(200) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     cedula VARCHAR(50) UNIQUE,
     date_of_birth DATE,
     phone VARCHAR(20),
+    age INTEGER,
+    gender VARCHAR(20),
+    document_type VARCHAR(50),
+    document_number VARCHAR(100),
     address JSONB,
     medical_history JSONB,
     lab_results JSONB,
@@ -22,7 +28,7 @@ CREATE TABLE IF NOT EXISTS patients (
 -- Medics table (simplified for demo)
 CREATE TABLE IF NOT EXISTS medics (
     medic_id VARCHAR(255) PRIMARY KEY,
-    full_name VARCHAR(200) NOT NULL,
+    first_name VARCHAR(200) NOT NULL,
     email VARCHAR(255) UNIQUE NOT NULL,
     specialization VARCHAR(100),
     license_number VARCHAR(50) UNIQUE,
@@ -63,9 +69,12 @@ CREATE TABLE IF NOT EXISTS reservations (
 
 -- Indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_patients_email ON patients(email);
-CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(full_name); -- Fixed: using full_name instead of separate fields
+CREATE INDEX IF NOT EXISTS idx_patients_first_name ON patients(first_name);
+CREATE INDEX IF NOT EXISTS idx_patients_last_name ON patients(last_name);
+CREATE INDEX IF NOT EXISTS idx_patients_full_name ON patients(full_name);
 CREATE INDEX IF NOT EXISTS idx_patients_cedula ON patients(cedula);
 CREATE INDEX IF NOT EXISTS idx_medics_email ON medics(email);
+CREATE INDEX IF NOT EXISTS idx_medics_first_name ON medics(first_name);
 CREATE INDEX IF NOT EXISTS idx_medics_specialization ON medics(specialization);
 CREATE INDEX IF NOT EXISTS idx_exams_type ON exams(exam_type);
 CREATE INDEX IF NOT EXISTS idx_reservations_patient ON reservations(patient_id);

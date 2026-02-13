@@ -22,6 +22,7 @@ import {
 
   ReservationForm,
 } from '../components/config';
+import { DatabaseSettings } from '../components/config/DatabaseSettings';
 import { MainLayout } from '../components/layout';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -757,69 +758,73 @@ export default function ConfigurationPage({ signOut, user }: ConfigurationPagePr
               id: 'settings',
               label: t.config.settings,
               content: (
-                <Container>
-                  <SpaceBetween size="l">
-                    <Header variant="h2">Configuración de la aplicación</Header>
+                <SpaceBetween size="l">
+                  <DatabaseSettings />
+                  
+                  <Container>
+                    <SpaceBetween size="l">
+                      <Header variant="h2">Configuración de la aplicación</Header>
 
-                    <FormField
-                      label="Tema de la aplicación"
-                      description="Seleccione el tema visual para la aplicación"
-                    >
-                      <Box>
-                        <SpaceBetween size="s" direction="horizontal" alignItems="center">
-                          <Box>
-                            <strong>Tema actual:</strong> {mode === 'light' ? '☀️ Claro' : '🌙 Oscuro'}
-                          </Box>
-                          <ThemeToggle variant="dropdown" />
-                        </SpaceBetween>
-                      </Box>
-                    </FormField>
+                      <FormField
+                        label="Tema de la aplicación"
+                        description="Seleccione el tema visual para la aplicación"
+                      >
+                        <Box>
+                          <SpaceBetween size="s" direction="horizontal" alignItems="center">
+                            <Box>
+                              <strong>Tema actual:</strong> {mode === 'light' ? '☀️ Claro' : '🌙 Oscuro'}
+                            </Box>
+                            <ThemeToggle variant="dropdown" />
+                          </SpaceBetween>
+                        </Box>
+                      </FormField>
 
-                    <FormField
-                      label="Usuario"
-                      description="Información del usuario actual"
-                    >
-                      <Box>
-                        <strong>Email:</strong> {user?.signInDetails?.loginId || 'No disponible'}
-                      </Box>
-                    </FormField>
+                      <FormField
+                        label="Usuario"
+                        description="Información del usuario actual"
+                      >
+                        <Box>
+                          <strong>Email:</strong> {user?.signInDetails?.loginId || 'No disponible'}
+                        </Box>
+                      </FormField>
 
-                    <FormField
-                      label="Información del sistema"
-                      description="Detalles técnicos de la aplicación"
-                    >
-                      <Box>
-                        <SpaceBetween size="xs">
-                          <div><strong>Versión:</strong> 1.0.0</div>
-                          <div><strong>Última actualización:</strong> {new Date().toLocaleDateString('es-MX')}</div>
-                          <div><strong>Región:</strong> us-east-1</div>
-                        </SpaceBetween>
-                      </Box>
-                    </FormField>
+                      <FormField
+                        label="Información del sistema"
+                        description="Detalles técnicos de la aplicación"
+                      >
+                        <Box>
+                          <SpaceBetween size="xs">
+                            <div><strong>Versión:</strong> 1.0.0</div>
+                            <div><strong>Última actualización:</strong> {new Date().toLocaleDateString('es-MX')}</div>
+                            <div><strong>Región:</strong> us-east-1</div>
+                          </SpaceBetween>
+                        </Box>
+                      </FormField>
 
-                    <FormField
-                      label="Funcionalidades habilitadas"
-                      description="Estado de las funcionalidades del sistema"
-                    >
-                      <Box>
-                        <SpaceBetween size="xs">
-                          <div>
-                            <strong>Vista previa de archivos:</strong>{' '}
-                            <Badge color="green">
-                              Habilitada
-                            </Badge>
-                          </div>
-                          <div>
-                            <strong>Vista unificada de archivos:</strong>{' '}
-                            <Badge color="green">
-                              Habilitada
-                            </Badge>
-                          </div>
-                        </SpaceBetween>
-                      </Box>
-                    </FormField>
-                  </SpaceBetween>
-                </Container>
+                      <FormField
+                        label="Funcionalidades habilitadas"
+                        description="Estado de las funcionalidades del sistema"
+                      >
+                        <Box>
+                          <SpaceBetween size="xs">
+                            <div>
+                              <strong>Vista previa de archivos:</strong>{' '}
+                              <Badge color="green">
+                                Habilitada
+                              </Badge>
+                            </div>
+                            <div>
+                              <strong>Vista unificada de archivos:</strong>{' '}
+                              <Badge color="green">
+                                Habilitada
+                              </Badge>
+                            </div>
+                          </SpaceBetween>
+                        </Box>
+                      </FormField>
+                    </SpaceBetween>
+                  </Container>
+                </SpaceBetween>
               ),
             },
           ]}

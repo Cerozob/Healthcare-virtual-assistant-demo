@@ -14,7 +14,7 @@ export interface ApiConfig {
 // Default configuration
 const defaultConfig: ApiConfig = {
   baseUrl: 'http://localhost:3000/v1', // Fallback for development
-  timeout: 30000, // 30 seconds
+  timeout: 45000, // 45 seconds - increased for Aurora Serverless v2 auto-pause resume
   retries: 3
 };
 
