@@ -126,7 +126,12 @@ export class ChatService {
 
     // Convert to Strands format
     const strandsRequest = this.convertToStrandsFormat(message, attachments);
+    
+    // Add sessionId to the request
+    strandsRequest.sessionId = sessionId;
+    
     console.log('🔄 Converted to Strands format:', strandsRequest);
+    console.log('🔑 Session ID added to request:', sessionId);
 
     // Create new AbortController for this request
     this.abortController = new AbortController();
