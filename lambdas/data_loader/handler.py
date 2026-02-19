@@ -11,13 +11,12 @@ logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
     """
-    Lambda function to load sample data from S3 into the database
-    and upload PDFs/images to the raw bucket for document workflow processing.
+    Lambda function to load sample data into the database.
     
-    This function can be invoked manually or triggered after database initialization.
+    This function can be invoked with patient profiles in the payload or load from S3.
     
     Event parameters:
-    - UPDATE_EXISTING_PATIENTS: 'true'/'false' to control whether to update existing patients
+    - patient_profiles: List of patient profile dictionaries (optional)
     """
     try:
         logger.info("Starting data loading process")
@@ -28,19 +27,32 @@ def lambda_handler(event, context):
         secret_arn = os.environ.get('DATABASE_SECRET_ARN')
         database_name = os.environ.get('DATABASE_NAME', 'healthcare')
         
-        if not all([sample_bucket, cluster_arn, secret_arn]):
+        if not all([cluster_arn, secret_arn]):
             raise ValueError("Missing required environment variables")
         
         # Initialize AWS clients
         rds_data = boto3.client('rds-data')
         s3 = boto3.client('s3')
-        ssm = boto3.client('ssm')
         
-        # Load and process sample data (JSON profiles only) using UPSERT
-        patients_loaded = load_and_process_sample_data(
-            s3, rds_data, sample_bucket, 
-            cluster_arn, secret_arn, database_name
-        )
+        # Check if patient profiles are provided in the payload
+        patient_profiles = event.get('patient_profiles', [])
+        
+        if patient_profiles:
+            # Load from payload
+            logger.info(f"Loading {len(patient_profiles)} patient profiles from payload")
+            patients_loaded = load_from_payload(
+                rds_data, patient_profiles,
+                cluster_arn, secret_arn, database_name
+            )
+        else:
+            # Load from S3 (legacy behavior)
+            logger.info("No patient profiles in payload, loading from S3")
+            if not sample_bucket:
+                raise ValueError("SAMPLE_DATA_BUCKET environment variable required when loading from S3")
+            patients_loaded = load_and_process_sample_data(
+                s3, rds_data, sample_bucket, 
+                cluster_arn, secret_arn, database_name
+            )
         
         logger.info(f"Data loading completed successfully. Processed {patients_loaded} patients.")
         
@@ -62,12 +74,49 @@ def lambda_handler(event, context):
         }
 
 
+def load_from_payload(rds_data, patient_profiles: List[Dict[str, Any]],
+                     cluster_arn: str, secret_arn: str, database_name: str) -> int:
+    """Load patient profiles directly from the Lambda payload."""
+    
+    logger.info(f"Processing {len(patient_profiles)} patient profiles from payload")
+    
+    patients_processed = 0
+    
+    for i, profile_data in enumerate(patient_profiles, 1):
+        try:
+            # Upsert patient in database
+            upsert_patient_to_database(
+                rds_data, cluster_arn, secret_arn, database_name, profile_data
+            )
+            
+            patients_processed += 1
+            patient_name = profile_data.get('personal_info', {}).get('nombre_completo', 'Unknown')
+            patient_id = profile_data.get('patient_id', 'Unknown')
+            logger.info(f"Successfully processed patient {patients_processed}/{len(patient_profiles)}: {patient_name} (ID: {patient_id})")
+            
+        except Exception as e:
+            logger.error(f"Failed to process patient profile {i}: {e}")
+            continue
+    
+    if patients_processed == 0:
+        logger.warning("No patient profiles were successfully processed")
+    
+    # Also load basic sample data (medics and exams) if not already present
+    try:
+        insert_sample_medics(rds_data, cluster_arn, secret_arn, database_name)
+        insert_sample_exams(rds_data, cluster_arn, secret_arn, database_name)
+        logger.info("Sample medics and exams loaded successfully")
+    except Exception as e:
+        logger.warning(f"Failed to load sample medics/exams: {e}")
+    
+    return patients_processed
+
+
 def load_and_process_sample_data(s3, rds_data, sample_bucket: str, 
                                cluster_arn: str, secret_arn: str, database_name: str) -> int:
-    """Load sample patient profiles from S3 and insert into database. 
-    Modified to load only the FIRST patient for easier debugging."""
+    """Load all sample patient profiles from S3 and insert into database."""
     
-    logger.info(f"Loading sample data from bucket: {sample_bucket} (DEBUG MODE: single patient only)")
+    logger.info(f"Loading sample data from bucket: {sample_bucket}")
     
     # List all objects in the sample data bucket
     response = s3.list_objects_v2(Bucket=sample_bucket, Prefix='output/')
@@ -96,13 +145,10 @@ def load_and_process_sample_data(s3, rds_data, sample_bucket: str,
         if key.endswith('_profile.json'):
             patient_profiles.append(key)
     
-    logger.info(f"Found {len(patient_profiles)} patient profiles available")
+    logger.info(f"Found {len(patient_profiles)} patient profiles to process")
     
-    # DEBUG MODE: Only process the FIRST patient for easier debugging
-    if patient_profiles:
-        profile_key = patient_profiles[0]  # Take only the first patient
-        logger.info(f"DEBUG MODE: Processing only first patient: {profile_key}")
-        
+    # Process ALL patients
+    for profile_key in patient_profiles:
         try:
             # Load patient profile
             profile_data = load_patient_profile(s3, sample_bucket, profile_key)
@@ -112,15 +158,17 @@ def load_and_process_sample_data(s3, rds_data, sample_bucket: str,
                     rds_data, cluster_arn, secret_arn, database_name, profile_data
                 )
                 
-                patients_processed = 1
+                patients_processed += 1
                 patient_name = profile_data.get('personal_info', {}).get('nombre_completo', 'Unknown')
                 patient_id = profile_data.get('patient_id', 'Unknown')
-                logger.info(f"Successfully processed single patient for debugging: {patient_name} (ID: {patient_id})")
+                logger.info(f"Successfully processed patient {patients_processed}/{len(patient_profiles)}: {patient_name} (ID: {patient_id})")
                 
         except Exception as e:
             logger.error(f"Failed to process patient profile {profile_key}: {e}")
-    else:
-        logger.warning("No patient profiles found to process")
+            continue
+    
+    if patients_processed == 0:
+        logger.warning("No patient profiles were successfully processed")
     
     # Also load basic sample data (medics and exams) if not already present
     try:

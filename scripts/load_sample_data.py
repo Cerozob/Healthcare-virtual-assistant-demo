@@ -11,7 +11,6 @@ import boto3
 import json
 import sys
 import os
-import time
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -68,38 +67,79 @@ def get_data_loader_function_name() -> str:
         return "AWSomeBuilder2-BackendStack-DataLoaderFunction"
 
 
-def invoke_data_loader(function_name: str) -> Dict[str, Any]:
-    """Invoke the data loader Lambda function."""
+def load_patient_profiles_from_local() -> List[Dict[str, Any]]:
+    """Load all patient profiles from local filesystem."""
+    sample_dir = Path("apps/SampleFileGeneration/output")
+    
+    if not sample_dir.exists():
+        print(f"⚠️  Sample data directory not found: {sample_dir}")
+        return []
+    
+    profiles = []
+    patient_dirs = [d for d in sample_dir.iterdir() if d.is_dir() and d.name != '.intermediate']
+    
+    if not patient_dirs:
+        print("⚠️  No patient directories found")
+        return []
+    
+    print(f"📂 Found {len(patient_dirs)} patient directories")
+    
+    for i, patient_dir in enumerate(patient_dirs, 1):
+        patient_id = patient_dir.name
+        profile_file = patient_dir / f"{patient_id}_profile.json"
+        
+        if not profile_file.exists():
+            print(f"⚠️  [{i}/{len(patient_dirs)}] Profile file not found: {profile_file}")
+            continue
+        
+        try:
+            with open(profile_file, 'r') as f:
+                profile_data = json.load(f)
+                profiles.append(profile_data)
+                patient_name = profile_data.get('personal_info', {}).get('nombre_completo', 'Unknown')
+                print(f"✅ [{i}/{len(patient_dirs)}] Loaded profile: {patient_name} (ID: {patient_id})")
+        except Exception as e:
+            print(f"❌ [{i}/{len(patient_dirs)}] Failed to load profile {profile_file}: {e}")
+            continue
+    
+    return profiles
+
+
+def invoke_data_loader(function_name: str, patient_profiles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Invoke the data loader Lambda function with patient profiles in payload."""
     lambda_client = boto3.client('lambda')
 
-    print(f"Invoking data loader function: {function_name}")
-    print("🔄 Using UPSERT mode: Will insert new patients or update existing ones")
+    print(f"\nInvoking data loader function: {function_name}")
+    print(f"🔄 Sending {len(patient_profiles)} patient profiles in payload")
 
     try:
-        # No payload needed - UPSERT is the default behavior
+        # Send patient profiles directly in the payload
+        payload = {
+            'patient_profiles': patient_profiles
+        }
+        
         response = lambda_client.invoke(
             FunctionName=function_name,
             InvocationType='RequestResponse',  # Synchronous invocation
-            Payload=json.dumps({})
+            Payload=json.dumps(payload)
         )
 
         # Parse response
-        payload = json.loads(response['Payload'].read())
+        result = json.loads(response['Payload'].read())
 
         if response['StatusCode'] == 200:
             print("✅ Data loading completed successfully!")
 
-            if 'body' in payload:
-                body = json.loads(payload['body'])
+            if 'body' in result:
+                body = json.loads(result['body'])
                 if 'patients_loaded' in body:
                     print(f"📊 Patients loaded: {body['patients_loaded']}")
 
-            return payload
+            return result
         else:
-            print(
-                f"❌ Function returned error status: {response['StatusCode']}")
-            print(f"Response: {payload}")
-            return payload
+            print(f"❌ Function returned error status: {response['StatusCode']}")
+            print(f"Response: {result}")
+            return result
 
     except Exception as e:
         print(f"❌ Error invoking function: {e}")
@@ -121,50 +161,9 @@ def get_raw_bucket_name() -> str:
 
 
 def find_sample_documents() -> List[Dict[str, str]]:
-    """Find sample documents for SINGLE PATIENT ONLY (debugging mode)."""
-    sample_dir = Path("apps/SampleFileGeneration/output")
-
-    if not sample_dir.exists():
-        print(f"⚠️  Sample data directory not found: {sample_dir}")
-        return []
-
-    documents = []
-
-    # DEBUG MODE: Find only the FIRST patient's documents
-    patient_dirs = [d for d in sample_dir.iterdir() if d.is_dir() and d.name != '.intermediate']
-    
-    if not patient_dirs:
-        print("⚠️  No patient directories found")
-        return []
-    
-    # Take only the first patient directory
-    first_patient_dir = patient_dirs[0]
-    patient_id = first_patient_dir.name
-    
-    print(f"🔍 DEBUG MODE: Processing documents only for patient: {patient_id}")
-
-    for file_path in first_patient_dir.iterdir():
-        if file_path.is_file():
-            filename = file_path.name
-
-            # Skip profile JSON files (handled by Lambda)
-            if filename.endswith('_profile.json'):
-                continue
-
-            # Include PDFs and images
-            if filename.endswith(('.pdf', '.png', '.jpg', '.jpeg', '.md', '.txt')):
-                documents.append({
-                    'local_path': str(file_path),
-                    'patient_id': patient_id,
-                    'filename': filename,
-                    's3_key': f"{patient_id}/{filename}"
-                })
-
-    print(f"📄 Found {len(documents)} documents for patient {patient_id}")
-    for doc in documents:
-        print(f"   - {doc['filename']}")
-
-    return documents
+    """Find sample documents - DISABLED: No documents will be uploaded."""
+    print("📄 Document upload is disabled")
+    return []
 
 
 def upload_documents_to_s3(bucket_name: str, documents: List[Dict[str, str]]) -> int:
@@ -222,34 +221,18 @@ def check_prerequisites():
         print(f"❌ Cannot access AWS: {e}")
         return False
 
-    # Check if sample data bucket exists
-    try:
-        s3 = boto3.client('s3')
-        region = boto3.Session().region_name
-        bucket_name = f"demo-healthcareva-dfx5-sampledata-{region}"
-
-        s3.head_bucket(Bucket=bucket_name)
-        print(f"✅ Sample data bucket found: {bucket_name}")
-    except Exception as e:
-        print(f"❌ Sample data bucket not accessible: {e}")
-        return False
-
-    # Check if raw bucket exists
-    try:
-        raw_bucket = get_raw_bucket_name()
-        s3.head_bucket(Bucket=raw_bucket)
-        print(f"✅ Raw bucket accessible: {raw_bucket}")
-    except Exception as e:
-        print(f"❌ Raw bucket not accessible: {e}")
-        print("   Please ensure the document workflow stack has been deployed.")
-        return False
-
-    # Check if sample documents exist
-    documents = find_sample_documents()
-    if documents:
-        print(f"✅ Found {len(documents)} sample documents to upload")
+    # Check if local sample data exists
+    sample_dir = Path("apps/SampleFileGeneration/output")
+    if sample_dir.exists():
+        patient_dirs = [d for d in sample_dir.iterdir() if d.is_dir() and d.name != '.intermediate']
+        if patient_dirs:
+            print(f"✅ Found {len(patient_dirs)} patient profiles in local directory")
+        else:
+            print("⚠️  No patient profiles found in local directory")
+            return False
     else:
-        print("⚠️  No sample documents found (this is optional)")
+        print("⚠️  Local sample data directory not found")
+        return False
 
     return True
 
@@ -262,12 +245,24 @@ def main():
     if not check_prerequisites():
         print("\n❌ Prerequisites not met. Please ensure:")
         print("1. AWS credentials are configured")
-        print("2. The backend and document workflow stacks are deployed")
+        print("2. The backend stack is deployed")
         print("3. You're running this from the project root directory")
+        print("4. Patient profiles exist in apps/SampleFileGeneration/output")
         sys.exit(1)
 
-    # Step 1: Load patient data via Lambda
-    print("\n📊 Step 1: Loading patient data into database...")
+    # Step 1: Load patient profiles from local filesystem
+    print("\n📂 Step 1: Loading patient profiles from local filesystem...")
+
+    patient_profiles = load_patient_profiles_from_local()
+
+    if not patient_profiles:
+        print("❌ No patient profiles found to load")
+        sys.exit(1)
+
+    print(f"✅ Loaded {len(patient_profiles)} patient profiles from local files")
+
+    # Step 2: Load patient data via Lambda
+    print("\n📊 Step 2: Loading patient data into database...")
 
     try:
         function_name = get_data_loader_function_name()
@@ -276,8 +271,8 @@ def main():
         print(f"❌ Could not find data loader function: {e}")
         sys.exit(1)
 
-    # Invoke the Lambda function
-    result = invoke_data_loader(function_name)
+    # Invoke the Lambda function with patient profiles
+    result = invoke_data_loader(function_name, patient_profiles)
 
     if 'error' in result:
         print(f"\n❌ Data loading failed: {result['error']}")
@@ -285,44 +280,20 @@ def main():
 
     print("✅ Patient data loaded successfully!")
 
-    # Step 2: Upload documents to raw bucket
-    print("\n📄 Step 2: Uploading sample documents...")
-
-    documents = find_sample_documents()
-    if not documents:
-        print("⚠️  No sample documents found to upload")
-        print("   This is optional - you can upload documents manually later")
-    else:
-        try:
-            raw_bucket = get_raw_bucket_name()
-            uploaded_count = upload_documents_to_s3(raw_bucket, documents)
-
-            if uploaded_count > 0:
-                print(
-                    f"✅ Successfully uploaded {uploaded_count}/{len(documents)} documents")
-            else:
-                print("❌ No documents were uploaded successfully")
-
-        except Exception as e:
-            print(f"❌ Document upload failed: {e}")
-            print("   You can upload documents manually using the upload script")
+    # Step 3: Skip document upload
+    print("\n📄 Step 3: Skipping document upload (disabled)")
+    print("   Documents can be uploaded manually later if needed")
 
     print("\n🎉 Sample data loading completed!")
-    print("\n📋 Summary (DEBUG MODE - Single Patient Only):")
-    print("✅ Single patient profile loaded into database")
+    print("\n📋 Summary:")
+    print(f"✅ {len(patient_profiles)} patient profiles loaded into database")
     print("✅ Sample medics and exams upserted")
-    if documents:
-        print(f"✅ {len(documents)} documents uploaded for single patient")
-        print("🔄 Document workflow will automatically process uploaded files")
+    print("📄 Document upload skipped (disabled)")
 
     print("\n🚀 Next steps:")
-    print("1. Check the database for the single loaded patient")
+    print("1. Check the database for all loaded patients")
     print("2. Test the API endpoints with the sample data")
     print("3. Use the frontend to interact with the loaded data")
-    if documents:
-        print("4. Monitor document processing in CloudWatch logs")
-        print("5. Check the processed bucket for extracted document data")
-        print("6. Debug any issues with single patient before loading all patients")
 
 
 if __name__ == "__main__":
