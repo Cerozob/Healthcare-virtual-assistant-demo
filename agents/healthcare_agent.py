@@ -482,26 +482,39 @@ class HealthcareAgent:
             try:
                 # Use structured_output to extract patient context metadata
                 # This makes a separate LLM call to extract structured data from the conversation
+                logger.debug("📊 Calling agent.structured_output() for patient context extraction...")
                 structured_output: HealthcareAgentResponse = self.agent.structured_output(
                     HealthcareAgentResponse
                 )
+                logger.debug(f"📊 Structured output received: {structured_output}")
                 
                 patient_context_data = structured_output.patient_context
-                patient_context = {
-                    "patientId": patient_context_data.patient_id,
-                    "patientName": patient_context_data.patient_name,
-                    "contextChanged": patient_context_data.context_changed,
-                    "identificationSource": patient_context_data.identification_source.value,
-                    "fileOrganizationId": patient_context_data.file_organization_id,
-                    "confidenceLevel": patient_context_data.confidence_level,
-                    "additionalIdentifiers": patient_context_data.additional_identifiers
-                }
-                logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name}")
+                
+                # Only include patient context if we actually found a patient
+                if patient_context_data and (patient_context_data.patient_id or patient_context_data.patient_name):
+                    patient_context = {
+                        "patientId": patient_context_data.patient_id,
+                        "patientName": patient_context_data.patient_name,
+                        "contextChanged": patient_context_data.context_changed,
+                        "identificationSource": patient_context_data.identification_source.value,
+                        "fileOrganizationId": patient_context_data.file_organization_id,
+                        "confidenceLevel": patient_context_data.confidence_level,
+                        "additionalIdentifiers": patient_context_data.additional_identifiers
+                    }
+                    logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name} (ID: {patient_context_data.patient_id})")
+                    logger.info(f"   Source: {patient_context_data.identification_source.value}")
+                    logger.info(f"   Confidence: {patient_context_data.confidence_level}")
+                else:
+                    logger.info("ℹ️ No patient context found in conversation")
                     
             except Exception as e:
-                logger.warning(f"⚠️ Failed to extract structured output: {e}")
-                logger.debug(f"Exception details: {str(e)}")
-                # Continue without patient context - not critical
+                logger.error(f"❌ Failed to extract structured output: {e}")
+                logger.error(f"   Exception type: {type(e).__name__}")
+                logger.error(f"   Exception details: {str(e)}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                logger.info("ℹ️ Continuing without patient context - conversational response preserved")
+                # Continue without patient context - not critical, response is already captured
             
             # Final safety check - if we still have no content, try to recover from metrics
             if not full_content:

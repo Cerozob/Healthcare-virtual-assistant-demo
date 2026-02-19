@@ -109,21 +109,21 @@ export function DebugPanel({
 
             <ExpandableSection headerText="Historial de Mensajes" defaultExpanded>
               <CodeView
-                content={JSON.stringify(rawChatHistory, null, 2)}
+                content={JSON.stringify(rawChatHistory, null, 2) || '[]'}
                 lineNumbers
               />
             </ExpandableSection>
 
             <ExpandableSection headerText="Última Respuesta Completa">
               <CodeView
-                content={safeStringify(createDebugObject(lastResponse))}
+                content={safeStringify(createDebugObject(lastResponse)) || '{}'}
                 lineNumbers
               />
             </ExpandableSection>
 
             <ExpandableSection headerText="Última Solicitud">
               <CodeView
-                content={safeStringify(createDebugObject(lastRequest))}
+                content={safeStringify(createDebugObject(lastRequest)) || '{}'}
                 lineNumbers
               />
             </ExpandableSection>
@@ -143,14 +143,14 @@ export function DebugPanel({
 
             <ExpandableSection headerText="Paciente Seleccionado" defaultExpanded>
               <CodeView
-                content={JSON.stringify(selectedPatient || {}, null, 2)}
+                content={JSON.stringify(selectedPatient || {}, null, 2) || '{}'}
                 lineNumbers
               />
             </ExpandableSection>
 
             <ExpandableSection headerText="Contexto del Paciente desde Respuesta">
               <CodeView
-                content={JSON.stringify(patientContext, null, 2)}
+                content={JSON.stringify(patientContext || {}, null, 2) || '{}'}
                 lineNumbers
               />
             </ExpandableSection>
@@ -349,7 +349,7 @@ export function DebugPanel({
             {guardrailInterventions.length > 0 && (
               <ExpandableSection headerText="Datos Completos de Detecciones (JSON)">
                 <CodeView
-                  content={JSON.stringify(guardrailInterventions, null, 2)}
+                  content={JSON.stringify(guardrailInterventions, null, 2) || '[]'}
                   lineNumbers
                 />
               </ExpandableSection>

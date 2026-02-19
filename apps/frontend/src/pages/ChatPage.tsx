@@ -627,7 +627,7 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
           actions={
             selectedPatient && sessionId && (
               <Box fontSize="body-s" color="text-status-success">
-                <Icon name="security" /> Sesión ID: {sessionId.split('_')[1] || sessionId}
+                <Icon name="security" /> Sesión ID: {sessionId?.split('_')[1] || sessionId || 'N/A'}
               </Box>
             )
           }

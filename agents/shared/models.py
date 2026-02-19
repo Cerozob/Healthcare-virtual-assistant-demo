@@ -107,11 +107,12 @@ class HealthcareAgentResponse(BaseModel):
     Focuses on patient context extraction - metrics are handled separately by Strands.
     """
     
-    response_content: str = Field(
+    response_content: Optional[str] = Field(
+        None,
         description="The agent's response in markdown format"
     )
     patient_context: PatientContext = Field(
-        None,
+        default_factory=lambda: PatientContext(),
         description="Extracted patient context information"
     )
     file_processing_summary: Optional[str] = Field(
