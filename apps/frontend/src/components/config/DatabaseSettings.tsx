@@ -52,6 +52,15 @@ export function DatabaseSettings() {
       console.log('🔍 DatabaseSettings: Checking database status...');
       console.log('📍 Region:', import.meta.env.VITE_AWS_REGION || 'us-east-1');
 
+      // Get cluster identifier from environment
+      const clusterIdentifier = import.meta.env.VITE_DB_CLUSTER_IDENTIFIER;
+      
+      if (!clusterIdentifier) {
+        throw new Error('VITE_DB_CLUSTER_IDENTIFIER no está configurado en las variables de entorno');
+      }
+      
+      console.log('🗄️ Cluster ID:', clusterIdentifier);
+
       // Create CloudWatch client
       const cloudwatch = new CloudWatchClient({
         region: import.meta.env.VITE_AWS_REGION || 'us-east-1',
@@ -64,10 +73,6 @@ export function DatabaseSettings() {
 
       const now = new Date();
       const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-      // Get cluster identifier from environment or config
-      const clusterIdentifier = import.meta.env.VITE_DB_CLUSTER_IDENTIFIER
-      console.log('🗄️ Cluster ID:', clusterIdentifier);
 
       // Query ServerlessDatabaseCapacity metric (most reliable for pause detection)
       const capacityCommand = new GetMetricStatisticsCommand({
@@ -147,14 +152,45 @@ export function DatabaseSettings() {
         acu: latestAcu?.Average
       });
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('❌ Error checking database status:', err);
       console.error('❌ Error details:', {
         name: err instanceof Error ? err.name : 'Unknown',
         message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
+        stack: err instanceof Error ? err.stack : undefined,
+        fullError: err,
+        // Log AWS SDK specific error details
+        $metadata: err?.$metadata,
+        $response: err?.$response
       });
-      setError(err instanceof Error ? err.message : 'Error al verificar el estado de la base de datos');
+      
+      // Handle specific error types
+      let errorMessage = 'Error al verificar el estado de la base de datos';
+      
+      if (err instanceof Error) {
+        // Check for CloudWatch deserialization errors (invalid cluster ID or bad request)
+        if (err.message.includes('Deserialization error') || err.message.includes("Cannot read properties of undefined (reading 'Type')")) {
+          errorMessage = 'Error al consultar CloudWatch. Verifica que VITE_DB_CLUSTER_IDENTIFIER sea correcto y que el cluster exista.';
+        }
+        // Check for database resuming error
+        else if (err.message.includes('DatabaseResumingException') || err.message.includes('Database error')) {
+          errorMessage = 'La base de datos se está reanudando. Por favor, intenta de nuevo en 30-45 segundos.';
+        } 
+        // Check for CloudWatch permission errors
+        else if (err.message.includes('AccessDenied') || err.message.includes('not authorized')) {
+          errorMessage = 'No tienes permisos para acceder a las métricas de CloudWatch. Verifica la configuración de IAM.';
+        }
+        // Check for missing cluster identifier
+        else if (err.message.includes('VITE_DB_CLUSTER_IDENTIFIER')) {
+          errorMessage = err.message;
+        }
+        // Generic error
+        else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
