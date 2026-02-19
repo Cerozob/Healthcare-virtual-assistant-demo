@@ -862,12 +862,15 @@ export default function ChatPage({ signOut, user }: ChatPageProps) {
             </SpaceBetween>
           </Container>
 
-          {/* Patient Sidebar */}
-          <PatientChatSidebar
+          {/* Patient Sidebar - Hidden due to Nova model limitations with structured output */}
+          {/* PatientChatSidebar shows automatically detected patient context, but Nova models
+              don't support structured output when tools are enabled. Users can still manually
+              select patients using the PatientSelector component. */}
+          {/* <PatientChatSidebar
             patient={selectedPatient}
             onChangePatient={handleChangePatient}
             onClearPatient={isPatientSelected ? handleClearPatient : undefined}
-          />
+          /> */}
         </Grid>
 
         {/* Debug Panel */}

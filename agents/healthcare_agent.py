@@ -294,6 +294,38 @@ class HealthcareAgent:
         
         return sanitized
     
+    def _build_conversation_summary_for_extraction(self, metric_summary: Dict[str, Any], agent_response: str) -> str:
+        """
+        Build a conversation summary for the extraction agent.
+        Includes tool results and the final response.
+        
+        Args:
+            metric_summary: Metrics from the main agent execution
+            agent_response: The final agent response
+            
+        Returns:
+            Formatted conversation summary
+        """
+        summary_parts = []
+        
+        # Add tool results from traces
+        for trace in metric_summary.get('traces', []):
+            if trace.get('message') and trace['message'].get('content'):
+                for block in trace['message']['content']:
+                    # Include tool results
+                    if 'toolResult' in block:
+                        tool_result = block['toolResult']
+                        if tool_result.get('status') == 'success':
+                            result_content = tool_result.get('content', [])
+                            for content_item in result_content:
+                                if 'text' in content_item:
+                                    summary_parts.append(f"Tool Result:\n{content_item['text']}\n")
+        
+        # Add the final agent response
+        summary_parts.append(f"Agent Response:\n{agent_response}\n")
+        
+        return "\n".join(summary_parts)
+    
     def _prepare_strands_content(self, content_blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Prepare Strands content blocks by converting base64 strings to bytes.
@@ -471,50 +503,13 @@ class HealthcareAgent:
             # The content_text already contains the agent's response
             full_content = content_text
             
-            # Step 2: Extract structured patient context from the conversation
-            # IMPORTANT: The agent() followed by agent.structured_output() pattern is the
-            # intended way to get both the natural language response AND structured data.
-            # - agent() generates the response and uses tools
-            # - agent.structured_output() extracts structured data from the conversation
-            logger.info("🔍 Extracting structured patient context from conversation...")
+            # Step 2: Patient context extraction disabled
+            # NOTE: Nova models don't support structured output when tools are enabled
+            # Error: "Assistant prefill is not supported when toolChoice is set to 'any' or 'tool'"
+            # This is a fundamental limitation of Nova + Strands structured_output()
+            # Users can manually select patients using the frontend PatientSelector
+            logger.info("ℹ️ Patient context extraction disabled (Nova model limitation)")
             patient_context = None
-            
-            try:
-                # Use structured_output to extract patient context metadata
-                # This makes a separate LLM call to extract structured data from the conversation
-                logger.debug("📊 Calling agent.structured_output() for patient context extraction...")
-                structured_output: HealthcareAgentResponse = self.agent.structured_output(
-                    HealthcareAgentResponse
-                )
-                logger.debug(f"📊 Structured output received: {structured_output}")
-                
-                patient_context_data = structured_output.patient_context
-                
-                # Only include patient context if we actually found a patient
-                if patient_context_data and (patient_context_data.patient_id or patient_context_data.patient_name):
-                    patient_context = {
-                        "patientId": patient_context_data.patient_id,
-                        "patientName": patient_context_data.patient_name,
-                        "contextChanged": patient_context_data.context_changed,
-                        "identificationSource": patient_context_data.identification_source.value,
-                        "fileOrganizationId": patient_context_data.file_organization_id,
-                        "confidenceLevel": patient_context_data.confidence_level,
-                        "additionalIdentifiers": patient_context_data.additional_identifiers
-                    }
-                    logger.info(f"🎯 Patient context extracted: {patient_context_data.patient_name} (ID: {patient_context_data.patient_id})")
-                    logger.info(f"   Source: {patient_context_data.identification_source.value}")
-                    logger.info(f"   Confidence: {patient_context_data.confidence_level}")
-                else:
-                    logger.info("ℹ️ No patient context found in conversation")
-                    
-            except Exception as e:
-                logger.error(f"❌ Failed to extract structured output: {e}")
-                logger.error(f"   Exception type: {type(e).__name__}")
-                logger.error(f"   Exception details: {str(e)}")
-                import traceback
-                logger.error(f"   Traceback: {traceback.format_exc()}")
-                logger.info("ℹ️ Continuing without patient context - conversational response preserved")
-                # Continue without patient context - not critical, response is already captured
             
             # Final safety check - if we still have no content, try to recover from metrics
             if not full_content:
