@@ -32,8 +32,7 @@ applications:
           - node_modules/**/*
           - .npm/**/*
     appRoot: apps/frontend
-  # SPA redirect configuration for React Router
-  customHeaders:
+    customHeaders:
     - pattern: '**/*'
       headers:
         - key: 'Cache-Control'
